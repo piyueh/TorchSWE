@@ -36,7 +36,7 @@ def read_cf(filepath, data_keys, **kwargs):
         data: a dictionary that has key-value pairs of
             x: a 1D numpy.ndarray; gridline in x direction.
             y: a 1D numpy.ndarray; gridline in y direction.
-            t: None or a 1D numpy.ndarray; gridline in time.
+            time: (optional) a 1D numpy.ndarray if gridline in time exists.
             And all keys specified in data_key argument.
 
         attrs: a dict of dicts; attributes for each key in data (exclude root
@@ -61,7 +61,7 @@ def read_cf(filepath, data_keys, **kwargs):
         try:
             data["time"] = rootgrp["time"][:].data
         except IndexError:
-            data["time"] = None
+            pass
 
         # read data of each specified key
         for key in data_keys:

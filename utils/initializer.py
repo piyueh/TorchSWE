@@ -13,6 +13,8 @@ import os
 import argparse
 import yaml
 import torch
+from .netcdf import read_cf
+
 
 def init():
     """Initialize a simulation and read configuration.
@@ -137,10 +139,98 @@ def create_gridlines(dbox, discrtz, trange, device="cuda", dtype=torch.float64):
     yf = {"x": yc, "y": yv}
 
     # temporal gridline: not used in computation, so use native list here
-    Nt = (ted - tbg) // step + 1
-    t = [tbg+i*dt for i in range(NT)]
+    Nt = int((ted - tbg)//step) + 1
+    t = [tbg+i*step for i in range(Nt)]
     assert t[-1] <= ted
     if t[-1] != ted:
         t.append(ted)
 
     return xv, yv, xc, yc, xf, yf, dx, dy, t
+
+def create_topography(topo, xv, yv):
+    """Create required topography information from a NetCDF file.
+
+    The data in the NetCDF DEM file is assumed to be defined at cell vertices.
+
+    Also not, when the xy and yv have different resolutions from the x and y in
+    the DEM file, an bi-cubic spline interpolation will take place, which
+    introduces rounding errors to the elevation. The rounding error may be
+    crucial to well-balanced property tests. But usually it's fine to real-
+    world applications.
+
+    Args:
+    -----
+        topo: the "topography" node from the config returned by init().
+        xv: 1D torch.tensor with length Nx+1; vertex gridline of the computational domain.
+        yv: 1D torch.tensor with length Ny+1; vertex gridline of the computational domain.
+
+    Returns:
+    --------
+        Bv: a (Ny+1, Nx+1) torch.tensor; elevation at computational cell vertices.
+        Bc: a (Ny, Nx) torch.tensor; elevation at computational cell centers.
+        Bf: a dictionary with the following two key-value paits:
+            x: a (Ny, Nx+1) torch.tensor; elevation at the midpoints of cell
+                faces normal to x-direction.
+            y: a (Ny+1, Nx) torch.tensor; elevation at the midpoints of cell
+                faces normal to y-direction.
+        dBc: a dictionary with the following two key-value paits:
+            x: a (Ny, Nx) torch.tensor; x-gradient at cell centers.
+            y: a (Ny, Nx) torch.tensor; y-gradient at cell centers.
+    """
+
+    # read DEM
+    topodata, attrs = read_cf(topo["file"], [topo["key"]])
+
+    # copy to a numpy.ndarray
+    Bv = topodata[topo["key"]][:].copy()
+
+    # see if we need to do interpolation
+    topox = torch.tensor(topodata["x"], device=xv.device)
+    topoy = torch.tensor(topodata["y"], device=yv.device)
+    shape_mismatch = not (topox.shape==xv.shape and topoy.shape==yv.shape)
+
+    if not shape_mismatch:
+        value_mismatch = not (torch.allclose(xv, topox) and torch.allclose(yv, topoy))
+    else:
+        value_mismatch = True
+
+    if shape_mismatch or value_mismatch:
+
+        # unfortunately, we need scipy to help with the interpolation
+        from scipy.interpolate import RectBivariateSpline
+
+        # get an interpolator, use the default 3rd order spline
+        interpolator = RectBivariateSpline(topodata["x"], topodata["y"], Bv.T)
+
+        # get the interpolated elevations at vertices and replace Bv
+        Bv = interpolator(xv.cpu().numpy(), yv.cpu().numpy()).T
+
+    # convert to torch.tensor
+    Bv = torch.tensor(Bv, dtype=xv.dtype, device=xv.device)
+
+    # topography elevation at cell centers through linear interpolation
+    Bc = (Bv[:-1, :-1] + Bv[:-1, 1:] + Bv[1:, :-1] + Bv[1:, 1:]) / 4.
+
+    # topography elevation at cell faces' midpoints through linear interpolation
+    Bf = {
+        "x": (Bv[:-1, :] + Bv[1:, :]) / 2.,
+        "y": (Bv[:, :-1] + Bv[:, 1:]) / 2.,
+    }
+
+    # get cell size
+    dx = xv[1] - xv[0]
+    dy = yv[1] - yv[0]
+    if torch.abs(dx-dy) >= 1e-10:
+        raise NotImplementedError("Currently only support dx = dy.")
+
+    # gradient at cell centers through center difference
+    dBc = {
+        "x": (Bf["x"][:, 1:] - Bf["x"][:, :-1]) / dx,
+        "y": (Bf["y"][1:, :] - Bf["y"][:-1, :]) / dy
+    }
+
+    # sanity checks
+    assert torch.allclose(Bc, (Bf["x"][:, :-1]+Bf["x"][:, 1:])/2.)
+    assert torch.allclose(Bc, (Bf["y"][:-1, :]+Bf["y"][1:, :])/2.)
+
+    return Bv, Bc, Bf, dBc
