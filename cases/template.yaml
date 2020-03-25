@@ -1,0 +1,44 @@
+# Template for case configuration file
+
+# domain information
+domain:
+    west: 0.0             # a float; x-coordinate of the left boundary
+    east: 1.0             # a float; x-coordinate of the right boundary
+    south: 0.0            # a float; y-coordinate of the top boundary
+    north: 1.0            # a float; y-coordinate of the bottom boundary
+
+# information regarding spatial discretization
+discretization:
+    Nx: 10                # in integer; number of cells in west-east direction
+    Ny: 10                # in integer; number of cells in north-south direction
+
+# boundary conditions
+boundary conditions:
+    west: extrapolation   # ghost-cell updating method
+    east: extrapolation   # ghost-cell updating method
+    north: extrapolation  # ghost-cell updating method
+    south: extrapolation  # ghost-cell updating method
+
+# control of outputing time-series data
+output time:
+    bg: 0.0
+    ed: 1.0
+    step: 0.1
+
+# gravity (m^2/s)
+gravity: 9.81
+
+# topography
+topography:
+    file: data.nc         # relative to case folder or absolute path
+    key: elevation        # the corresponding variable name in the NetCDF file
+
+# initial condition
+ic:
+    file: data.nc         # relative to case folder or absolute path
+    key: ic               # the corresponding variable name in the NetCDF file
+    value: null           # alternativelt, specify a constant, rather than using a file
+
+# any Python script that should be executed first
+# relative path or absolute path begining wiht "/"
+prehook: null
