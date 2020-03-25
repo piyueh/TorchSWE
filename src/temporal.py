@@ -31,7 +31,7 @@ def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     cfl_str2 = "lower down to {} sec"
 
     # an initial updating, just in case
-    U = update_ghost(U, Ngh)
+    U = update_ghost(U)
 
     # loop till t_current reaches t_end
     while abs(t_current-t_end) > 1e-10:
@@ -48,7 +48,7 @@ def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
 
         # update
         U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * k
-        U = update_ghost(U, Ngh)
+        U = update_ghost(U)
 
         # update iteration index and time
         it_current += 1
@@ -79,7 +79,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     cfl_str3 = "lower down to {} sec and restart the iteration {}"
 
     # previous solution; should not be changed until the end of each time-step
-    U = update_ghost(U, Ngh)
+    U = update_ghost(U)
 
     # to hold temporary solution at intermediate steps
     Utemp = torch.zeros_like(U)
@@ -99,7 +99,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
 
         # update for the first step
         Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k1 / 2.
-        Utemp = update_ghost(Utemp, Ngh)
+        Utemp = update_ghost(Utemp)
 
         # the slope from the second step, using Utemp
         k2, max_dt[1] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
@@ -114,7 +114,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
 
         # update for the second step
         Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k2 / 2.
-        Utemp = update_ghost(Utemp, Ngh)
+        Utemp = update_ghost(Utemp)
 
         # the slope from the second step, using Utemp
         k3, max_dt[2] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
@@ -129,14 +129,14 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
 
         # update for the third step
         Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k3
-        Utemp = update_ghost(Utemp, Ngh)
+        Utemp = update_ghost(Utemp)
 
         # the final step, using Utemp
         k4, max_dt[3] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
 
         # update U directly because we reach the end of this time step
         U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * (k1 + 2. * k2 + 2. * k3 + k4) / 6.
-        U = update_ghost(U, Ngh)
+        U = update_ghost(U)
 
         # update step counter and current time and print information
         it_current += 1
