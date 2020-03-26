@@ -25,14 +25,17 @@ def init():
 
     Returns:
     --------
-        A dictionary of configurations in the case's config.yaml with the
-        following additional parameters:
-            path: absolute path to the case folder
-            yaml: absolute path to the config.yaml
-            device: the device used.
-            dtype: either torch.float32 or torch.float64.
+        config: a dictionary of configurations in the case's config.yaml with the
+            following additional parameters:
+                path: absolute path to the case folder
+                yaml: absolute path to the config.yaml
+                device: the device used.
+                dtype: either torch.float32 or torch.float64.
 
-        And all paths are converted to absolute paths.
+            And all paths are converted to absolute paths.
+
+        data: a dictionary containing all returns from create_gridlines,
+            create_topography, and create_ic.
     """
 
     # parse command-line arguments
@@ -53,7 +56,7 @@ def init():
 
     # select device and precision
     device = "cpu" if args.cpu else "cuda:0"
-    dtype = torch.float64 if args.cpu else torch.float32
+    dtype = torch.float32 if args.sp else torch.float64
 
     # paths use absolute paths
     case_folder = os.path.abspath(args.case_folder)
@@ -81,7 +84,21 @@ def init():
         config["prehook"] = os.path.abspath(
             os.path.join(case_folder, config["prehook"]))
 
-    return config
+    # create data
+    data = {}
+
+    # spatial discretization + output time values
+    data.update(create_gridlines(
+        config["domain"], config["discretization"], config["output time"],
+        config["device"], config["dtype"]))
+
+    # topography-related information
+    data.update(create_topography(config["topography"], data["xv"], data["yv"]))
+
+    # initial conditions
+    data["U0"] = create_ic(config["ic"], data["xc"], data["yc"], data["Bc"])
+
+    return config, data
 
 def create_gridlines(dbox, discrtz, trange, device="cuda", dtype=torch.float64):
     """Create spatial and temporal gridlines.
@@ -96,23 +113,24 @@ def create_gridlines(dbox, discrtz, trange, device="cuda", dtype=torch.float64):
 
     Returns:
     --------
-        xv: 1D torch.tensor of length Nx+1; x coordinates at vertices.
-        yv: 1D torch.tensor of length Ny+1; y coordinates at vertices.
-        xc: 1D torch.tensor of length Nx; x coordinates at cell centers.
-        yc: 1D torch.tensor of length Ny; y coordinates at cell centers.
-        xf: a dictionary of the following key-array pairs
-            x: 1D torch.tensor of langth Nx+1; x coordinates at the midpoints
-                of cell faces normal to x-direction.
-            y: 1D torch.tensor of langth Nx; x coordinates at the midpoints of
-                cell faces normal to y-direction.
-        yf: a dictionary of the following key-array pairs
-            x: 1D torch.tensor of langth Ny; y coordinates at the midpoints
-                of cell faces normal to x-direction.
-            y: 1D torch.tensor of langth Ny+1; y coordinates at the midpoints of
-                cell faces normal to y-direction.
-        dx: cell size in x-direction.
-        dy: cell size in y-direction; assumed to be the same as dx.
-        t: a list of time values to output solutions.
+        A dictionary with the following keys and values:
+            xv: 1D torch.tensor of length Nx+1; x coordinates at vertices.
+            yv: 1D torch.tensor of length Ny+1; y coordinates at vertices.
+            xc: 1D torch.tensor of length Nx; x coordinates at cell centers.
+            yc: 1D torch.tensor of length Ny; y coordinates at cell centers.
+            xf: a dictionary of the following key-array pairs
+                x: 1D torch.tensor of langth Nx+1; x coordinates at the midpoints
+                    of cell faces normal to x-direction.
+                y: 1D torch.tensor of langth Nx; x coordinates at the midpoints of
+                    cell faces normal to y-direction.
+            yf: a dictionary of the following key-array pairs
+                x: 1D torch.tensor of langth Ny; y coordinates at the midpoints
+                    of cell faces normal to x-direction.
+                y: 1D torch.tensor of langth Ny+1; y coordinates at the midpoints of
+                    cell faces normal to y-direction.
+            dx: cell size in x-direction.
+            dy: cell size in y-direction; assumed to be the same as dx.
+            t: a list of time values to output solutions.
     """
 
     # for clearer/more readible code
@@ -145,7 +163,8 @@ def create_gridlines(dbox, discrtz, trange, device="cuda", dtype=torch.float64):
     if t[-1] != ted:
         t.append(ted)
 
-    return xv, yv, xc, yc, xf, yf, dx, dy, t
+    return {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
+            "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": t}
 
 def create_topography(topo, xv, yv):
     """Create required topography information from a NetCDF file.
@@ -166,16 +185,17 @@ def create_topography(topo, xv, yv):
 
     Returns:
     --------
-        Bv: a (Ny+1, Nx+1) torch.tensor; elevation at computational cell vertices.
-        Bc: a (Ny, Nx) torch.tensor; elevation at computational cell centers.
-        Bf: a dictionary with the following two key-value paits:
-            x: a (Ny, Nx+1) torch.tensor; elevation at the midpoints of cell
-                faces normal to x-direction.
-            y: a (Ny+1, Nx) torch.tensor; elevation at the midpoints of cell
-                faces normal to y-direction.
-        dBc: a dictionary with the following two key-value paits:
-            x: a (Ny, Nx) torch.tensor; x-gradient at cell centers.
-            y: a (Ny, Nx) torch.tensor; y-gradient at cell centers.
+        A dictionary with the following keys and values:
+            Bv: a (Ny+1, Nx+1) torch.tensor; elevation at computational cell vertices.
+            Bc: a (Ny, Nx) torch.tensor; elevation at computational cell centers.
+            Bf: a dictionary with the following two key-value paits:
+                x: a (Ny, Nx+1) torch.tensor; elevation at the midpoints of cell
+                    faces normal to x-direction.
+                y: a (Ny+1, Nx) torch.tensor; elevation at the midpoints of cell
+                    faces normal to y-direction.
+            dBc: a dictionary with the following two key-value paits:
+                x: a (Ny, Nx) torch.tensor; x-gradient at cell centers.
+                y: a (Ny, Nx) torch.tensor; y-gradient at cell centers.
     """
 
     # read DEM
@@ -233,7 +253,7 @@ def create_topography(topo, xv, yv):
     assert torch.allclose(Bc, (Bf["x"][:, :-1]+Bf["x"][:, 1:])/2.)
     assert torch.allclose(Bc, (Bf["y"][:-1, :]+Bf["y"][1:, :])/2.)
 
-    return Bv, Bc, Bf, dBc
+    return {"Bv": Bv, "Bc": Bc, "Bf": Bf, "dBc": dBc}
 
 def create_ic(ic, xc, yc, Bc):
     """Create initial conditions.

@@ -34,11 +34,10 @@ def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     U = update_ghost(U)
 
     # loop till t_current reaches t_end
-    while abs(t_current-t_end) > 1e-10:
+    while True: # TODO: use iteration counter to avoid infinity loop
 
         # Euler step
         k, max_dt = rhs_fun(U, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
-
 
         # adjust time step size; modify dt if next step will exceed target end time
         if t_current + dt > t_end:
@@ -59,7 +58,11 @@ def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
             fluid_vol = U[0, Ngh:-Ngh, Ngh:-Ngh].sum().item() * dx * dx - soil_vol
             print(info_str.format(it_current, dt, t_current, fluid_vol))
 
-    return U, it_current, t_current
+        # break loop
+        if abs(t_current-t_end) < tol:
+            break
+
+    return U, it_current, t_current, dt
 
 def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
         t_current, t_end, dt, it_current=0, print_steps=1, tol=1e-10):
@@ -85,7 +88,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     Utemp = torch.zeros_like(U)
 
     # loop till t_current reaches t_end
-    while abs(t_current-t_end) > 1e-10:
+    while True: # TODO: use iteration counter to avoid infinity loop
 
         # the slope from the first step, using U
         k1, max_dt[0] = rhs_fun(U, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
@@ -146,10 +149,14 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
             fluid_vol = U[0, Ngh:-Ngh, Ngh:-Ngh].sum().item() * dx * dx - soil_vol
             print(info_str.format(it_current, dt, t_current, fluid_vol))
 
+        # break loop
+        if abs(t_current-t_end) < tol:
+            break
+
         # update dt; modify dt if the next step will exceed target end time
         if t_current + dt > t_end:
             dt = t_end - t_current
         else:
             dt = min(max_dt) * 0.9
 
-    return U, it_current, t_current
+    return U, it_current, t_current, dt
