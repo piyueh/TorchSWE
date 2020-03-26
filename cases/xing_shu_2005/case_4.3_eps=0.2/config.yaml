@@ -1,16 +1,16 @@
-# Xing and Shu, 2005: case 1 -- testing well-balanced property
+# Xing and Shu, 2005: case 4.3 & eps=0.2
 
 # domain information
 domain:
     west: 0.0             # a float; x-coordinate of the left boundary
-    east: 10.0            # a float; x-coordinate of the right boundary
+    east: 2.0            # a float; x-coordinate of the right boundary
     south: 0.0            # a float; y-coordinate of the top boundary
-    north: 10.0           # a float; y-coordinate of the bottom boundary
+    north: 1.0           # a float; y-coordinate of the bottom boundary
 
 # information regarding spatial discretization
 discretization:
     Nx: 200               # in integer; number of cells in west-east direction
-    Ny: 200               # in integer; number of cells in north-south direction
+    Ny: 100               # in integer; number of cells in north-south direction
 
 # boundary conditions
 boundary conditions:
@@ -22,23 +22,23 @@ boundary conditions:
 # control of outputing time-series data
 output time:
     bg: 0.0
-    ed: 10.0
-    step: 1.0
+    ed: 0.2
+    step: 0.01
 
 # gravity (m^2/s)
 gravity: 9.81
 
 # topography
 topography:
-    file: data.nc         # relative to case folder or absolute path
+    file: topo.nc         # relative to case folder or absolute path
     key: elevation        # the corresponding variable name in the NetCDF file
 
 # initial condition
 ic:
-    file: null            # relative to case folder or absolute path
-    keys: null            # the corresponding variable names in the NetCDF file
-    values: [10.0, 0.0, 0.0] # alternativelt, specify a length-3 list for constants
+    file: initial.nc      # relative to case folder or absolute path
+    keys: [w, hu, hv]     # the corresponding variable names in the NetCDF file
+    values: null          # alternativelt, specify a length-3 list for constants
 
 # any Python script that should be executed first
 # relative path or absolute path begining wiht "/"
-prehook: create_topo.py
+prehook: create_data.py

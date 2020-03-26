@@ -7,7 +7,7 @@
 # Distributed under terms of the MIT license.
 
 """
-Create a topography file for the case 1 in Xing and Shu, 2005.
+Create a topography file for the case 4.1 and smooth topography in Xing and Shu (2005).
 
 Note, the elevation data in the resulting NetCDF file is defined at vertices,
 instead of cell centers.

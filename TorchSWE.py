@@ -12,7 +12,6 @@ Main function.
 
 import os
 import torch
-from matplotlib import pyplot
 from utils.initializer import init
 from utils.netcdf import write_cf, append_time_data
 from src.fvm import fvm
