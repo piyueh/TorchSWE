@@ -71,8 +71,6 @@ def main():
         }
     )
 
-
-
     # start running time-march until each outpu time
     for Ti in range(len(data["t"])-1):
         U, it, tc, dt = RK4(

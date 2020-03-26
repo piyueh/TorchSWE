@@ -13,11 +13,21 @@ discretization:
     Ny: 10                # in integer; number of cells in north-south direction
 
 # boundary conditions
+# options for type: periodic, extrap, const
+# the key "values" is only used by "const" type BC
 boundary conditions:
-    west: extrapolation   # ghost-cell updating method
-    east: extrapolation   # ghost-cell updating method
-    north: extrapolation  # ghost-cell updating method
-    south: extrapolation  # ghost-cell updating method
+    west:
+        types: [extrap, extrap, extrap]
+        values: [null, null, null]
+    east:
+        types: [extrap, extrap, extrap]
+        values: [null, null, null]
+    north:
+        types: [extrap, extrap, extrap]
+        values: [null, null, null]
+    south:
+        types: [extrap, extrap, extrap]
+        values: [null, null, null]
 
 # control of outputing time-series data
 output time:
