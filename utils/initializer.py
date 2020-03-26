@@ -234,3 +234,83 @@ def create_topography(topo, xv, yv):
     assert torch.allclose(Bc, (Bf["y"][:-1, :]+Bf["y"][1:, :])/2.)
 
     return Bv, Bc, Bf, dBc
+
+def create_ic(ic, xc, yc, Bc):
+    """Create initial conditions.
+
+    When the xc and yc have different resolutions from the x and y in the NetCDF
+    file, an bi-cubic spline interpolation will take place, which introduces
+    rounding errors to the elevation. The rounding error may be crucial to
+    well-balanced property tests. But usually it's fine to real-world
+    applications.
+
+    Args:
+    -----
+        ic: the "ic" node from the config returned by init().
+        xc: 1D torch.tensor with length Nx; gridline of cell centers.
+        yc: 1D torch.tensor with length Ny; gridline of cell centers.
+        Bc: 2D torch.tensor with shape (Ny, Nx); elevation at cell centers.
+
+    Returns:
+    --------
+        U0: a (3, Ny, Nx) torch.tensor representing w, hu, and hv.
+    """
+
+    # initialize variable
+    U0 = torch.zeros((3, len(yc), len(xc)), dtype=xc.dtype, device=xc.device)
+
+    # special case: constant I.C.
+    if ic["values"] is not None:
+
+        U0[0] = ic["values"][0]
+        U0[1] = ic["values"][1]
+        U0[2] = ic["values"][2]
+
+        # make sure the w can not be smaller than topopgraphy elevation
+        U0[0] = torch.where(U0[0]<Bc, Bc, U0[0])
+        return U0
+
+    # for other cases, read data from a NetCDF file
+    icdata, attrs = read_cf(ic["file"], ic["keys"])
+
+    # preserve the numpy.ndarray for now, in case we need to do interpolation
+    w = icdata[ic["keys"][0]][:].copy()
+    hu = icdata[ic["keys"][1]][:].copy()
+    hv = icdata[ic["keys"][2]][:].copy()
+
+    # see if we need to do interpolation
+    icx = torch.tensor(icdata["x"], device=xc.device)
+    icy = torch.tensor(icdata["y"], device=yc.device)
+    shape_mismatch = not (icx.shape==xc.shape and icy.shape==yc.shape)
+
+    if not shape_mismatch:
+        value_mismatch = not (torch.allclose(xc, icx) and torch.allclose(yc, icy))
+    else:
+        value_mismatch = True
+
+    if shape_mismatch or value_mismatch:
+
+        # unfortunately, we need scipy to help with the interpolation
+        from scipy.interpolate import RectBivariateSpline
+
+        # get an interpolator for w, use the default 3rd order spline
+        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], w.T)
+        w = interpolator(xc.cpu().numpy(), yc.cpu().numpy()).T
+
+        # get an interpolator for U0[0], use the default 3rd order spline
+        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], hu.T)
+        hu = interpolator(xc.cpu().numpy(), yc.cpu().numpy()).T
+
+        # get an interpolator for U0[0], use the default 3rd order spline
+        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], hv.T)
+        hv = interpolator(xc.cpu().numpy(), yc.cpu().numpy()).T
+
+    # convert to torch.tensor
+    U0[0] = torch.from_numpy(w)
+    U0[1] = torch.from_numpy(hu)
+    U0[2] = torch.from_numpy(hv)
+
+    # make sure the w can not be smaller than topopgraphy elevation
+    U0[0] = torch.where(U0[0]<Bc, Bc, U0[0])
+
+    return U0

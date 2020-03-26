@@ -3,14 +3,14 @@
 # domain information
 domain:
     west: 0.0             # a float; x-coordinate of the left boundary
-    east: 10.0             # a float; x-coordinate of the right boundary
+    east: 10.0            # a float; x-coordinate of the right boundary
     south: 0.0            # a float; y-coordinate of the top boundary
-    north: 10.0            # a float; y-coordinate of the bottom boundary
+    north: 10.0           # a float; y-coordinate of the bottom boundary
 
 # information regarding spatial discretization
 discretization:
-    Nx: 200                # in integer; number of cells in west-east direction
-    Ny: 200                # in integer; number of cells in north-south direction
+    Nx: 200               # in integer; number of cells in west-east direction
+    Ny: 200               # in integer; number of cells in north-south direction
 
 # boundary conditions
 boundary conditions:
@@ -35,9 +35,9 @@ topography:
 
 # initial condition
 ic:
-    file: null         # relative to case folder or absolute path
-    key: null               # the corresponding variable name in the NetCDF file
-    value: 10.0           # alternativelt, specify a constant, rather than using a file
+    file: null            # relative to case folder or absolute path
+    keys: null            # the corresponding variable names in the NetCDF file
+    values: [10.0, 0.0, 0.0] # alternativelt, specify a length-3 list for constants
 
 # any Python script that should be executed first
 # relative path or absolute path begining wiht "/"

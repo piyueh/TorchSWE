@@ -36,8 +36,8 @@ topography:
 # initial condition
 ic:
     file: data.nc         # relative to case folder or absolute path
-    key: ic               # the corresponding variable name in the NetCDF file
-    value: null           # alternativelt, specify a constant, rather than using a file
+    keys: [w, hu, hv]     # the corresponding variable names in the NetCDF file
+    values: null          # alternativelt, specify a length-3 list for constants
 
 # any Python script that should be executed first
 # relative path or absolute path begining wiht "/"
