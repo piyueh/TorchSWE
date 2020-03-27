@@ -1,3 +1,4 @@
 nogit
 **/*.nc
 **/*.nc.aux.xml
+cases/**/*.png
