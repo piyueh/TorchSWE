@@ -55,13 +55,6 @@ _extrap_slc = {
     "south": lambda n, c: [slice(c, c+1), slice(0, n), slice(n, -n)]
 }
 
-_const_slc = {
-    "west": lambda n, c: [slice(c, c+1), slice(n, -n), slice(0, n)],
-    "east": lambda n, c: [slice(c, c+1), slice(n, -n), slice(-n, None)],
-    "north": lambda n, c: [slice(c, c+1), slice(-n, None), slice(n, -n)],
-    "south": lambda n, c: [slice(c, c+1), slice(0, n), slice(n, -n)]
-}
-
 _allowed_orient = ["west", "east", "north", "south"]
 _allowed_bc_type = ["periodic", "extrap", "const"]
 
@@ -174,7 +167,7 @@ def linear_extrap_factory(Ngh, orientation, component, device):
 
     return linear_extrap
 
-def constant_bc_factory(const, Ngh, orientation, component):
+def constant_bc_factory(const, Ngh, orientation, component, device):
     """A function factory to create a ghost-cell updating function.
 
     Args:
@@ -185,6 +178,7 @@ def constant_bc_factory(const, Ngh, orientation, component):
             "east", "north", or "south".
         component: an integer indicating this BC will be applied to which
             component -- 0 for w, 1 for hu, and 2 for hv.
+        device: where new tensors will be created.
 
     Returns:
     --------
@@ -192,7 +186,9 @@ def constant_bc_factory(const, Ngh, orientation, component):
         input and output tensors have a shape of (3, Ny+2*Ngh, Nx+2*Ngh).
     """
 
-    slc = _const_slc[orientation](Ngh, component)
+    seq = _extrap_seq[orientation](Ngh, device)
+    anchor = _extrap_anchor[orientation](Ngh, component)
+    slc = _extrap_slc[orientation](Ngh, component)
 
     def constant_bc(U):
         """Update the ghost cells with constant BC using linear extrapolation.
@@ -216,11 +212,14 @@ def constant_bc_factory(const, Ngh, orientation, component):
             Updated U.
         """
 
-        U[slc] = const
+        delta = (const - U[anchor]) * 2.
+        U[slc] = U[anchor] + seq * delta
 
         return U
 
     constant_bc.const = const
+    constant_bc.seq = seq
+    constant_bc.anchor = anchor
     constant_bc.slc = slc
 
     return constant_bc
@@ -232,8 +231,8 @@ def update_all_factory(bcs, Ngh, device=None):
     -----
         bcs: the "boundary conditions" node from the YAML config.
         Ngh: number of ghost cell layers at each boundary.
-        device: if any of the boundaries has extrapolation BC, device must be
-            specified. Otherwise, the value of device is not used.
+        device: if any of the boundaries has extrapolation/const BC, device must
+            be specified. Otherwise, the value of device is not used.
 
     Returns:
     --------
@@ -269,7 +268,8 @@ def update_all_factory(bcs, Ngh, device=None):
 
             # constant/Dirichlet
             elif bctype == "const":
-                functions[key][i] = constant_bc_factory(bctypes["values"][i], Ngh, key, i)
+                assert device is not None
+                functions[key][i] = constant_bc_factory(bctypes["values"][i], Ngh, key, i, device)
 
             # others: error
             else:
@@ -358,21 +358,21 @@ if __name__ == "__main__":
     U = func(U)
 
     ans = torch.tensor(
-        [[[   0.,    1.,  999.,  999.,  999.,  999.,  999.,    7.,    8.],
-          [   9.,   10.,  999.,  999.,  999.,  999.,  999.,   16.,   17.],
-          [  18.,   19.,   20.,   21.,   22.,   23.,   24., -100., -100.],
-          [  27.,   28.,   29.,   30.,   31.,   32.,   33., -100., -100.],
-          [  36.,   37.,   38.,   39.,   40.,   41.,   42., -100., -100.],
-          [  45.,   46.,   47.,   48.,   49.,   50.,   51., -100., -100.],
+        [[[   0.,    1., 3936., 3933., 3930., 3927., 3924.,    7.,    8.],
+          [   9.,   10., 1978., 1977., 1976., 1975., 1974.,   16.,   17.],
+          [  18.,   19.,   20.,   21.,   22.,   23.,   24., -224., -472.],
+          [  27.,   28.,   29.,   30.,   31.,   32.,   33., -233., -499.],
+          [  36.,   37.,   38.,   39.,   40.,   41.,   42., -242., -526.],
+          [  45.,   46.,   47.,   48.,   49.,   50.,   51., -251., -553.],
           [  54.,   55.,   56.,   57.,   58.,   59.,   60.,   61.,   62.],
           [  63.,   64.,   65.,   66.,   67.,   68.,   69.,   70.,   71.]],
 
          [[  72.,   73.,  110.,  111.,  112.,  113.,  114.,   79.,   80.],
           [  81.,   82.,  119.,  120.,  121.,  122.,  123.,   88.,   89.],
-          [1000., 1000.,   92.,   93.,   94.,   95.,   96.,   97.,   98.],
-          [1000., 1000.,  101.,  102.,  103.,  104.,  105.,  106.,  107.],
-          [1000., 1000.,  110.,  111.,  112.,  113.,  114.,  115.,  116.],
-          [1000., 1000.,  119.,  120.,  121.,  122.,  123.,  124.,  125.],
+          [3724., 1908.,   92.,   93.,   94.,   95.,   96.,   97.,   98.],
+          [3697., 1899.,  101.,  102.,  103.,  104.,  105.,  106.,  107.],
+          [3670., 1890.,  110.,  111.,  112.,  113.,  114.,  115.,  116.],
+          [3643., 1881.,  119.,  120.,  121.,  122.,  123.,  124.,  125.],
           [ 126.,  127.,   92.,   93.,   94.,   95.,   96.,  133.,  134.],
           [ 135.,  136.,  101.,  102.,  103.,  104.,  105.,  142.,  143.]],
 
@@ -382,8 +382,8 @@ if __name__ == "__main__":
           [ 176.,  177.,  173.,  174.,  175.,  176.,  177.,  173.,  174.],
           [ 185.,  186.,  182.,  183.,  184.,  185.,  186.,  182.,  183.],
           [ 194.,  195.,  191.,  192.,  193.,  194.,  195.,  191.,  192.],
-          [ 198.,  199.,   -3.,   -3.,   -3.,   -3.,   -3.,  205.,  206.],
-          [ 207.,  208.,   -3.,   -3.,   -3.,   -3.,   -3.,  214.,  215.]]],
+          [ 198.,  199., -197., -198., -199., -200., -201.,  205.,  206.],
+          [ 207.,  208., -585., -588., -591., -594., -597.,  214.,  215.]]],
         dtype=torch.float64, device="cpu")
 
     assert torch.allclose(U, ans)
