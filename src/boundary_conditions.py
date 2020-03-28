@@ -109,6 +109,54 @@ def periodic_factory(Ngh, orientation, component):
 
     return periodic
 
+def outflow_factory(Ngh, orientation, component):
+    """A function factory to create a ghost-cell updating function.
+
+    Args:
+    -----
+        Ngh: an integer for the number of ghost cells outside each boundary.
+        orientation: a string of one of the following orientation -- "west",
+            "east", "north", or "south".
+        component: an integer indicating this BC will be applied to which
+            component -- 0 for w, 1 for hu, and 2 for hv.
+        device: where new tensors will be created.
+
+    Returns:
+    --------
+        A function with a signature of f(torch.tensor) -> torch.tensor. Both the
+        input and output tensors have a shape of (3, Ny+2*Ngh, Nx+2*Ngh).
+    """
+
+    anchor = _extrap_anchor[orientation](Ngh, component)
+    slc = _extrap_slc[orientation](Ngh, component)
+
+    def outflow_extrap(U):
+        """Update the ghost cells with outflow BC using constant extrapolation.
+
+        Note we ignore the ghost cells at corners. They shouldn't be
+        used in this numerical method.
+
+        Theoretically speaking, U is modified in-place, but we still return it.
+
+        Args:
+        -----
+            U: a (3, Ny+2*Ngh, Nx+2*Ngh) torch.tensor of conservative variables.
+
+        Returns:
+        --------
+            Updated U.
+        """
+
+        # west
+        U[slc] = U[anchor]
+
+        return U
+
+    outflow_extrap.anchor = anchor
+    outflow_extrap.slc = slc
+
+    return outflow_extrap
+
 def linear_extrap_factory(Ngh, orientation, component, device):
     """A function factory to create a ghost-cell updating function.
 
@@ -260,6 +308,10 @@ def update_all_factory(bcs, Ngh, device=None):
             # periodic BC
             if bctype == "periodic":
                 functions[key][i] = periodic_factory(Ngh, key, i)
+
+            # constant extrapolation BC (outflow)
+            elif bctype == "outflow":
+                functions[key][i] = outflow_factory(Ngh, key, i)
 
             # linear extrapolation BC
             elif bctype == "extrap":
