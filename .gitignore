@@ -1,4 +1,12 @@
-nogit
+*.nogit
 **/*.nc
 **/*.nc.aux.xml
 cases/**/*.png
+comparisons/geoclaw/**/*.data
+comparisons/geoclaw/**/_output
+comparisons/geoclaw/**/.output
+comparisons/geoclaw/**/pyclaw.log
+comparisons/geoclaw/**/*.bin
+comparisons/geoclaw/**/*.o
+comparisons/**/*.png
+comparisons/**/*.asc
