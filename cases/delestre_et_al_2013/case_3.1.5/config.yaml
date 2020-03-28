@@ -1,0 +1,54 @@
+# Delestre et al. (2013): case 3.1.5; transcritical flow with shock
+
+# domain information
+domain:
+    west: 0.0             # a float; x-coordinate of the left boundary
+    east: 25.0            # a float; x-coordinate of the right boundary
+    south: 0.0            # a float; y-coordinate of the top boundary
+    north: 5.0           # a float; y-coordinate of the bottom boundary
+
+# information regarding spatial discretization
+discretization:
+    Nx: 200               # in integer; number of cells in west-east direction
+    Ny: 40               # in integer; number of cells in north-south direction
+
+# boundary conditions
+# options for type: periodic, extrap, const
+# the key "values" is only used by "const" type BC
+boundary conditions:
+    west:
+        types: [extrap, const, extrap]
+        values: [null, 0.18, null]
+    east:
+        types: [const, extrap, extrap]
+        values: [0.33, null, null]
+    north:
+        types: [extrap, extrap, extrap]
+        values: [null, null, null]
+    south:
+        types: [extrap, extrap, extrap]
+        values: [null, null, null]
+
+# control of outputing time-series data
+output time:
+    bg: 0.0
+    ed: 500.0
+    step: 10.0
+
+# gravity (m^2/s)
+gravity: 9.81
+
+# topography
+topography:
+    file: topo.nc         # relative to case folder or absolute path
+    key: elevation        # the corresponding variable name in the NetCDF file
+
+# initial condition
+ic:
+    file: null            # relative to case folder or absolute path
+    keys: null            # the corresponding variable names in the NetCDF file
+    values: [0.33, 0, 0]   # alternativelt, specify a length-3 list for constants
+
+# any Python script that should be executed first
+# relative path or absolute path begining wiht "/"
+prehook: create_data.py
