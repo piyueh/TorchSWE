@@ -11,6 +11,7 @@ Main function.
 """
 
 import os
+import time
 import torch
 from utils.initializer import init
 from utils.netcdf import write_cf, append_time_data
@@ -71,6 +72,8 @@ def main():
         }
     )
 
+    t0 = time.time()
+
     # start running time-march until each outpu time
     for Ti in range(len(data["t"])-1):
         U, it, tc, dt = RK4(
@@ -90,6 +93,8 @@ def main():
                 "hv": U[2, Ngh:-Ngh, Ngh:-Ngh].cpu().numpy()
             }
         )
+
+    print("Run time (wall time): {} seconds".format(time.time()-t0))
 
 
 if __name__ == "__main__":
