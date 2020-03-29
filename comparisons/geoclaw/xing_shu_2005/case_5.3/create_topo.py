@@ -23,8 +23,8 @@ def main():
 
     case = os.path.dirname(os.path.abspath(__file__))
 
-    Ncols = 200
-    Nrows = 100
+    Ncols = 2000
+    Nrows = 1000
     xbg, xed = 0., 2.
     ybg, yed = 0., 1.
 

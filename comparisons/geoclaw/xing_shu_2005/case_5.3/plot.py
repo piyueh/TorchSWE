@@ -35,9 +35,9 @@ def main():
         numpy.linspace(0.995065, 1.0056, n)]
 
     # to store all grid patch
-    x = numpy.linspace(0., 2., 201, dtype=numpy.float64)
+    x = numpy.linspace(0., 2., 2001, dtype=numpy.float64)
     x = (x[:-1] + x[1:]) / 2.
-    y = numpy.linspace(0., 1., 101, dtype=numpy.float64)
+    y = numpy.linspace(0., 1., 1001, dtype=numpy.float64)
     y = (y[:-1] + y[1:]) / 2.
     X, Y = numpy.meshgrid(x, y)
 
@@ -70,8 +70,8 @@ def main():
             B[right*left*top*bottom] = state.aux[0, :, :].T.flatten()
 
         # go back to 2D shape
-        H = H.reshape(100, 200)
-        B = B.reshape(100, 200)
+        H = H.reshape(1000, 2000)
+        B = B.reshape(1000, 2000)
         W = H + B
 
         # contour lines: to compare with Xing & Shu

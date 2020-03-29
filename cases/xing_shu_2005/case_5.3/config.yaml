@@ -9,24 +9,24 @@ domain:
 
 # information regarding spatial discretization
 discretization:
-    Nx: 200               # in integer; number of cells in west-east direction
-    Ny: 100               # in integer; number of cells in north-south direction
+    Nx: 2000               # in integer; number of cells in west-east direction
+    Ny: 1000               # in integer; number of cells in north-south direction
 
 # boundary conditions
 # options for type: periodic, extrap, const
 # the key "values" is only used by "const" type BC
 boundary conditions:
     west:
-        types: [const, extrap, extrap]
-        values: [1.0, null, null]
+        types: [outflow, outflow, outflow]
+        values: [null, null, null]
     east:
-        types: [extrap, extrap, extrap]
+        types: [outflow, outflow, outflow]
         values: [null, null, null]
     north:
-        types: [extrap, extrap, extrap]
+        types: [outflow, outflow, outflow]
         values: [null, null, null]
     south:
-        types: [extrap, extrap, extrap]
+        types: [outflow, outflow, outflow]
         values: [null, null, null]
 
 # control of outputing time-series data
