@@ -158,6 +158,6 @@ def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
     stream.write("{:15s} {}\n".format("NODATA_VALUE", nodata_value))
 
     for row in data[::-1, :]:
-        s = numpy.array2string(row, precision=16, separator=' ')
+        s = numpy.array2string(row, precision=16, separator=' ', threshold=x.shape[0]+1)
         s = s.lstrip("[ \t").rstrip("] \t").replace("\n", "")
         stream.write(s+"\n")
