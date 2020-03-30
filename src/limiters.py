@@ -11,27 +11,8 @@ Slope/flux limiters.
 """
 import torch
 
-def minmod(z):
-    """Minmod function.
-
-    Args:
-    -----
-        z: a N-dimensional torch.tensor; minmod is applied to the last dimension.
-
-    Return:
-    -------
-        Minmod results.
-    """
-    # TODO: check the performance. Code may look clean but I doubt its efficiency.
-
-    axis = len(z.shape) - 1
-    results = torch.zeros(z.shape[:-1], device=z.device, dtype=z.dtype)
-    results = torch.where(torch.all(z>0, dim=axis), torch.min(z, dim=axis)[0], results)
-    results = torch.where(torch.all(z<0, dim=axis), torch.max(z, dim=axis)[0], results)
-
-    return results
-
-def minmod_limiter(U, dx, Ngh, theta=1.3):
+@torch.jit.script
+def minmod_limiter(U, dx: float, Ngh: int, theta: float=1.3):
     """Calculating slope based on minmod.
 
     Args:
@@ -59,28 +40,19 @@ def minmod_limiter(U, dx, Ngh, theta=1.3):
     # for convenience
     Ny = U.shape[1] - 2 * Ngh
     Nx = U.shape[2] - 2 * Ngh
+    zero = torch.tensor(0., dtype=U.dtype, device=U.device)
+    theta = torch.tensor(theta, dtype=U.dtype, device=U.device)
 
-    # init the returned dictionary
-    dU = {}
+    numerator = U[:, Ngh:-Ngh, Ngh-1:-Ngh+1]-U[:, Ngh:-Ngh, Ngh-2:-Ngh] # U_{i} - U_{i-1}
+    denominator = U[:, Ngh:-Ngh, Ngh:Nx+Ngh+2]-U[:, Ngh:-Ngh, Ngh-1:-Ngh+1] # U_{i+1} - U_{i}
+    r = numerator / denominator
+    phi = torch.max(torch.min(torch.min(theta*r, (1.+r)/2.), theta), zero)
+    dUx = phi * denominator / dx
 
-    # x-direction
-    aux = torch.stack(
-        [
-            theta*(U[:, Ngh:-Ngh, Ngh-1:-Ngh+1]-U[:, Ngh:-Ngh, Ngh-2:-Ngh])/dx,
-            (U[:, Ngh:-Ngh, Ngh:Nx+Ngh+2]-U[:, Ngh:-Ngh, Ngh-2:-Ngh])/(dx*2.),
-            theta*(U[:, Ngh:-Ngh, Ngh:Nx+Ngh+2]-U[:, Ngh:-Ngh, Ngh-1:-Ngh+1])/dx
-        ], dim=3
-    )
-    dU["x"] = minmod(aux)
+    numerator = U[:, Ngh-1:-Ngh+1, Ngh:-Ngh]-U[:, Ngh-2:-Ngh, Ngh:-Ngh] # U_{j} - U_{j-1}
+    denominator = U[:, Ngh:Ny+Ngh+2, Ngh:-Ngh]-U[:, Ngh-1:-Ngh+1, Ngh:-Ngh] # U_{j+1} - U_{j}
+    r = numerator / denominator
+    phi = torch.max(torch.min(torch.min(theta*r, (1.+r)/2.), theta), zero)
+    dUy = phi * denominator / dx
 
-    # y-direction
-    aux = torch.stack(
-        [
-            theta*(U[:, Ngh-1:-Ngh+1, Ngh:-Ngh]-U[:, Ngh-2:-Ngh, Ngh:-Ngh])/dx,
-            (U[:, Ngh:Ny+Ngh+2, Ngh:-Ngh]-U[:, Ngh-2:-Ngh, Ngh:-Ngh])/(dx*2.),
-            theta*(U[:, Ngh:Ny+Ngh+2, Ngh:-Ngh]-U[:, Ngh-1:-Ngh+1, Ngh:-Ngh])/dx
-        ], dim=3
-    )
-    dU["y"] = minmod(aux)
-
-    return dU
+    return {"x": dUx, "y": dUy}
