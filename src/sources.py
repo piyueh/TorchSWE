@@ -6,12 +6,13 @@
 #
 # Distributed under terms of the MIT license.
 
+"""Source terms.
 """
-Source terms.
-"""
+from typing import Dict
 import torch
 
-def source(U, dBc, Bc, Ngh, g):
+@torch.jit.script
+def source(U, dBx, dBy, Bc, Ngh: int, g: float) -> torch.Tensor:
     """Source term
 
     Note, the mesh arrangement must be Y first and then X. For example, U[0, j, i]
@@ -21,11 +22,10 @@ def source(U, dBc, Bc, Ngh, g):
     -----
         U: a 3D torch.tensor of shape (3, Ny+2*Ngh, Nx+2Ngh) representing
             w, hu, and hv.
-        dBc: a dictionary of the following key-value pair
-            x: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
-                x-gradient at cell centers, i.e., $\partial B / \partial x$.
-            y: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
-                y-gradient at cell centers, i.e., $\partial B / \partial y$.
+        dBx: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
+            x-gradient at cell centers, i.e., $\partial B / \partial x$.
+        dBy: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
+            y-gradient at cell centers, i.e., $\partial B / \partial y$.
         Bc: a 2D torch.tensor of shape (Ny, Nx) representing elevations at cell
             centers, excluding ghost cells. Bc must be from the bilinear
             interpolation of elevation of cell coreners.
@@ -38,13 +38,13 @@ def source(U, dBc, Bc, Ngh, g):
             for continuity equation and momentum equations for each cell.
     """
 
-    Nx = U.shape[2] - 2 * Ngh
-    Ny = U.shape[1] - 2 * Ngh
+    Nx: int = U.shape[2] - 2 * Ngh
+    Ny: int = U.shape[1] - 2 * Ngh
 
-    S = torch.zeros((3, Ny, Nx), device="cuda", dtype=U.dtype)
+    S: torch.Tensor = torch.zeros((3, Ny, Nx), device="cuda", dtype=U.dtype)
 
-    gH = -g * (U[0, Ngh:-Ngh, Ngh:-Ngh] - Bc)
-    S[1, :, :] = gH * dBc["x"]
-    S[2, :, :] = gH * dBc["y"]
+    gH: torch.Tensor = -g * (U[0, Ngh:-Ngh, Ngh:-Ngh] - Bc)
+    S[1, :, :] = gH * dBx
+    S[2, :, :] = gH * dBy
 
     return S

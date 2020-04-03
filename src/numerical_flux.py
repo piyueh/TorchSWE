@@ -6,77 +6,52 @@
 #
 # Distributed under terms of the MIT license.
 
-"""
-Functions to calculate numerical/common flux.
+"""Functions to calculate numerical/common flux.
 """
 import torch
 
-def central_scheme(Uf, F, G, a):
+@torch.jit.script
+def central_scheme(Ufm, Ufp, Fm, Fp, am, ap):
     """A central scheme to calculate numerical flux at interfaces.
 
     Should not be used explicitly. It is supposed to be called by other schemes.
 
     Args:
     -----
-        Uf: a dictionary of the following key-value pairs
-            xm: a (3, Ny, Nx+1) torch.tensor representing the U values at the
-                left sides of the cell interfaces normal to x-direction.
-            xp: a (3, Ny, Nx+1) torch.tensor representing the U values at the
-                right sides of the cell interfaces normal to x-direction.
-            ym: a (3, Ny+1, Nx) torch.tensor representing the U values at the
-                bottom sides of the cell interfaces normal to y-direction.
-            yp: a (3, Ny+1, Nx) torch.tensor representing the U values at the
-                top sides of the cell interfaces normal to y-direction.
-        F: a dictionary of the following key-value pairs
-            xm: a (3, Ny, Nx+1) torch.tensor representing the flux at the
-                left sides of the cell interfaces normal to x-direction.
-            xp: a (3, Ny, Nx+1) torch.tensor representing the flux at the
-                right sides of the cell interfaces normal to x-direction.
-        G: a dictionary of the following key-value pairs
-            ym: a (3, Ny+1, Nx) torch.tensor representing the flux at the
-                bottom sides of the cell interfaces normal to y-direction.
-            yp: a (3, Ny+1, Nx) torch.tensor representing the flux at the
-                top sides of the cell interfaces normal to y-direction.
-        a: a dictionary of the following key-value pairs
-            xm: a (Ny, Nx+1) torch.tensor representing the local speed at the
-                left sides of the cell interfaces normal to x-direction.
-            xp: a (Ny, Nx+1) torch.tensor representing the local speed at the
-                right sides of the cell interfaces normal to x-direction.
-            ym: a (Ny+1, Nx) torch.tensor representing the local speed at the
-                bottom sides of the cell interfaces normal to y-direction.
-            yp: a (Ny+1, Nx) torch.tensor representing the local speed at the
-                top sides of the cell interfaces normal to y-direction.
+        Ufm: either a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
+            whether it's in x or y direction; the discontinuous conservative
+            quantities at the left or the bottom of cell interfaces.
+        Ufp: either a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
+            whether it's in x or y direction; the discontinuous conservative
+            quantities at the right or the top of cell interfaces.
+        Fm: ither a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
+            whether it's in x or y direction; the flux at the left or the bottom
+            of cell interfaces.
+        Fp: ither a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
+            whether it's in x or y direction; the flux at the right or the top
+            of cell interfaces.
+        am: ither a (Ny, Nx+1) or (Ny+1, Nx) torch.tensor, depending on whether
+            it's in x or y direction; the local speed at the left or the bottom
+            of cell interfaces.
+        ap: ither a (Ny, Nx+1) or (Ny+1, Nx) torch.tensor, depending on whether
+            it's in x or y direction; the local speed at the right or the top of
+            cell interfaces.
 
     Returns:
     --------
-        H: a diction of the following key-value pairs:
-            x: a (3, Ny, Nx+1) torch.tensor representing the common numerical
-                flux at cell interfaces normal to x-direction.
-            y: a (3, Ny+1, Nx) torch.tensor representing the common numerical
-                flux at cell interfaces normal to y-direction.
+        H: ither a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
+            whether it's in x or y direction; the numerical (common) flux at the
+            cell interfaces.
     """
-
-    # aliases for convinience
-    ap, am, bp, bm = a["xp"], a["xm"], a["yp"], a["ym"]
-    Fp, Fm, Gp, Gm = F["xp"], F["xm"], G["yp"], G["ym"]
 
     # for convenience
     zero_tensor = torch.tensor(0, device=Fm.device, dtype=Fm.dtype)
+    one_tensor = torch.tensor(1, device=Fm.device, dtype=Fm.dtype)
 
     # flux in x direction
-    Hx = ap * Fm - am * Fp + ap * am * (Uf["xp"] - Uf["xm"])
+    H = ap * Fm - am * Fp + ap * am * (Ufp - Ufm)
     denominator = ap - am
-    # a sanity check: if denominator == 0, numerators should also == 0
-    assert torch.allclose(Hx[:, denominator==0], zero_tensor)
-    denominator[denominator==0] = 1. # to avoid division by zero
-    Hx /= denominator
+    denominator[denominator==0] = one_tensor # to avoid division by zero
+    H /= denominator
 
-    # flux in x direction
-    Hy = bp * Gm - bm * Gp + bp * bm * (Uf["yp"] - Uf["ym"])
-    denominator = bp - bm
-    # a sanity check: if denominator == 0, numerators should also == 0
-    assert torch.allclose(Hy[:, denominator==0], zero_tensor)
-    denominator[denominator==0] = 1. # to avoid division by zero
-    Hy /= denominator
-
-    return {"x": Hx, "y": Hy}
+    return H

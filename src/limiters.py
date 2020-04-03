@@ -6,8 +6,7 @@
 #
 # Distributed under terms of the MIT license.
 
-"""
-Slope/flux limiters.
+"""Slope/flux limiters.
 """
 import torch
 
@@ -24,18 +23,13 @@ def minmod_limiter(U, dx: float, Ngh: int, theta: float=1.3):
 
     Return:
     -------
-        dU: a dictionary of the following key-value pairs
-            x: a (3, Ny, Nx+2) torch.tensor for $\partial U / \partial x$
-                at cell centers. Only one layer of ghost cells is included at
-                each domain boundary in x direction.
-            y: a (3, Ny+2, Nx) torch.tensor for $\partial U / \partial y$
-                at cell centers. Only one layer of ghost cells is included at
-                each domain boundary in y direction.
+        dUx: a (3, Ny, Nx+2) torch.tensor for $\partial U / \partial x$ at cell
+            centers. Only one layer of ghost cells is included at each domain
+            boundary in x direction.
+        dUy: a (3, Ny+2, Nx) torch.tensor for $\partial U / \partial y$ at cell
+            centers. Only one layer of ghost cells is included at each domain
+            boundary in y direction.
     """
-
-    # sanity check
-    assert Ngh >= 2
-    assert isinstance(dx, float)
 
     # for convenience
     Ny = U.shape[1] - 2 * Ngh
@@ -55,4 +49,4 @@ def minmod_limiter(U, dx: float, Ngh: int, theta: float=1.3):
     phi = torch.max(torch.min(torch.min(theta*r, (1.+r)/2.), theta), zero)
     dUy = phi * denominator / dx
 
-    return {"x": dUx, "y": dUy}
+    return dUx, dUy
