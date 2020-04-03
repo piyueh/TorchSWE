@@ -16,7 +16,7 @@ import torch
 from utils.initializer import init
 from utils.netcdf import write_cf, append_time_data
 from src.fvm import fvm
-from src.temporal import RK4
+from src.temporal import RK2, RK4
 from src.boundary_conditions import update_all_factory
 
 # enforce print precision
@@ -76,7 +76,7 @@ def main():
 
     # start running time-march until each outpu time
     for Ti in range(len(data["t"])-1):
-        U, it, tc, dt = RK4(
+        U, it, tc, dt = RK2(
             U, update_bc, fvm, data["Bf"], data["Bc"], data["dBc"],
             data["dx"], Ngh, config["gravity"], epsilon, theta,
             data["t"][Ti], data["t"][Ti+1], dt, it, 1)

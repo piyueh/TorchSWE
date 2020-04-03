@@ -19,6 +19,10 @@ def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     """A simple 1st-order forward Euler time-marching.
     """
 
+    # exapnd variables
+    Bfx, Bfy = Bf["x"], Bf["y"]
+    dBx, dBy = dBc["x"], dBc["y"]
+
     # total soil volume
     soil_vol = Bc.sum().item() * dx * dx
 
@@ -37,7 +41,7 @@ def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     while True: # TODO: use iteration counter to avoid infinity loop
 
         # Euler step
-        k, max_dt = rhs_fun(U, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k, max_dt = rhs_fun(U, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # adjust time step size; modify dt if next step will exceed target end time
         if t_current + dt > t_end:
@@ -69,6 +73,10 @@ def RK2(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     """Commonly seen explicit 2th-order Runge-Kutta scheme.
     """
 
+    # exapnd variables
+    Bfx, Bfy = Bf["x"], Bf["y"]
+    dBx, dBy = dBc["x"], dBc["y"]
+
     # total soil volume
     soil_vol = Bc.sum().item() * dx * dx
 
@@ -91,7 +99,7 @@ def RK2(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     while True: # TODO: use iteration counter to avoid infinity loop
 
         # the slope from the first step, using U
-        k1, max_dt[0] = rhs_fun(U, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k1, max_dt[0] = rhs_fun(U, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # check if it is safe to update conservative variables
         if dt / 2. >= max_dt[0]:
@@ -105,7 +113,7 @@ def RK2(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
         Utemp = update_ghost(Utemp)
 
         # the final step, using Utemp
-        k2, max_dt[1] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k2, max_dt[1] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # update U directly because we reach the end of this time step
         U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * k2
@@ -136,6 +144,10 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     """Commonly seen explicit 4th-order Runge-Kutta scheme.
     """
 
+    # exapnd variables
+    Bfx, Bfy = Bf["x"], Bf["y"]
+    dBx, dBy = dBc["x"], dBc["y"]
+
     # total soil volume
     soil_vol = Bc.sum().item() * dx * dx
 
@@ -158,7 +170,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     while True: # TODO: use iteration counter to avoid infinity loop
 
         # the slope from the first step, using U
-        k1, max_dt[0] = rhs_fun(U, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k1, max_dt[0] = rhs_fun(U, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # check if it is safe to update conservative variables
         if dt / 2. >= max_dt[0]:
@@ -172,7 +184,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
         Utemp = update_ghost(Utemp)
 
         # the slope from the second step, using Utemp
-        k2, max_dt[1] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k2, max_dt[1] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # check if it is safe to update conservative variables
         if dt / 2. >= max_dt[1]:
@@ -187,7 +199,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
         Utemp = update_ghost(Utemp)
 
         # the slope from the second step, using Utemp
-        k3, max_dt[2] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k3, max_dt[2] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # check if it is safe to update conservative variables
         if dt >= max_dt[2]:
@@ -202,7 +214,7 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
         Utemp = update_ghost(Utemp)
 
         # the final step, using Utemp
-        k4, max_dt[3] = rhs_fun(Utemp, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta)
+        k4, max_dt[3] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
 
         # update U directly because we reach the end of this time step
         U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * (k1 + 2. * k2 + 2. * k3 + k4) / 6.
