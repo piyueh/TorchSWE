@@ -41,7 +41,7 @@ def source(U, dBx, dBy, Bc, Ngh: int, g: float) -> torch.Tensor:
     Nx: int = U.shape[2] - 2 * Ngh
     Ny: int = U.shape[1] - 2 * Ngh
 
-    S: torch.Tensor = torch.zeros((3, Ny, Nx), device="cuda", dtype=U.dtype)
+    S: torch.Tensor = torch.zeros((3, Ny, Nx), device=U.device, dtype=U.dtype)
 
     gH: torch.Tensor = -g * (U[0, Ngh:-Ngh, Ngh:-Ngh] - Bc)
     S[1, :, :] = gH * dBx
