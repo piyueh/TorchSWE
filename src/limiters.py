@@ -41,12 +41,12 @@ def minmod_limiter(U, dx: float, Ngh: int, theta: float=1.3):
     denominator = U[:, Ngh:-Ngh, Ngh:Nx+Ngh+2]-U[:, Ngh:-Ngh, Ngh-1:-Ngh+1] # U_{i+1} - U_{i}
     r = numerator / denominator
     phi = torch.max(torch.min(torch.min(theta*r, (1.+r)/2.), theta), zero)
-    dUx = phi * denominator / dx
+    dUx = torch.where(torch.isnan(r), zero, phi*denominator/dx)
 
     numerator = U[:, Ngh-1:-Ngh+1, Ngh:-Ngh]-U[:, Ngh-2:-Ngh, Ngh:-Ngh] # U_{j} - U_{j-1}
     denominator = U[:, Ngh:Ny+Ngh+2, Ngh:-Ngh]-U[:, Ngh-1:-Ngh+1, Ngh:-Ngh] # U_{j+1} - U_{j}
     r = numerator / denominator
     phi = torch.max(torch.min(torch.min(theta*r, (1.+r)/2.), theta), zero)
-    dUy = phi * denominator / dx
+    dUy = torch.where(torch.isnan(r), zero, phi*denominator/dx)
 
     return dUx, dUy
