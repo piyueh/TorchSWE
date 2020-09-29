@@ -55,6 +55,20 @@ _extrap_slc = {
     "south": lambda n, c: [slice(c, c+1), slice(0, n), slice(n, -n)]
 }
 
+_inflow_topo_key = {
+    "west": lambda c: "x",
+    "east": lambda c: "x",
+    "north": lambda c: "y",
+    "south": lambda c: "y"
+}
+
+_inflow_topo_slc = {
+    "west": lambda c: (slice(None), slice(0, 1)),
+    "east": lambda c: (slice(None), slice(-1, None)),
+    "north": lambda c: (slice(-1, None), slice(None)),
+    "south": lambda c: (slice(0, 1), slice(None))
+}
+
 _allowed_orient = ["west", "east", "north", "south"]
 _allowed_bc_type = ["periodic", "extrap", "const"]
 
@@ -272,7 +286,83 @@ def constant_bc_factory(const, Ngh, orientation, component, device):
 
     return constant_bc
 
-def update_all_factory(bcs, Ngh, device=None):
+def inflow_bc_factory(Bf, const, Ngh, orientation, component, device):
+    """A function factory to create a ghost-cell updating function.
+
+    Args:
+    -----
+        const: a scalar of either w, hu, or hv.
+        Ngh: an integer for the number of ghost cells outside each boundary.
+        orientation: a string of one of the following orientation -- "west",
+            "east", "north", or "south".
+        component: an integer indicating this BC will be applied to which
+            component -- 0 for w, 1 for hu, and 2 for hv.
+        device: where new tensors will be created.
+
+    Returns:
+    --------
+        A function with a signature of f(torch.tensor) -> torch.tensor. Both the
+        input and output tensors have a shape of (3, Ny+2*Ngh, Nx+2*Ngh).
+    """
+
+    seq = _extrap_seq[orientation](Ngh, device)
+    anchor = _extrap_anchor[orientation](Ngh, component)
+    slc = _extrap_slc[orientation](Ngh, component)
+    bckey = _inflow_topo_key[orientation](component)
+    bcslc = _inflow_topo_slc[orientation](component)
+    w = _extrap_anchor[orientation](Ngh, 0)
+
+    def inflow_bc_h(U):
+        delta = (const + Bf[bckey][bcslc] - U[anchor]) * 2
+        U[slc] = U[anchor] + seq * delta
+        return U
+
+    def inflow_bc_u(U):
+        delta = (const * (torch.max(U[w], Bf[bckey][bcslc]) - Bf[bckey][bcslc]) - U[anchor]) * 2
+        U[slc] = U[anchor] + seq * delta
+        return U
+
+    def inflow_bc(U):
+        delta = (const - U[anchor]) * 2.
+        U[slc] = U[anchor] + seq * delta
+        return U
+
+    inflow_bc.const = const
+    inflow_bc.seq = seq
+    inflow_bc.anchor = anchor
+    inflow_bc.slc = slc
+    inflow_bc.Bf = Bf
+    inflow_bc.bckey = bckey
+    inflow_bc.bcslc = bcslc
+    inflow_bc.w = w
+    inflow_bc.__doc__ = \
+    """Update the ghost cells with constant BC using linear extrapolation.
+
+    Ghost cells should have the same cell size as the first/last interior
+    cell does. Note we ignore the ghost cells at corners. They shouldn't be
+    used in this numerical method.
+
+    Theoretically speaking, U is modified in-place, but we still return it.
+
+    This function has two member attributes: slc_left and slc_right, which
+    are lists of three Python native slice object. Users can manually check
+    the values of these slices for debugging.
+
+    Args:
+    -----
+        U: a (3, Ny+2*Ngh, Nx+2*Ngh) torch.tensor of conservative variables.
+
+    Returns:
+    --------
+        Updated U.
+    """
+
+    if component == 0:
+        return inflow_bc_h
+
+    return inflow_bc_u
+
+def update_all_factory(bcs, Ngh, Bf, device=None):
     """A factory to create a update-all ghost-cell updating function.
 
     Args:
@@ -322,6 +412,11 @@ def update_all_factory(bcs, Ngh, device=None):
             elif bctype == "const":
                 assert device is not None
                 functions[key][i] = constant_bc_factory(bctypes["values"][i], Ngh, key, i, device)
+
+            # inflow/constant non-conservative variables
+            elif bctype == "inflow":
+                assert device is not None
+                functions[key][i] = inflow_bc_factory(Bf, bctypes["values"][i], Ngh, key, i, device)
 
             # others: error
             else:

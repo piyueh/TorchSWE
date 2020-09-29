@@ -39,7 +39,7 @@ def main():
     dt = 1e-3
 
     # function to update all ghost cells in one call
-    update_bc = update_all_factory(config["boundary conditions"], Ngh, config["device"])
+    update_bc = update_all_factory(config["boundary conditions"], Ngh, data["Bf"], config["device"])
 
     # expand initial solution to (2, Ny+2*Ngh, Nx+2*Ngh)
     U = torch.zeros((3, Ny+2*Ngh, Nx+2*Ngh), dtype=config["dtype"], device=config["device"])
