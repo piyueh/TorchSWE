@@ -6,8 +6,9 @@
 #
 # Distributed under terms of the MIT license.
 
-"""
-Things relating to initializatio of a simulation.
+"""Things relating to initializatio of a simulation.
+
+TODO: use schema for config.yaml
 """
 import os
 import argparse
@@ -40,18 +41,27 @@ def init():
 
     # parse command-line arguments
     parser = argparse.ArgumentParser(
-        "TorchSWE", None,
-        "GPU shallow-water equation solver utilizing PyTorch",
-        "Website: https://github.com/piyueh/TorchSWE")
+        prog="TorchSWE",
+        description="GPU shallow-water equation solver utilizing PyTorch",
+        epilog="Website: https://github.com/piyueh/TorchSWE",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+    )
     parser.add_argument(
         "case_folder", metavar="PATH", action="store", type=str,
-        help="The path to a case folder.")
+        help="The path to a case folder."
+    )
     parser.add_argument(
         "-cpu", action="store_true", dest="cpu",
-        help="Use CPU instead of GPU")
+        help="Use CPU instead of GPU"
+    )
     parser.add_argument(
         "-sp", action="store_true", dest="sp",
-        help="Use single precision instead of double precision floating numbers")
+        help="Use single precision instead of double precision floating numbers"
+    )
+    parser.add_argument(
+        "-tm", action="store", type=str, choices=["RK2", "RK4"], default=None,
+        help="Time-marching scheme."
+    )
     args = parser.parse_args()
 
     # select device and precision
@@ -71,6 +81,13 @@ def init():
     config["yaml"] = yaml_path
     config["device"] = device
     config["dtype"] = dtype
+
+    # TODO: this code can be simplified with config.yaml schema/template
+    if args.tm is not None: # force to overwrite any setting in config.yaml
+        config["temporal"] = args.tm
+    else: # if not in CMD, check if users have the setting in config,yaml
+        if "temporal" not in config: # if no, then fall back to RK2
+            config["temporal"] = "RK2"
 
     # move all path to absolute path
     config["topography"]["file"] = os.path.abspath(

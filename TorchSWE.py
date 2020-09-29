@@ -74,9 +74,17 @@ def main():
 
     t0 = time.time()
 
+    # temporal scheme
+    if config["temporal"] == "RK4":
+        TM = RK4
+    elif config["temporal"] == "RK2":
+        TM = RK2
+    else:
+        raise RuntimeError
+
     # start running time-march until each outpu time
     for Ti in range(len(data["t"])-1):
-        U, it, tc, dt = RK2(
+        U, it, tc, dt = TM(
             U, update_bc, fvm, data["Bf"], data["Bc"], data["dBc"],
             data["dx"], Ngh, config["gravity"], epsilon, theta,
             data["t"][Ti], data["t"][Ti+1], dt, it, 1)
