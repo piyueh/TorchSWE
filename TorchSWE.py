@@ -16,7 +16,7 @@ import torch
 from utils.initializer import init
 from utils.netcdf import write_cf, append_time_data
 from src.fvm import fvm
-from src.temporal import RK2, RK4
+from src.temporal import euler, RK2, RK4
 from src.boundary_conditions import update_all_factory
 
 # enforce print precision
@@ -48,7 +48,6 @@ def main():
 
     # other parameters
     epsilon = data["dx"]**4
-    theta = 1.3
 
     # initialize counter
     it = 0
@@ -79,6 +78,8 @@ def main():
         TM = RK4
     elif config["temporal"] == "RK2":
         TM = RK2
+    elif config["temporal"] == "euler":
+        TM = euler
     else:
         raise RuntimeError
 
@@ -86,7 +87,7 @@ def main():
     for Ti in range(len(data["t"])-1):
         U, it, tc, dt = TM(
             U, update_bc, fvm, data["Bf"], data["Bc"], data["dBc"],
-            data["dx"], Ngh, config["gravity"], epsilon, theta,
+            data["dx"], Ngh, config["gravity"], epsilon, config["theta"],
             data["t"][Ti], data["t"][Ti+1], dt, it, 1)
 
         # sanity check

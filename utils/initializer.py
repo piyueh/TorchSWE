@@ -59,7 +59,7 @@ def init():
         help="Use single precision instead of double precision floating numbers"
     )
     parser.add_argument(
-        "-tm", action="store", type=str, choices=["RK2", "RK4"], default=None,
+        "-tm", action="store", type=str, choices=["RK2", "RK4", "euler"], default=None,
         help="Time-marching scheme."
     )
     args = parser.parse_args()
@@ -88,6 +88,10 @@ def init():
     else: # if not in CMD, check if users have the setting in config,yaml
         if "temporal" not in config: # if no, then fall back to RK2
             config["temporal"] = "RK2"
+
+    # TODO: again should be handled by schema default
+    if "theta" not in config:
+        config["theta"] = 1.3
 
     # move all path to absolute path
     config["topography"]["file"] = os.path.abspath(
