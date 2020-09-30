@@ -93,6 +93,10 @@ def init():
     if "theta" not in config:
         config["theta"] = 1.3
 
+    # TODO: again should be handled by schema default
+    if "drytol" not in config:
+        config["drytol"] = 1e-5
+
     # move all path to absolute path
     config["topography"]["file"] = os.path.abspath(
         os.path.join(case_folder, config["topography"]["file"]))

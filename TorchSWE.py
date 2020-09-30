@@ -47,7 +47,7 @@ def main():
     U = update_bc(U)
 
     # other parameters
-    epsilon = data["dx"]**4
+    epsilon = config["drytol"]**4
 
     # initialize counter
     it = 0
