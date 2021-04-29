@@ -6,6 +6,5 @@
 #
 # Distributed under terms of the MIT license.
 
-"""
-__init__.py
+"""Utilities of TorchSWE.
 """

@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 #
-# Copyright © 2020 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Copyright © 2020-2021 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
 # Distributed under terms of the MIT license.
 
@@ -13,11 +13,11 @@ Main function.
 import os
 import time
 import torch
-from utils.initializer import init
-from utils.netcdf import write_cf, append_time_data
-from src.fvm import fvm
-from src.temporal import euler, RK2, RK4
-from src.boundary_conditions import update_all_factory
+from torchswe.core.initializer import init
+from torchswe.core.fvm import fvm
+from torchswe.core.temporal import euler, RK2, RK4
+from torchswe.core.boundary_conditions import update_all_factory
+from torchswe.utils.netcdf import write_cf, append_time_data
 
 # enforce print precision
 torch.set_printoptions(precision=15, linewidth=200)
@@ -105,6 +105,9 @@ def main():
 
     print("Run time (wall time): {} seconds".format(time.time()-t0))
 
+    return 0
+
 
 if __name__ == "__main__":
-    main()
+    import sys
+    sys.exit(main())

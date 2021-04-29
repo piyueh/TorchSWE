@@ -6,8 +6,7 @@
 #
 # Distributed under terms of the MIT license.
 
-"""
-Function related Esri ASCII format.
+"""Functions related Esri ASCII format.
 """
 import os
 import numpy

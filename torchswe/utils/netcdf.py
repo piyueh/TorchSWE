@@ -6,8 +6,7 @@
 #
 # Distributed under terms of the MIT license.
 
-"""
-Functions related to I/O with NetCDF files in CF convention.
+"""Functions related to NetCDF I/O with the CF convention.
 """
 import os
 import datetime

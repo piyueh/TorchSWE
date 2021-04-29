@@ -10,3 +10,6 @@ comparisons/geoclaw/**/*.bin
 comparisons/geoclaw/**/*.o
 comparisons/**/*.png
 comparisons/**/*.asc
+*.egg-info
+build
+dist

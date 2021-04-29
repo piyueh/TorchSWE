@@ -14,7 +14,7 @@ import os
 import argparse
 import yaml
 import torch
-from .netcdf import read_cf
+from ..utils.netcdf import read_cf
 
 
 def init():
@@ -44,7 +44,8 @@ def init():
         prog="TorchSWE",
         description="GPU shallow-water equation solver utilizing PyTorch",
         epilog="Website: https://github.com/piyueh/TorchSWE",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        allow_abbrev=False
     )
     parser.add_argument(
         "case_folder", metavar="PATH", action="store", type=str,
