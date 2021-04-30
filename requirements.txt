@@ -4,3 +4,4 @@ matplotlib
 pyyaml
 netCDF4
 torch
+pydantic
