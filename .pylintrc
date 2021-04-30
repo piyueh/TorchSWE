@@ -1,0 +1,9 @@
+[MASTER]
+extension-pkg-whitelist=pydantic
+jobs=0
+
+[BASIC]
+good-names=i, j, k, m, n, t, x, y, z
+
+[FORMAT]
+max-line-length=100

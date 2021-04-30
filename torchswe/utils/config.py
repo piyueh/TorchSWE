@@ -13,7 +13,7 @@ import pathlib
 from typing import Tuple, Union, Optional
 
 import yaml
-from pydantic import BaseModel, Field, validator, root_validator, conint, confloat  # pylint: disable=no-name-in-module
+from pydantic import BaseModel, Field, validator, root_validator, conint, confloat
 
 
 class TemporalScheme(enum.Enum):
@@ -105,9 +105,11 @@ class TemporalConfig(BaseModel):
             return v
 
         if v[0] == OutoutType.AT:
-            assert isinstance(v[1], (tuple, list)), "When using \"at\", the second element should be a tuple/list."
+            assert isinstance(v[1], (tuple, list)), \
+                "When using \"at\", the second element should be a tuple/list."
         elif v[0] == OutoutType.EVERY:
-            assert isinstance(v[1], float), "When using \"every\", the second element should be a float."
+            assert isinstance(v[1], float), \
+                "When using \"every\", the second element should be a float."
 
         return v
 
@@ -118,11 +120,13 @@ class SingleBCConfig(BaseModel):
     Attributes
     ----------
     types : a length-3 tuple/list of str/BCType
-        Boundary conditions correspond to the three conservative quantities. If the type is "inflow", they correspond
-        to non-conservative quantities.
+        Boundary conditions correspond to the three conservative quantities. If the type is
+        "inflow", they correspond to non-conservative quantities, i.e., u and v. Applying "inflow"
+        to depth h or elevation w seems not be make any sense.
     values : a length-3 tuple of floats or None
         Some BC types require user-provided values (e.g., "const"). Use this to give values.
-        Defautl: [None, None, None]
+        Usually, they are the conservative quantities, i.e., w, hu, and hv. For "inflow", however,
+        they are non-conservative quantities, i.e., u and v. Defautl: [None, None, None]
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
@@ -164,7 +168,8 @@ class ICConfig(BaseModel):
     file : None or str or path-like object
         The path to a NetCDF file containing IC data.
     keys : None or a tuple/list of str
-        The variable names in the `file` that correspond to w, hu, and hv. If `file` is None, this can be None.
+        The variable names in the `file` that correspond to w, hu, and hv. If `file` is None, this
+        can be None.
     values : None or a tuple/list of floats
         If `file` is None, use this attribute to specify constant IC values.
     """

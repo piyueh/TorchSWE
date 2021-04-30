@@ -13,8 +13,10 @@ import argparse
 import yaml
 import numpy
 from scipy.interpolate import RectBivariateSpline
+from ..utils.dummydict import DummyDict
 from ..utils.netcdf import read_cf
 from ..utils.config import Config, TemporalScheme, OutoutType
+from .temporal import euler, RK2, RK4
 
 
 def init():
@@ -23,8 +25,9 @@ def init():
     Returns:
     --------
         config: a torchswe.utils.config.Config
-            An config instance holding a case's simulation configurations plus the following additional parameters.
-            All paths are converted to absolute paths.
+            An config instance holding a case's simulation configurations plus the following
+            additional parameters. All paths are converted to absolute paths. Temporal scheme
+            is replaced with the corresponding function.
 
         data: dict
             Contains all returns from create_gridlines, create_topography, and create_ic.
@@ -48,6 +51,13 @@ def init():
     if args.tm is not None:  # overwrite the setting in config.yaml
         config.temporal.scheme = TemporalScheme(args.tm)
 
+    if config.temporal.schema == TemporalScheme.EULER:
+        config.temporal.schema = euler
+    elif config.temporal.schema == TemporalScheme.RK2:
+        config.temporal.schema = RK2
+    elif config.temporal.schema == TemporalScheme.RK4:
+        config.temporal.schema = RK4
+
     # if topo filepath is relative, change to abs path
     config.topo.file = config.topo.file.expanduser()
     if not config.topo.file.is_absolute():
@@ -66,7 +76,7 @@ def init():
             config.prehook = config.case.joinpath(config.prehook).resolve()
 
     # create data
-    data = {}
+    data = DummyDict()
 
     # spatial discretization + output time values
     data.update(create_gridlines(config.spatial, config.temporal, config.ftype))
@@ -110,7 +120,7 @@ def get_cmd_arguments():
 
     parser.add_argument(
         "--tm", action="store", type=str, choices=["RK2", "RK4", "Euler"], default=None,
-        help="Overwrite the time-marching scheme. Default: respect the setting in config.yaml."
+        help="Overwrite the time-marching scheme. Default is to respect the setting in config.yaml."
     )
 
     args = parser.parse_args()
@@ -168,12 +178,13 @@ def create_gridlines(spatial, temporal, dtype):
     yc = numpy.linspace(spatial.domain[2]+dy/2., spatial.domain[3]-dy/2., Ny, dtype=dtype)
 
     # coordinates of midpoints of cell interfaces
-    xf = {"x": xv, "y": xc}
-    yf = {"x": yc, "y": yv}
+    xf = DummyDict({"x": xv, "y": xc})
+    yf = DummyDict({"x": yc, "y": yv})
 
     if temporal.output is None:
-        return {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
-                "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": None}
+        return DummyDict(
+            {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
+             "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": None})
 
     # temporal gridline: not used in computation, so use native list here
     if temporal.output[0] == OutoutType.EVERY:
@@ -185,8 +196,9 @@ def create_gridlines(spatial, temporal, dtype):
     else:  # OutputType.AT
         t = temporal.output[1]
 
-    return {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
-            "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": t}
+    return DummyDict(
+        {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
+         "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": t})
 
 
 def create_topography(topo, xv, yv):
@@ -234,7 +246,8 @@ def create_topography(topo, xv, yv):
     shape_mismatch = not (topodata["x"].shape == xv.shape and topodata["y"].shape == yv.shape)
 
     if not shape_mismatch:
-        value_mismatch = not (numpy.allclose(xv, topodata["x"]) and numpy.allclose(yv, topodata["y"]))
+        value_mismatch = not (
+            numpy.allclose(xv, topodata["x"]) and numpy.allclose(yv, topodata["y"]))
     else:
         value_mismatch = True
 
