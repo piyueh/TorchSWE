@@ -2,18 +2,20 @@
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 #
-# Copyright © 2020 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Copyright © 2020-2021 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """Functions related to NetCDF I/O with the CF convention.
 """
-import os
-import datetime
+import pathlib
+from datetime import datetime, timezone
+
 import netCDF4
+from .dummydict import DummyDict  # pylint: disable=import-error
 
 
-def read_cf(filepath, data_keys, **kwargs):
+def read_cf(fpath, data_keys, **kwargs):
     """Read data from a NetCDF file in CF convention.
 
     The pure spatial array, data is in traditional numerical simulation style.
@@ -23,34 +25,36 @@ def read_cf(filepath, data_keys, **kwargs):
 
     For temporal data, the dimension is (time, y, x).
 
-    Args:
-    -----
-        filepath: path to the input file.
-        data_keys: a list of variable names in the file that will be read.
+    Arguments
+    ---------
+    fpath : str or path-like
+        Path to the input file.
+    data_keys : a tuple/list of str
+        Variable names in the file that will be read.
+    **kwargs :
+        Arbitrary keyword arguments passed into netCDF4.Dataset.__init__.
 
-        **kwargs are extra argument passed into netCDF4.Dataset.__init__.
-
-    Returns:
-    --------
-        data: a dictionary that has key-value pairs of
-            x: a 1D numpy.ndarray; gridline in x direction.
-            y: a 1D numpy.ndarray; gridline in y direction.
-            time: (optional) a 1D numpy.ndarray if gridline in time exists.
-            And all keys specified in data_key argument.
-
-        attrs: a dict of dicts; attributes for each key in data (exclude root
-            group's).
+    Returns
+    -------
+    data : a dict
+        This dict has key-value pairs of:
+        - x: a 1D numpy.ndarray; gridline in x direction.
+        - y: a 1D numpy.ndarray; gridline in y direction.
+        - time: (optional) a 1D numpy.ndarray if gridline in time exists.
+        - And all keys specified in data_key argument.
+    attrs : a dict of dicts
+        Attributes for each key in data (exclude root group's).
     """
 
     # use absolute path
-    filepath = os.path.abspath(filepath)
+    fpath = pathlib.Path(fpath).expanduser().resolve()
 
     # empty dictionary
-    data = {}
-    attrs = {}
+    data = DummyDict()
+    attrs = DummyDict()
 
     # create a NetCDF4 file/dataset
-    with netCDF4.Dataset(filepath, "r", **kwargs) as rootgrp:
+    with netCDF4.Dataset(fpath, "r", **kwargs) as rootgrp:  # pylint: disable=no-member
 
         # x and y
         data["x"] = rootgrp["x"][:].data
@@ -72,29 +76,29 @@ def read_cf(filepath, data_keys, **kwargs):
 
     return data, attrs
 
-def write_cf(filepath, x, y, data, t=None, tdata=None, options={}, **kwargs):
+
+def write_cf(fpath, gridline, data, options=None, **kwargs):
     """A wrapper to safely write to a NetCDF file.
 
     In case an I/O error happen, the NetCDF file will still be safely closed.
 
-    Args:
-    -----
-        filepath: path to the target file.
-
-        See write_cf_to_dataset for other argument documentation. **kwargs are
-        the arguments of netCDF4.Dataset.__init__.
-
-    Returns:
-    --------
-        N/A
+    Arguments
+    ---------
+    fpath : str or path-like
+        Path to the target file.
+    gridline, data, options :
+        See `write_cf_to_dataset` for their documentation.
+    **kwargs :
+        Arbitrary keyword arguments that will be provide to netCDF4.Dataset.__init__.
     """
 
-    filepath = os.path.abspath(filepath)
+    fpath = pathlib.Path(fpath).expanduser().resolve()
 
-    with netCDF4.Dataset(filepath, "w", **kwargs) as rootgrp:
-        rootgrp = write_cf_to_dataset(rootgrp, x, y, data, t, tdata, options)
+    with netCDF4.Dataset(fpath, "w", **kwargs) as rootgrp:  # pylint: disable=no-member
+        rootgrp = write_cf_to_dataset(rootgrp, gridline, data, options)
 
-def write_cf_to_dataset(dataset, x, y, data, t=None, tdata=None, options={}):
+
+def write_cf_to_dataset(dset, gridline, data, options=None):
     """Create a NetCDF file of CF convention.
 
     Note the input argument, data, is in regular numeric simulation style, i.e.,
@@ -106,261 +110,262 @@ def write_cf_to_dataset(dataset, x, y, data, t=None, tdata=None, options={}):
 
     No sanity check will be done. Users have to be careful of dimensions mismatch.
 
-    Args:
-    -----
-        dataset: a netCDF4.Dataset; the destination of data output.
-        x: a 1D numpy.ndarray of length Nx; gridlines in x.
-        y: a 1D numpy.ndarray of length Nx; gridlines in y.
-        data: a dictionary of (variable name, array) pairs; the arrays are
+    Argument
+    --------
+    dset : netCDF4.Dataset
+        The destination of data output.
+    gridline : a dict
+        This dict contains the following key-value pair
+        - x, y : 1D numpy.ndarray of length Nx and Ny repectively
+            The x and y coordinates
+        - time : (optional) 1D numpy.ndarray of length Nt
+            The coordinates in temporal axis.
+    data: a dictionary of (variable name, array) pairs; the arrays are
             spatial data only, i.e., with shape (Ny, Nx)
-        t: an optional numpy.ndarray of length Nt for temporal gridline.
-        tdata: a dictionary of (variable name, array) pairs; the arrays are
-            temporal-spatial data, i.e, with shape (Nt, Ny, Nx).
-        options: a dictionary of dictionary. The outer dictionary are of pairs
-            (variable name, dictionary). The inner dictionaries are the
-            attributes of each vriable. A special key is "root", which holds
-            attributes to the dataset itself. For options of variables, usually
-            users may want to at least specify the attribute "units".
+    options: a dict of dict
+        The outer dictionary has pairs (variable name, dictionary). The inner dictionaries
+        are the attributes of each vriable. A special key is "root", which holds attributes
+        to the dataset itself. For options of variables, usually users may want to at least
+        specify the attribute "units".
 
-    Return:
+    Returns
     -------
-        The same input dataset but with data.
+    dset : netCDF4.Dataset
+        The same input dataset but with a mercator.
     """
 
+    # sanity check
+    assert "x" in gridline, "The key \"x\" is missing."
+    assert "y" in gridline, "The key \"y\" is missing."
+    for val in data.values():
+        if "time" in gridline:
+            assert len(val.shape) in (2, 3), "The arrays should be either 2D or 3D."
+        else:
+            assert len(val.shape) == 2, "The arrays should be 2D."
+
     # get current time
-    from datetime import datetime, timezone
-    T = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    cur_t = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
     # complete the option dictonary to save time dealing with KeyError exception
+    options = {} if options is None else options
     for key in ["root", "x", "y", "time", "mercator"]:
         options[key] = options[key] if key in options else {}
 
     # global attributes
-    dataset.title = "Data created by TorchSWE"
-    dataset.institution = "The George Washington University"
-    dataset.source = "TorchSWE"
-    dataset.history = "Created " + T
-    dataset.reference = "https://github.com/piyueh/TorchSWE"
-    dataset.comment = ""
-    dataset.Conventions = "CF-1.7"
+    dset.title = "Data created by TorchSWE"
+    dset.institution = "The George Washington University"
+    dset.source = "TorchSWE"
+    dset.history = "Created " + cur_t
+    dset.reference = "https://github.com/piyueh/TorchSWE"
+    dset.comment = ""
+    dset.Conventions = "CF-1.7"
 
     # overwrite the root groups's attributes if users provide any
-    dataset.setncatts(options["root"])
+    dset.setncatts(options["root"])
 
-    # create spatial axes
-    dataset = add_spatial_axis(dataset, "x", x, options["x"])
-    dataset = add_spatial_axis(dataset, "y", y, options["y"])
+    # create axes
+    dset = add_spatial_axis(dset, gridline, options)
+
+    if "time" in gridline:
+        dset = add_time_axis(dset, gridline["time"], None, options["time"])
 
     # create spatial variables
-    for key, array in data.items():
-        dataset.createVariable(
-            key, "f8", ("y", "x"), True, 9, fill_value=float("NaN"))
+    for key, val in data.items():
+        if len(val.shape) == 2:
+            dset.createVariable(key, "f8", ("y", "x"), True, 9, fill_value=float("NaN"))
+        elif len(val.shape) == 3:
+            dset.createVariable(key, "f8", ("time", "y", "x"), True, 9, fill_value=float("NaN"))
 
         # variable attributes
-        dataset[key][:, :] = array
-        dataset[key].long_name = key
-        dataset[key].grid_mapping = "mercator"
+        dset[key][...] = val
+        dset[key].long_name = key
+        dset[key].grid_mapping = "mercator"
 
         # overwrite the data's attributes if users provide any
         try:
-            dataset[key].setncatts(options[key])
+            dset[key].setncatts(options[key])
         except KeyError:
             pass
 
-    # if there're also temporal-spatial data
-    if t is not None:
-        dataset = add_time_axis(dataset, t, options=options["time"])
-
-        # variable attributes
-        for key, array in tdata.items():
-            dataset.createVariable(
-                key, "f8", ("time", "y", "x"), True, 9, fill_value=float("NaN"))
-
-            # variable attributes
-            dataset[key][:, :, :] = array
-            dataset[key].long_name = key
-            dataset[key].grid_mapping = "mercator"
-
-            # overwrite or add attributes if users provide any
-            try:
-                dataset[key].setncatts(options[key])
-            except KeyError:
-                pass
-
     # add mercator
-    dataset = add_mercator(
-        dataset, x[0], x[1]-x[1], y[-1], y[1]-y[0], options["mercator"])
+    dset = add_mercator(
+        dset, (gridline["x"][0], gridline["y"][-1]),
+        (gridline["x"][1]-gridline["x"][1], gridline["y"][1]-gridline["y"][0]),
+        options["mercator"])
 
-    return dataset
+    return dset
 
-def append_time_data(filepath, time, data, options={}, **kwargs):
-    """Append data to temporal data.
+
+def append_time_data(fpath, time, data, options=None, **kwargs):
+    """Append data to temporal dataset in a NetCDF file.
 
     Note:
-        1. the corresponding variables must either not exist in the dataset or
-            already have temporal dimension.
-        2. fill_value is assumed to be float("NaN")
+        - the corresponding variables must either not exist in the dataset or already have temporal
+          dimension.
+        - fill_value is assumed to be float("NaN")
 
-    Args:
-    -----
-        filepath: file path.
-        time: a scalar; the value of time.
-        data: a dictionary of (variable name, array); the arrays are the spatial
-            data being written in NetCDF and with shape (Ny, Nx).
-        options: a dicitonary of dictionary to specify the attributes of each
-            variables if the variables will be created in this function.
-
-        **kwargs are the arguments passed to netCDF4.Dataset.__init__.
-
-    Returns:
-    --------
-        N/A
+    Arguments
+    ---------
+    fpath : str or path-like
+        Path to the target file.
+    time : float
+        The value of time.
+    data : a dict
+        Has key-value pairs of (variable name, array). The arrays have the shape (Ny, Nx).
+    options : None or a dict
+        A dicitonary of dictionary to specify the attributes of each variables if the variables will
+        be created in this function.
+    **kwargs :
+        Arbitrary keyword arguments that will be provide to netCDF4.Dataset.__init__.
     """
 
+    options = {} if options is None else options
     options["time"] = options["time"] if "time" in options else {}
 
     # use absolute path
-    filepath = os.path.abspath(filepath)
+    fpath = pathlib.Path(fpath).expanduser().resolve()
 
     # create a NetCDF4 file/dataset
-    with netCDF4.Dataset(filepath, "a", **kwargs) as rootgrp:
+    with netCDF4.Dataset(fpath, "a", **kwargs) as dset:  # pylint: disable=no-member
 
         # see if temporal dimension already exists
-        if "time" not in rootgrp.dimensions.keys():
-            rootgrp = add_time_axis(rootgrp, options=options["time"])
+        if "time" not in dset.dimensions.keys():
+            dset = add_time_axis(dset, options=options["time"])
 
             for key, array in data.items():
-                rootgrp.createVariable(
-                    key, "f8", ("time", "y", "x"), True, 9, fill_value=float("NaN"))
-                rootgrp[key].long_name = key
-                rootgrp[key].grid_mapping = "mercator"
+                dset.createVariable(key, "f8", ("time", "y", "x"), True, 9, fill_value=float("NaN"))
+                dset[key].long_name = key
+                dset[key].grid_mapping = "mercator"
 
                 # overwrite or add attributes if users provide any
                 try:
-                    rootgrp[key].setncatts(options[key])
+                    dset[key].setncatts(options[key])
                 except KeyError:
                     pass
 
-        ti = len(rootgrp["time"])
-        rootgrp["time"][ti] = time
+        tidx = len(dset["time"])
+        dset["time"][tidx] = time
 
         # add data
         for key, array in data.items():
-            rootgrp[key][ti, :, :] = array
+            dset[key][tidx, :, :] = array
 
-def add_time_axis(dataset, values=[], timestamp=None, calendar=None, options={}):
+
+def add_time_axis(dset, values=None, timestamp=None, options=None):
     """Add the time axis to a netCDF4.Dataset.
 
     Default unit is "seconds since {timestamp}".
 
-    Args:
-    -----
-        dataset: a netCDF4.Dataset.
-        values: a list or numpy.ndarray of given time values; empty list means
-            users will assign values later.
-        timestamp: a custom timestam used for the time unit in CF convention.
-            Default value is the current UTC time.
-        calendar: a string for the calendar attribute of a time axis in CF
-            convention. Default value is "standard".
-        options: an optional dictionary to overwrite default attributes or add
-            new attributes.
+    Arguments
+    ---------
+    dset : netCDF4.Dataset
+        The target dataset.
+    values : None, a list, or numpy.ndarray
+        Given time values. None means users will assign values later.
+    timestamp: None or str
+        A custom timestamp used in "since ..." in CF convention. Use ISO time format. If None, the
+        default value is the current UTC time.
+    options: None or a dict
+        An optional dictionary to overwrite default attributes or add new attributes.
 
-    Return:
+    Returns
     -------
-        The same input dataset but with a time axis.
-    """
-
-    if timestamp is None:
-        from datetime import datetime, timezone
-        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
-
-    if calendar is None:
-        calendar = "standard"
-
-    nt = dataset.createDimension("time", None)
-    t = dataset.createVariable("time", "f8", ("time",))
-    t.axis = "T"
-    t.long_name = "Simulation time"
-    t.calendar = calendar
-    t.units = "seconds since " + timestamp
-
-    # copy values in to the netCDF4.Variable
-    t[:] = values
-
-    # overwrite/add the attributes if users provide any
-    t.setncatts(options)
-
-    return dataset
-
-def add_spatial_axis(dataset, name, gridline, options={}):
-    """Add the time axis to a netCDF4.Dataset.
-
-    The spatial gridline is always assumed to be EPSG:3857 coordinates. And the
-    default is therefore meter.
-
-    Args:
-    -----
-        dataset: a netCDF4.Dataset.
-        name: the name of the gridline. The name will be the same for the
-            corresponding netCDF$.Dimension and netCDF4.Variable.
-        gridline: a 1D numpy.ndarray of the gridline data.
-        options: an optional dictionary to overwrite default attributes or add
-            new attributes.
-
-    Return:
-    --------
+    dset : netCDF4.Dataset
         The same input dataset but with a new spatial axis.
     """
 
-    # set up dimension
-    n = dataset.createDimension(name, gridline.size)
+    if timestamp is None:
+        timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
-    # create the variable
-    x = dataset.createVariable(name, "f8", (name,))
+    _ = dset.createDimension("time", None)
+    axis = dset.createVariable("time", "f8", ("time",))
+    axis[:] = values if values is not None else []
+    axis.axis = "T"
+    axis.long_name = "Simulation time"
+    axis.units = "seconds since " + timestamp
 
-    # variable: x
-    x[:] = gridline
-    x.units = "m"
-    x.long_name = "X-coordinate in EPSG:3857 WGS 84"
-    x.standard_name = "projection_x_coordinate"
+    if options is None or "calendar" not in options:
+        axis.calendar = "standard"
 
-    # overwrite/add the attributes if users provide any
-    x.setncatts(options)
+    if options is not None:
+        axis.setncatts(options)
 
-    return dataset
+    return dset
 
-def add_mercator(dataset, xbg, dx, yed, dy, options={}):
+
+def add_spatial_axis(dset, coords, options=None):
+    """Add the spatial axes to a netCDF4.Dataset.
+
+    The spatial coordinates are always assumed to be in EPSG:3857 standard. And the default unit is
+    meter. The name of the gridlines are hard-coded to "x" and "y".
+
+    Arguments
+    ---------
+    dset : netCDF4.Dataset
+        The target dataset.
+    coords: a dict of 1D numpy.ndarray
+        Coordinates in "x" and "y".
+    options: None or a dict
+        An optional dictionary to overwrite default attributes or add new attributes. If not None,
+        options should look like: options = {"x": {additional attrs of x ...}, "y": {additional
+        attrs of y ...}}.
+
+    Returns
+    -------
+    dset : netCDF4.Dataset
+        The same input dataset but with a new spatial axis.
+    """
+
+    axes = {}
+    for key in ("x", "y"):
+        _ = dset.createDimension(key, len(coords[key]))
+        axes[key] = dset.createVariable(key, "f8", (key,))
+        axes[key][:] = coords["x"]
+        axes[key].units = "m"
+        axes[key].long_name = "{}-coordinate in EPSG:3857 WGS 84".format(key)
+        axes[key].standard_name = "projection_{}_coordinate".format(key)
+
+        # overwrite/add the attributes if users provide any
+        if options is not None and options[key] is not None:
+            axes[key].setncatts(options[key])
+
+    return dset
+
+
+def add_mercator(dset, wn_corner, delta, options=None):
     """Add mercator to a given netCDF4.Dataset.
 
     The projection is assumed to be EPSG:3857.
 
-    Args:
-    -----
-        dataset: a netCDF4.Dataset.
-        xbg: a scalar denoting the domain's most left (west) x-coordinate.
-        dx: gird (pixel) size in x direction.
-        yed: a scalar denoting the domain's most top (north) x-coordinate.
-        dy: gird (pixel) size in y direction.
-        options: an optional dictionary to overwrite default attributes or add
-            new attributes.
-
-    Returns:
+    Argument
     --------
+    dset : netCDF4.Dataset
+        The target dataset.
+    wn_corner : a tuple/list of length 2
+        The coordinate of the west-north (i.e., top-left) corner.
+    delta : a tuple/list of length 2
+        The gridspacing in x and y directions.
+    options: None or a dict
+        An optional dictionary to overwrite default attributes or add new attributes.
+
+    Returns
+    -------
+    dset : netCDF4.Dataset
         The same input dataset but with a mercator.
     """
 
     # create the variable
-    mercator = dataset.createVariable("mercator", "S1")
+    mrctr = dset.createVariable("mercator", "S1")
 
     # variable attributes: mercator
-    mercator.GeoTransform = "{} {} 0 {} 0 {}".format(xbg, dx, yed, -dy)
-    mercator.grid_mapping_name = "mercator"
-    mercator.long_name = "CRS definition"
-    mercator.longitude_of_projection_origin =0.0
-    mercator.standard_parallel = 0.0
-    mercator.false_easting = 0.0
-    mercator.false_northing = 0.0
-    mercator.spatial_ref = \
+    mrctr.GeoTransform = "{} {} 0 {} 0 {}".format(wn_corner[0], delta[0], wn_corner[1], -delta[1])
+    mrctr.grid_mapping_name = "mercator"
+    mrctr.long_name = "CRS definition"
+    mrctr.longitude_of_projection_origin = 0.0
+    mrctr.standard_parallel = 0.0
+    mrctr.false_easting = 0.0
+    mrctr.false_northing = 0.0
+    mrctr.spatial_ref = \
         "PROJCS[\"WGS_1984_Web_Mercator_Auxiliary_Sphere\"," + \
             "GEOGCS[\"GCS_WGS_1984\"," + \
                 "DATUM[\"D_WGS_1984\"," + \
@@ -373,9 +378,10 @@ def add_mercator(dataset, xbg, dx, yed, dy, options={}):
             "PARAMETER[\"Central_Meridian\",0.0]," + \
             "PARAMETER[\"Standard_Parallel_1\",0.0]," + \
             "PARAMETER[\"Auxiliary_Sphere_Type\",0.0]," + \
-            "UNIT[\"Meter\",1.0]]"
+            "UNIT[\"Meter\",1.0]]"  # noqa:E127
 
     # overwrite mercator's attributes if users provide any
-    mercator.setncatts(options)
+    if options is not None:
+        mrctr.setncatts(options)
 
-    return dataset
+    return dset
