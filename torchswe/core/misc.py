@@ -6,105 +6,74 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""Misc. functions.
+"""Miscellaneous functions.
 """
-import torch
+import numpy
+
 
 class CFLWarning(Warning):
     """A category of Warning for custome controll of warning action."""
-    def __init__(self, *args, **kwargs):
-        """initializataion"""
-        super(CFLWarning, self).__init__(*args, **kwargs)
+    pass  # pylint: disable=unnecessary-pass
 
-def check_timestep_size(dt, max_dt):
-    """Check if dt is smaller than maximum safe dt.
 
-    If not, add a runtime warning. Users can decide whether to turn the warning
-    into a blocking exception in their program with warnings module:
-
-            warnings.simplefilter("error", CFLWarning)
-
-    Args:
-    -----
-        dt: a scalar time-step size.
-        max_dt: a scalar; maximum safe dt.
-
-    Returns:
-    --------
-        N/A
-    """
-
-    if dt > max_dt:
-        warnings.warn(
-            "dt={} exceeds the maximum safe value of {}".format(dt, max_dt),
-            CFLWarning)
-
-@torch.jit.script
-def decompose_variables(U, B, epsilon: float):
+def decompose_variables(w, hu, hv, topo_elev, epsilon):
     """Decompose conservative variables to dpeth and velocity.
 
-    Args:
+    Notes
     -----
-        U: depends on the use case, it can be a torch.tensor with a shape of
-            either (3, Ny, Nx), (3, Ny+1, Nx), or (3, Ny, Nx+1).
-        B: a 2D torch.tensor with a shape of either (Ny, Nx), (Ny+1, Nx) or
-            (Ny, Nx+1), depending on U.
-        epsilon: a very small number to avoid division by zero.
+    Depending on the use case, their shapes can be either (Ny, Nx), (Ny+1, Nx), or (Ny, Nx+1). And
+    all of them should have the same shape.
 
-    Returns:
-    --------
-        h: a (Ny, Nx), (Ny, Nx+1) or (Ny+1, Nx) torch.tensor of depth.
-        u: a (Ny, Nx), (Ny, Nx+1) or (Ny+1, Nx) torch.tensor of u velocity.
-        v: a (Ny, Nx), (Ny, Nx+1) or (Ny+1, Nx) torch.tensor of v velocity.
+    Arguments
+    ---------
+    w, hu, hv : numpy.ndarray
+        Conservative quantities.
+    topo_elev : numpy.ndarray
+        Topography elevation.
+    epsilon : float
+        A very small number to avoid division by zero.
+
+    Returns
+    -------
+    depth, u_vel, v_vel : numpy.ndarray
+        Dpth, u-velocity, and v-velocity.
     """
 
-    h = U[0, :, :] - B
-    h4 = torch.pow(h, 4)
-    denominator = torch.sqrt(
-        h4+torch.max(h4, torch.tensor(epsilon, device=h4.device, dtype=h4.dtype)))
+    depth = w - topo_elev
 
-    u = h * U[1, :, :] * (2**0.5) / denominator
-    v = h * U[2, :, :] * (2**0.5) / denominator
+    h_4 = numpy.pow(depth, 4)
+    denominator = numpy.sqrt(h_4+numpy.maximum(h_4, epsilon))
 
-    return h, u, v
+    u_vel = depth * hu * 1.4142135623730951 / denominator
+    v_vel = depth * hv * 1.4142135623730951 / denominator
 
-@torch.jit.script
-def local_speed(hxm, hxp, hym, hyp, uxm, uxp, vym, vyp, g: float):
-    """Calculate local speed a.
+    return depth, u_vel, v_vel
 
-    Args:
+
+def local_speed(vel_minus, vel_plus, depth_minus, depth_plus, gravity):
+    """Calculate local speed on the two sides of cell faces.
+
+    Notes
     -----
-        hxm: a (Ny, Nx+1) torch.tensor of depth at the left of interfaces.
-        hxp: a (Ny, Nx+1) torch.tensor of depth at the right of interfaces.
-        hym: a (Ny+1, Nx) torch.tensor of depth at the bottom of interfaces.
-        hyp: a (Ny+1, Nx) torch.tensor of depth at the top of interfaces.
-        uxm: a (Ny, Nx+1) torch.tensor of u velocity at the left of interfaces.
-        uxp: a (Ny, Nx+1) torch.tensor of u velocity at the right of interfaces.
-        vym: a (Ny+1, Nx) torch.tensor of v velocity at the bottom of interfaces.
-        vyp: a (Ny+1, Nx) torch.tensor of v velocity at the top of interfaces.
-        g: gravity
+    If the target faces are normal to x-axis, then the shape of these arrays should be (Ny, Nx+1).
+    If they are normal to y-axis, then the shape should be (Ny+1, Nx).
 
-    Returns:
-    --------
-        axm: a (Ny, Nx+1) torch.tensor representing the local speed at the
-            left sides of the cell interfaces normal to x-direction.
-        axp: a (Ny, Nx+1) torch.tensor representing the local speed at the
-            right sides of the cell interfaces normal to x-direction.
-        aym: a (Ny+1, Nx) torch.tensor representing the local speed at the
-            bottom sides of the cell interfaces normal to y-direction.
-        ayp: a (Ny+1, Nx) torch.tensor representing the local speed at the
-            top sides of the cell interfaces normal to y-direction.
+    Arguments
+    ---------
+    vel_minus, vel_plus : numpy.ndarray
+        The velocity component normal to the target cell faces and on the two sides of the faces.
+    depth_minus, depth_plus : numpy.ndarray
+        The depth on the two sides of cell faces.
+
+    Returns
+    -------
+    a_minus, a_plus : numpy.ndarray
+        Local speeds on the two sides of cell faces.
     """
 
-    hpg_sqrt = torch.sqrt(hxp*g)
-    hmg_sqrt = torch.sqrt(hxm*g)
-    hbg_sqrt = torch.sqrt(hym*g)
-    htg_sqrt = torch.sqrt(hyp*g)
-    zero_tensor = torch.tensor(0, device=hxm.device, dtype=hxm.dtype)
+    sqrt_gh_minus = numpy.sqrt(gravity*depth_minus)
+    sqrt_gh_plus = numpy.sqrt(gravity*depth_plus)
+    a_minus = numpy.minimum(numpy.minimum(vel_plus-sqrt_gh_plus, vel_minus-sqrt_gh_minus), 0.)
+    a_plus = numpy.maximum(numpy.maximum(vel_plus+sqrt_gh_plus, vel_minus+sqrt_gh_minus), 0.)
 
-    axm = torch.min(torch.min(uxp-hpg_sqrt, uxm-hmg_sqrt), zero_tensor)
-    axp = torch.max(torch.max(uxp+hpg_sqrt, uxm+hmg_sqrt), zero_tensor)
-    aym = torch.min(torch.min(vyp-htg_sqrt, vym-hbg_sqrt), zero_tensor)
-    ayp = torch.max(torch.max(vyp+htg_sqrt, vym+hbg_sqrt), zero_tensor)
-
-    return axm, axp, aym, ayp
+    return a_minus, a_plus
