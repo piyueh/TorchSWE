@@ -56,10 +56,10 @@ _extrap_slc = {
 }
 
 _inflow_topo_key = {
-    "west": lambda c: "x",
-    "east": lambda c: "x",
-    "north": lambda c: "y",
-    "south": lambda c: "y"
+    "west": lambda c: "xface",
+    "east": lambda c: "xface",
+    "north": lambda c: "yface",
+    "south": lambda c: "yface"
 }
 
 _inflow_topo_slc = {
@@ -245,7 +245,7 @@ def constant_bc_factory(const, n_ghost, orientation, component):
     return constant_bc
 
 
-def inflow_bc_factory(const, n_ghost, orientation, component, topo_cell_face):
+def inflow_bc_factory(const, n_ghost, orientation, component, topo):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
@@ -258,12 +258,9 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo_cell_face):
         A string of one of the following orientation: "west", "east", "north", or "south".
     component : int
         Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
-    topo_cell_face : a dict
-        A dictionary containing the following key-value pairs
-        - "x": a (3, Ny, Nx+1) numpy.ndarray holding the topography elevations at cell interfaces
-          normal to x-direction.
-        - "y": a (3, Ny+1, Nx) numpy.ndarray holding the topography elevations at cell interfaces
-          normal to y-direction.
+    topo : DummyDict
+        Usually the topography data obtained from `create_topography` in initializer.py. Or at
+        least contains two keys: "xface" and "yface".
 
     Returns
     -------
@@ -274,12 +271,12 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo_cell_face):
     seq = _extrap_seq[orientation](n_ghost)
     anchor = _extrap_anchor[orientation](n_ghost, component)
     slc = _extrap_slc[orientation](n_ghost, component)
-    bckey = _inflow_topo_key[orientation](component)
+    topo_cache = topo[_inflow_topo_key[orientation](component)]
     bcslc = _inflow_topo_slc[orientation]
     w_idx = _extrap_anchor[orientation](n_ghost, 0)
 
     def inflow_bc_depth(conserv_q):
-        delta = (const + topo_cell_face[bckey][bcslc] - conserv_q[anchor]) * 2
+        delta = (const + topo_cache[bcslc] - conserv_q[anchor]) * 2
         conserv_q[slc] = conserv_q[anchor] + seq * delta
         return conserv_q
 
@@ -287,12 +284,11 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo_cell_face):
     inflow_bc_depth.seq = seq
     inflow_bc_depth.anchor = anchor
     inflow_bc_depth.slc = slc
-    inflow_bc_depth.topo_cell_face = topo_cell_face
-    inflow_bc_depth.bckey = bckey
+    inflow_bc_depth.topo_cache = topo_cache
     inflow_bc_depth.bcslc = bcslc
 
     def inflow_bc_velocity(conserv_q):
-        depth = numpy.maximum(conserv_q[w_idx]-topo_cell_face[bckey][bcslc], 0.)
+        depth = numpy.maximum(conserv_q[w_idx]-topo_cache[bcslc], 0.)
         delta = (const * depth - conserv_q[anchor]) * 2
         conserv_q[slc] = conserv_q[anchor] + seq * delta
         return conserv_q
@@ -301,8 +297,7 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo_cell_face):
     inflow_bc_velocity.seq = seq
     inflow_bc_velocity.anchor = anchor
     inflow_bc_velocity.slc = slc
-    inflow_bc_velocity.topo_cell_face = topo_cell_face
-    inflow_bc_velocity.bckey = bckey
+    inflow_bc_velocity.topo_cache = topo_cache
     inflow_bc_velocity.bcslc = bcslc
     inflow_bc_velocity.w_idx = w_idx
 
@@ -327,7 +322,7 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo_cell_face):
     return inflow_bc_velocity
 
 
-def update_all_factory(bcs: BCConfig, n_ghost: int, topo_cell_face: DummyDict):
+def update_all_factory(bcs: BCConfig, n_ghost: int, topo: DummyDict):
     """A factory to create a update-all ghost-cell updating function.
 
     Arguments
@@ -336,12 +331,9 @@ def update_all_factory(bcs: BCConfig, n_ghost: int, topo_cell_face: DummyDict):
         The configuration from the "boundary" node in config.yaml.
     n_ghost : int
         Number of ghost cell layers at each boundary.
-    topo_cell_face : a dict
-        A dictionary containing the following key-value pairs
-        - "x": a (3, Ny, Nx+1) numpy.ndarray holding the topography elevations at cell interfaces
-          normal to x-direction.
-        - "y": a (3, Ny+1, Nx) numpy.ndarray holding the topography elevations at cell interfaces
-          normal to y-direction.
+    topo : DummyDict
+        Usually the topography data obtained from `create_topography` in initializer.py. Or at
+        least contains two keys: "xface" and "yface".
 
     Returns
     -------
@@ -373,7 +365,7 @@ def update_all_factory(bcs: BCConfig, n_ghost: int, topo_cell_face: DummyDict):
                 functions[key][i] = constant_bc_factory(bcs[key]["values"][i], n_ghost, key, i)
             elif bctype == BCType.INFLOW:  # inflow/constant non-conservative variables
                 functions[key][i] = inflow_bc_factory(
-                    bcs[key]["values"][i], n_ghost, key, i, topo_cell_face)
+                    bcs[key]["values"][i], n_ghost, key, i, topo)
             else:  # others: error
                 raise ValueError("{} is not recognized.".format(bctype))
 

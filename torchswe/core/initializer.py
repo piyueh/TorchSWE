@@ -24,13 +24,11 @@ def init():
 
     Returns:
     --------
-        config: a torchswe.utils.config.Config
-            An config instance holding a case's simulation configurations plus the following
-            additional parameters. All paths are converted to absolute paths. Temporal scheme
-            is replaced with the corresponding function.
-
-        data: dict
-            Contains all returns from create_gridlines, create_topography, and create_ic.
+    config: a torchswe.utils.config.Config
+        A Config instance holding a case's simulation configurations. All paths are converted to
+        absolute paths. The temporal scheme is replaced with the corresponding function.
+    data: torch.utils.dummydict.DummyDict
+        Runtime data including gridline coordinates, topography elevations, and initial values.
     """
 
     # get cmd arguments
@@ -81,11 +79,11 @@ def init():
     # spatial discretization + output time values
     data.update(create_gridlines(config.spatial, config.temporal, config.ftype))
 
-    # topography-related information
-    data.update(create_topography(config.topo, data["xv"], data["yv"]))
+    # topography
+    data.topo = create_topography(config.topo, data.x.vert, data.y.vert, config.ftype)
 
     # initial conditions
-    data["U0"] = create_ic(config.ic, data["xc"], data["yc"], data["Bc"])
+    data.conserv_q_ic = create_ic(config.ic, data.x.cntr, data.y.cntr, data.topo.cntr, config.ftype)
 
     return config, data
 
@@ -133,237 +131,201 @@ def create_gridlines(spatial, temporal, dtype):
     Arguments
     ---------
     spatial : torchswe.utils.config.SpatialConfig
+        Spatial configuration in config.yaml.
     temporal: torchswe.utils.config.TemporalConfig
+        Temporal control configuration in config.yaml.
     dtype : str
         Either "float32" or "float64"
 
     Returns
     -------
-    A dictionary with the following keys and values:
-        xv: 1D torch.tensor of length Nx+1; x coordinates at vertices.
-        yv: 1D torch.tensor of length Ny+1; y coordinates at vertices.
-        xc: 1D torch.tensor of length Nx; x coordinates at cell centers.
-        yc: 1D torch.tensor of length Ny; y coordinates at cell centers.
-        xf: a dictionary of the following key-array pairs
-            x: 1D torch.tensor of langth Nx+1; x coordinates at the midpoints
-                of cell faces normal to x-direction.
-            y: 1D torch.tensor of langth Nx; x coordinates at the midpoints of
-                cell faces normal to y-direction.
-        yf: a dictionary of the following key-array pairs
-            x: 1D torch.tensor of langth Ny; y coordinates at the midpoints
-                of cell faces normal to x-direction.
-            y: 1D torch.tensor of langth Ny+1; y coordinates at the midpoints of
-                cell faces normal to y-direction.
-        dx: cell size in x-direction.
-        dy: cell size in y-direction; assumed to be the same as dx.
-        t: a list of time values to output solutions.
+    A DummyDict with keys "x", "y", and "t". And
+        x, y: a DummyDict with the following keys
+            - vert: 1D array of length Nx+1 or Ny+1; coordinates at vertices.
+            - cntr: 1D array of length Nx or Ny; coordinates at cell centers.
+            - xface: 1D array of langth Nx+1 or Ny; coordinates at the cell faces normal to x-axis.
+            - yface: 1D array of langth Nx or Ny+1; coordinates at the cell faces normal to y-axis.
+            - delta: float; cell size in the corresponding direction.
+        t: a list
+            Time values for outputing solutions. Time values are not used in numerical calculation,
+            so we use native list.
     """
-    # pylint: disable=invalid-name
+    # initialize
+    x, y = DummyDict(), DummyDict()
+    nx, ny = spatial.discretization  # aliases # pylint: disable=invalid-name
+    west, east, south, north = spatial.domain  # aliases
 
-    # for clearer/more readible code
-    Nx, Ny = spatial.discretization
+    # cell sizes
+    x.delta = (east - west) / nx
+    y.delta = (north - south) / ny
 
-    dx = (spatial.domain[1] - spatial.domain[0]) / Nx
-    dy = (spatial.domain[3] - spatial.domain[2]) / Ny
-
-    if abs(dx-dy) > 1e-10:
+    if abs(x.delta-y.delta) > 1e-10:
         raise NotImplementedError("Currently only support dx = dy.")
 
-    # coordinates of vertices
-    xv = numpy.linspace(spatial.domain[0], spatial.domain[1], Nx+1, dtype=dtype)
-    yv = numpy.linspace(spatial.domain[2], spatial.domain[3], Ny+1, dtype=dtype)
+    # coordinates at vertices
+    x.vert = numpy.linspace(west, east, nx+1, dtype=dtype)
+    y.vert = numpy.linspace(spatial.domain[2], north, ny+1, dtype=dtype)
 
-    # coordinates of cell centers
-    xc = numpy.linspace(spatial.domain[0]+dx/2., spatial.domain[1]-dx/2., Nx, dtype=dtype)
-    yc = numpy.linspace(spatial.domain[2]+dy/2., spatial.domain[3]-dy/2., Ny, dtype=dtype)
+    # coordinates at cell centers
+    x.cntr = numpy.linspace(west+x.delta/2., east-x.delta/2., nx, dtype=dtype)
+    y.cntr = numpy.linspace(south+y.delta/2., north-y.delta/2., ny, dtype=dtype)
 
-    # coordinates of midpoints of cell interfaces
-    xf = DummyDict({"x": xv, "y": xc})
-    yf = DummyDict({"x": yc, "y": yv})
-
-    if temporal.output is None:
-        return DummyDict(
-            {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
-             "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": None})
+    # coordinates at cell faces
+    x.xface = x.vert.copy()
+    x.yface = x.cntr.copy()
+    y.xface = y.cntr.copy()
+    y.yface = y.vert.copy()
 
     # temporal gridline: not used in computation, so use native list here
-    if temporal.output[0] == OutoutType.EVERY:
-        Nt = int((temporal.end - temporal.start)//temporal.output[1]) + 1
-        t = [temporal.start + i * temporal.output[1] for i in range(Nt)]
-        assert t[-1] <= temporal.end
-        if (temporal.end - t[-1]) > 1e-10:
-            t.append(temporal.end)
-    else:  # OutputType.AT
+    if temporal.output is None:  # no
+        t = []
+    elif temporal.output[0] == OutoutType.EVERY:  # output every dt
+        dt = temporal.output[1]  # alias # pylint: disable=invalid-name
+        t = numpy.arange(temporal.start, temporal.end+dt/2., dt).tolist()
+    elif temporal.output[0] == OutoutType.AT:  # output at the given times
         t = temporal.output[1]
+    else:
+        raise RuntimeError("`temporal.output` does not have a valied value.")
 
-    return DummyDict(
-        {"xv": xv, "yv": yv, "xc": xc, "yc": yc,
-         "xf": xf, "yf": yf, "dx": dx, "dy": dy, "t": t})
+    return DummyDict({"x": x, "y": y, "t": t})
 
 
-def create_topography(topo, xv, yv):
+def create_topography(topo_config, x_vert, y_vert, dtype):
     """Create required topography information from a NetCDF file.
 
     The data in the NetCDF DEM file is assumed to be defined at cell vertices.
 
-    Also not, when the xy and yv have different resolutions from the x and y in
-    the DEM file, an bi-cubic spline interpolation will take place, which
-    introduces rounding errors to the elevation. The rounding error may be
-    crucial to well-balanced property tests. But usually it's fine to real-
-    world applications.
+    Also note, when the xy and yv have different resolutions from the x and y in the DEM file, an
+    bi-cubic spline interpolation will take place, which introduces rounding errors to the
+    elevation values. The rounding error may be crucial to well-balanced property tests. But
+    usually it's fine to real- world applications.
 
     Arguments
     ---------
-    topo : torchswe.utils.config.TopoConfig
-    xv : 1D numpy.ndarray with length Nx+1
+    topo_config : torchswe.utils.config.TopoConfig
+        Configuration of topography in config.yaml.
+    x_vert : 1D numpy.ndarray with length Nx+1
         Vertex gridline of the computational domain.
-    yv : 1D numpy.ndarray with length Ny+1
+    y_vert : 1D numpy.ndarray with length Ny+1
         Vertex gridline of the computational domain.
+    dtype : str
+        Either "float32" or "float64"
 
     Returns
     -------
-    A dictionary with the following keys and values:
-        Bv: a (Ny+1, Nx+1) torch.tensor; elevation at computational cell vertices.
-        Bc: a (Ny, Nx) torch.tensor; elevation at computational cell centers.
-        Bf: a dictionary with the following two key-value paits:
-            x: a (Ny, Nx+1) torch.tensor; elevation at the midpoints of cell
-                faces normal to x-direction.
-            y: a (Ny+1, Nx) torch.tensor; elevation at the midpoints of cell
-                faces normal to y-direction.
-        dBc: a dictionary with the following two key-value paits:
-            x: a (Ny, Nx) torch.tensor; x-gradient at cell centers.
-            y: a (Ny, Nx) torch.tensor; y-gradient at cell centers.
+    topo : DummyDict
+        Contains the following keys
+        - vert : (Ny+1, Nx+1) array; elevation at vertices.
+        - cntr : (Ny, Nx) array; elevation at cell centers.
+        - xface : (Ny, Nx+1) array; elevation at cell faces normal to x-axis.
+        - yface : (Ny+1, Nx) array; elevation at cell faces normal to y-axis.
+        - dx : (Ny, Nx) array; elevation derivative w.r.t. x coordinates at cell centers.
+        - dy : (Ny, Nx) array; elevation derivative w.r.t. y coordinates at cell centers.
     """
-    # pylint: disable=invalid-name
+    # initialize
+    topo = DummyDict()
 
     # read DEM
-    topodata, _ = read_cf(topo.file, topo.key)
+    dem, _ = read_cf(topo_config.file, topo_config.key)
 
     # copy to a numpy.ndarray
-    Bv = topodata[topo["key"]][:].copy()
+    topo.vert = dem[topo_config["key"]][:].copy()
 
     # see if we need to do interpolation
-    shape_mismatch = not (topodata["x"].shape == xv.shape and topodata["y"].shape == yv.shape)
-
-    if not shape_mismatch:
-        value_mismatch = not (
-            numpy.allclose(xv, topodata["x"]) and numpy.allclose(yv, topodata["y"]))
-    else:
-        value_mismatch = True
+    try:
+        interp = not (numpy.allclose(x_vert, dem["x"]) and numpy.allclose(y_vert, dem["y"]))
+    except ValueError:  # assume thie excpetion means a shape mismatch
+        interp = True
 
     # unfortunately, we need to do interpolation in such a situation
-    if shape_mismatch or value_mismatch:
+    if interp:
+        interpolator = RectBivariateSpline(dem["x"], dem["y"], topo.vert.T)
+        topo.vert = interpolator(x_vert, y_vert).T
 
-        # get an interpolator, use the default 3rd order spline
-        interpolator = RectBivariateSpline(topodata["x"], topodata["y"], Bv.T)
-
-        # get the interpolated elevations at vertices and replace Bv
-        Bv = interpolator(xv, yv).T
+    # cast to desired float type
+    topo.cert = topo.vert.astype(dtype)
 
     # topography elevation at cell centers through linear interpolation
-    Bc = (Bv[:-1, :-1] + Bv[:-1, 1:] + Bv[1:, :-1] + Bv[1:, 1:]) / 4.
+    topo.cntr = topo.vert[:-1, :-1] + topo.vert[:-1, 1:] + topo.vert[1:, :-1] + topo.vert[1:, 1:]
+    topo.cntr /= 4
 
     # topography elevation at cell faces' midpoints through linear interpolation
-    Bf = {
-        "x": (Bv[:-1, :] + Bv[1:, :]) / 2.,
-        "y": (Bv[:, :-1] + Bv[:, 1:]) / 2.,
-    }
+    topo.xface = (topo.vert[:-1, :] + topo.vert[1:, :]) / 2.
+    topo.yface = (topo.vert[:, :-1] + topo.vert[:, 1:]) / 2.
 
-    # get cell size
-    dx = xv[1] - xv[0]
-    dy = yv[1] - yv[0]
-    if numpy.abs(dx-dy) >= 1e-10:
-        raise NotImplementedError("Currently only support dx = dy.")
-
-    # gradient at cell centers through center difference
-    dBc = {
-        "x": (Bf["x"][:, 1:] - Bf["x"][:, :-1]) / dx,
-        "y": (Bf["y"][1:, :] - Bf["y"][:-1, :]) / dy
-    }
+    # gradient at cell centers through central difference
+    topo.dx = (topo.xface[:, 1:] - topo.xface[:, :-1]) / (x_vert[1:] - x_vert[:-1])
+    topo.dy = (topo.yface[1:, :] - topo.yface[:-1, :]) / (y_vert[1:] - y_vert[:-1])
 
     # sanity checks
-    assert numpy.allclose(Bc, (Bf["x"][:, :-1]+Bf["x"][:, 1:])/2.)
-    assert numpy.allclose(Bc, (Bf["y"][:-1, :]+Bf["y"][1:, :])/2.)
+    assert numpy.allclose(topo.cntr, (topo.xface[:, :-1]+topo.xface[:, 1:])/2.)
+    assert numpy.allclose(topo.cntr, (topo.yface[:-1, :]+topo.yface[1:, :])/2.)
+    assert topo.dx.dtype == dtype
+    assert topo.dy.dtype == dtype
 
-    return {"Bv": Bv, "Bc": Bc, "Bf": Bf, "dBc": dBc}
+    return topo
 
 
-def create_ic(ic, xc, yc, Bc):
+def create_ic(ic_config, x_cntr, y_cntr, topo_cntr, dtype):
     """Create initial conditions.
 
-    When the xc and yc have different resolutions from the x and y in the NetCDF
-    file, an bi-cubic spline interpolation will take place, which introduces
-    rounding errors to the elevation. The rounding error may be crucial to
-    well-balanced property tests. But usually it's fine to real-world
-    applications.
+    When the x_cntr and y_cntr have different resolutions from the x and y in the NetCDF file, an
+    bi-cubic spline interpolation will take place.
 
     Arguments
     ---------
-    ic : torchswe.utils.config.ICConfig
-    xc : 1D numpy.ndarray with length Nx
-        Gridline of cell centers.
-    yc : 1D numpy.ndarray with length Ny
-        Gridline of cell centers.
-    Bc : 2D numpy.ndarray with shape (Ny, Nx)
-        Elevation at cell centers.
+    ic_config : torchswe.utils.config.ICConfig
+        The IC configuration from config.yaml.
+    x_cntr : length-Nx 1D array
+        x-coordinates at cell centers.
+    y_cntr : length-Ny 1D array
+        y-coordinates at cell centers.
+    topo_cntr : shape-(Ny, Nx) 2D array
+        Topography elevations at cell centers.
+    dtype : str
+        Either "float32" or "float64"
 
     Returns
     -------
-    U0: a (3, Ny, Nx) torch.tensor representing w, hu, and hv.
+    conserv_q_ic: a (3, Ny, Nx) array representing w, hu, and hv.
     """
-    # pylint: disable=invalid-name
-
     # initialize variable
-    U0 = numpy.zeros((3, len(yc), len(xc)), dtype=xc.dtype)
+    conserv_q_ic = numpy.zeros((3, len(y_cntr), len(x_cntr)), dtype=dtype)
 
     # special case: constant I.C.
-    if ic.values is not None:
+    if ic_config.values is not None:
+        conserv_q_ic[0, ...] = numpy.maximum(topo_cntr, ic_config.values[0])
+        conserv_q_ic[1, ...] = ic_config.values[1]
+        conserv_q_ic[2, ...] = ic_config.values[2]
+        return conserv_q_ic
 
-        U0[0] = ic.values[0]
-        U0[1] = ic.values[1]
-        U0[2] = ic.values[2]
-
-        # make sure the w can not be smaller than topopgraphy elevation
-        U0[0] = numpy.where(U0[0] < Bc, Bc, U0[0])
-        return U0
-
-    # for other cases, read data from a NetCDF file
-    icdata, _ = read_cf(ic.file, ic.keys)
-
-    # preserve the numpy.ndarray for now, in case we need to do interpolation
-    w = icdata[ic["keys"][0]][:].copy()
-    hu = icdata[ic["keys"][1]][:].copy()
-    hv = icdata[ic["keys"][2]][:].copy()
+    # otherwise, read data from a NetCDF file
+    icdata, _ = read_cf(ic_config.file, ic_config.keys)
 
     # see if we need to do interpolation
-    shape_mismatch = not (icdata["x"].shape == xc.shape and icdata["y"].shape == yc.shape)
+    try:
+        interp = not (numpy.allclose(x_cntr, icdata["x"]) and numpy.allclose(y_cntr, icdata["y"]))
+    except ValueError:  # assume thie excpetion means a shape mismatch
+        interp = True
 
-    if not shape_mismatch:
-        value_mismatch = not (numpy.allclose(xc, icdata["x"]) and numpy.allclose(yc, icdata["y"]))
+    # unfortunately, we need to do interpolation in such a situation
+    if interp:
+        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[0]][:].T)
+        conserv_q_ic[0, ...] = interpolator(x_cntr, y_cntr).T
+
+        # get an interpolator for conserv_q_ic[1], use the default 3rd order spline
+        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[1]][:].T)
+        conserv_q_ic[1, ...] = interpolator(x_cntr, y_cntr).T
+
+        # get an interpolator for conserv_q_ic[2], use the default 3rd order spline
+        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[2]][:].T)
+        conserv_q_ic[2, ...] = interpolator(x_cntr, y_cntr).T
     else:
-        value_mismatch = True
-
-    # unfortunately, we need to do interpolation
-    if shape_mismatch or value_mismatch:
-
-        # get an interpolator for w (i.e., U0[0]), use the default 3rd order spline
-        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], w.T)
-        w = interpolator(xc, yc).T
-
-        # get an interpolator for U0[1], use the default 3rd order spline
-        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], hu.T)
-        hu = interpolator(xc, yc).T
-
-        # get an interpolator for U0[2], use the default 3rd order spline
-        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], hv.T)
-        hv = interpolator(xc, yc).T
-
-    # convert to torch.tensor
-    U0[0] = w
-    U0[1] = hu
-    U0[2] = hv
+        conserv_q_ic[0, ...] = icdata[ic_config.keys[0]][:].copy()
+        conserv_q_ic[1, ...] = icdata[ic_config.keys[1]][:].copy()
+        conserv_q_ic[2, ...] = icdata[ic_config.keys[2]][:].copy()
 
     # make sure the w can not be smaller than topopgraphy elevation
-    U0[0] = numpy.where(U0[0] < Bc, Bc, U0[0])
+    conserv_q_ic[0] = numpy.maximum(conserv_q_ic[0], topo_cntr)
 
-    return U0
+    return conserv_q_ic
