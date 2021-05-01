@@ -2,12 +2,10 @@
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 #
-# Copyright © 2020 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Copyright © 2020-2021 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
-
-"""
-Functions related to updating ghost cells, i.e., boundary conditions.
+# Distributed under terms of the BSD 3-Clause license.
+"""Functions related to updating ghost cells, i.e., boundary conditions.
 """
 import torch
 

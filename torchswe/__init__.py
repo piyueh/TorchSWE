@@ -4,7 +4,7 @@
 #
 # Copyright © 2020-2021 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """A shallow-water equation solver implemented with PyTorch.
 """

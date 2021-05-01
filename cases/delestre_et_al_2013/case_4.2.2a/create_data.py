@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 #
-# Copyright © 2020 Pi-Yueh Chuang <pychuang@gwu.edu>
+# Copyright © 2020-2021 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
-# Distributed under terms of the MIT license.
+# Distributed under terms of the BSD 3-Clause license.
 
 """Create topography and I.C. file for case 4.2.2-1 in Delestre et al., 2013.
 

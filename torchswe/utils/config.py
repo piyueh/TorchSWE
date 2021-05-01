@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 # vim:fenc=utf-8
 #
-# Copyright © 2021 Pi-Yueh Chuang <pychuang@pm.me>
+# Copyright © 2021 Pi-Yueh Chuang <pychuang@gwu.edu>
 #
 # Distributed under terms of the BSD 3-Clause license.
 
@@ -14,6 +14,14 @@ from typing import Tuple, Union, Optional
 
 import yaml
 from pydantic import BaseModel, Field, validator, root_validator, conint, confloat
+
+
+class BaseConfig(BaseModel):
+    """Extending pydantic.BaseModel with __getitem__ method.
+    """
+
+    def __getitem__(self, key):
+        return super().__getattribute__(key)
 
 
 class TemporalScheme(enum.Enum):
@@ -41,7 +49,7 @@ class BCType(enum.Enum):
     OUTFLOW = "outflow"
 
 
-class SpatialConfig(BaseModel):
+class SpatialConfig(BaseConfig):
     """An object holding spatial configuration.
 
     Attributes
@@ -65,7 +73,7 @@ class SpatialConfig(BaseModel):
         return v
 
 
-class TemporalConfig(BaseModel):
+class TemporalConfig(BaseConfig):
     """An object holding temporal configuration.
 
     Attributes
@@ -114,7 +122,7 @@ class TemporalConfig(BaseModel):
         return v
 
 
-class SingleBCConfig(BaseModel):
+class SingleBCConfig(BaseConfig):
     """An object holding configuration of the boundary conditions on a single boundary.
 
     Attributes
@@ -144,7 +152,7 @@ class SingleBCConfig(BaseModel):
         return v
 
 
-class BCConfig(BaseModel):
+class BCConfig(BaseConfig):
     """An object holding configuration of the boundary conditions of all boundaries.
 
     Attributes
@@ -160,7 +168,7 @@ class BCConfig(BaseModel):
     south: SingleBCConfig
 
 
-class ICConfig(BaseModel):
+class ICConfig(BaseConfig):
     """An object holding configuration of the initial conditions.
 
     Attributes
@@ -199,7 +207,7 @@ class ICConfig(BaseModel):
         return values
 
 
-class TopoConfig(BaseModel):
+class TopoConfig(BaseConfig):
     """An object holding configuration of the topography file.
 
     Attributes
@@ -215,7 +223,7 @@ class TopoConfig(BaseModel):
     key: str
 
 
-class ParamConfig(BaseModel):
+class ParamConfig(BaseConfig):
     """An object holding configuration of miscellaneous parameters.
 
     Attributes
@@ -234,7 +242,7 @@ class ParamConfig(BaseModel):
     drytol: confloat(ge=0.) = 1.0e-4
 
 
-class Config(BaseModel):
+class Config(BaseConfig):
     """An object holding all configurations of a simulation case.
 
     Attributes
