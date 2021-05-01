@@ -8,43 +8,37 @@
 
 """Source terms.
 """
-from typing import Dict
-import torch
 
-@torch.jit.script
-def source(U, dBx, dBy, Bc, Ngh: int, g: float) -> torch.Tensor:
-    """Source term
 
-    Note, the mesh arrangement must be Y first and then X. For example, U[0, j, i]
-    is the w of j-th cell in y-direction and i-th cell in x-direction.
+def topography_gradient(w, dtopo_x, dtopo_y, topo_cntr, n_ghost, gravity):
+    """Momentim sources due to topographic changes.
 
-    Args:
+    Notes
     -----
-        U: a 3D torch.tensor of shape (3, Ny+2*Ngh, Nx+2Ngh) representing
-            w, hu, and hv.
-        dBx: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
-            x-gradient at cell centers, i.e., $\partial B / \partial x$.
-        dBy: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
-            y-gradient at cell centers, i.e., $\partial B / \partial y$.
-        Bc: a 2D torch.tensor of shape (Ny, Nx) representing elevations at cell
-            centers, excluding ghost cells. Bc must be from the bilinear
-            interpolation of elevation of cell coreners.
-        Ngh: an integer, the number of ghost cells outside each boundary
-        g: gravity
+    - The mesh arrangement must be Y first and then X. For example, w[j, i] is the w of j-th
+      cell in y-direction and i-th cell in x-direction.
+    - topo_cntr must be from the bilinear interpolation of elevation at vertices.
+    - dtopo_x & dtopo_y must be calculated from central difference using the elevations at vertices.
 
-    Returns:
-    --------
-        S: a 3D torch.tensor of shape (3, Ny, Nx) representing the source terms
-            for continuity equation and momentum equations for each cell.
+    Arguments
+    ---------
+    w : (Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+        Water elevation, including ghost cells.
+    dtopo_x, dtopo_y : (Ny, Nx) numpy.ndarray
+        Topography derivative w.r.t. x and y at cell centers, excluding ghost cells.
+    topo_cntr : (Ny, Nx) numpy.ndarray
+        Topography elevations at cell centers, excluding ghost cells.
+    n_ghost : int
+        The number of ghost cell layers outside each boundary
+    gravity : float
+        Gravity in m/s^2.
+
+    Returns
+    -------
+    source_hu, source_hv : (Ny, Nx) numpy.ndarray
+        The source terms for the momentum eqautions of hu and hv respectively.
     """
 
-    Nx: int = U.shape[2] - 2 * Ngh
-    Ny: int = U.shape[1] - 2 * Ngh
-
-    S: torch.Tensor = torch.zeros((3, Ny, Nx), device=U.device, dtype=U.dtype)
-
-    gH: torch.Tensor = -g * (U[0, Ngh:-Ngh, Ngh:-Ngh] - Bc)
-    S[1, :, :] = gH * dBx
-    S[2, :, :] = gH * dBy
-
-    return S
+    internal = slice(n_ghost, -n_ghost)
+    gravity_depth = - gravity * (w[internal, internal] - topo_cntr)
+    return dtopo_x * gravity_depth, dtopo_y * gravity_depth
