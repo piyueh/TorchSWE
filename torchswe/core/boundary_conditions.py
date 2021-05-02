@@ -7,59 +7,62 @@
 # Distributed under terms of the BSD 3-Clause license.
 """Functions related to updating ghost cells, i.e., boundary conditions.
 """
+from typing import Literal, Callable
+
 import numpy
-from ..utils.dummydict import DummyDict
-from ..utils.config import BCType, BCConfig
+from pydantic import conint
+from ..utils.config import BaseConfig, SingleBCConfig, BCConfig
+from ..utils.data import Topography, States
 
 # to create corresponding slices for the left-hand-side of periodic BC
 _periodic_slc_left = {
-    "west": lambda n, c: (slice(c, c+1), slice(n, -n), slice(0, n)),
-    "east": lambda n, c: (slice(c, c+1), slice(n, -n), slice(-n, None)),
-    "north": lambda n, c: (slice(c, c+1), slice(-n, None), slice(n, -n)),
-    "south": lambda n, c: (slice(c, c+1), slice(0, n), slice(n, -n))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(0, ngh)),
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh, None)),
+    "north": lambda ngh: (slice(-ngh, None), slice(ngh, -ngh)),
+    "south": lambda ngh: (slice(0, ngh), slice(ngh, -ngh))
 }
 
 # to create corresponding slices for the left-hand-side of periodic BC
 _periodic_slc_right = {
-    "west": lambda n, c: (slice(c, c+1), slice(n, -n), slice(-n-n, -n)),
-    "east": lambda n, c: (slice(c, c+1), slice(n, -n), slice(n, n+n)),
-    "north": lambda n, c: (slice(c, c+1), slice(n, n+n), slice(n, -n)),
-    "south": lambda n, c: (slice(c, c+1), slice(-n-n, -n), slice(n, -n))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(-ngh-ngh, -ngh)),
+    "east": lambda ngh: (slice(ngh, -ngh), slice(ngh, ngh+ngh)),
+    "north": lambda ngh: (slice(ngh, ngh+ngh), slice(ngh, -ngh)),
+    "south": lambda ngh: (slice(-ngh-ngh, -ngh), slice(ngh, -ngh))
 }
 
 _extrap_seq = {
-    "west": lambda n: numpy.arange(n, 0, -1),
-    "east": lambda n: numpy.arange(1, n+1),
-    "north": lambda n: numpy.arange(1, n+1).reshape((n, 1)),
-    "south": lambda n: numpy.arange(n, 0, -1).reshape((n, 1))
+    "west": lambda ngh: numpy.arange(ngh, 0, -1),
+    "east": lambda ngh: numpy.arange(1, ngh+1),
+    "north": lambda ngh: numpy.arange(1, ngh+1).reshape((ngh, 1)),
+    "south": lambda ngh: numpy.arange(ngh, 0, -1).reshape((ngh, 1))
 }
 
 _extrap_anchor = {
-    "west": lambda n, c: (slice(c, c+1), slice(n, -n), slice(n, n+1)),
-    "east": lambda n, c: (slice(c, c+1), slice(n, -n), slice(-n-1, -n)),
-    "north": lambda n, c: (slice(c, c+1), slice(-n-1, -n), slice(n, -n)),
-    "south": lambda n, c: (slice(c, c+1), slice(n, n+1), slice(n, -n))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh, ngh+1)),
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-1, -ngh)),
+    "north": lambda ngh: (slice(-ngh-1, -ngh), slice(ngh, -ngh)),
+    "south": lambda ngh: (slice(ngh, ngh+1), slice(ngh, -ngh))
 }
 
 _extrap_delta_slc = {
-    "west": lambda n, c: (slice(c, c+1), slice(n, -n), slice(n+1, n+2)),
-    "east": lambda n, c: (slice(c, c+1), slice(n, -n), slice(-n-2, -n-1)),
-    "north": lambda n, c: (slice(c, c+1), slice(-n-2, -n-1), slice(n, -n)),
-    "south": lambda n, c: (slice(c, c+1), slice(n+1, n+2), slice(n, -n))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh+1, ngh+2)),
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-2, -ngh-1)),
+    "north": lambda ngh: (slice(-ngh-2, -ngh-1), slice(ngh, -ngh)),
+    "south": lambda ngh: (slice(ngh+1, ngh+2), slice(ngh, -ngh))
 }
 
 _extrap_slc = {
-    "west": lambda n, c: (slice(c, c+1), slice(n, -n), slice(0, n)),
-    "east": lambda n, c: (slice(c, c+1), slice(n, -n), slice(-n, None)),
-    "north": lambda n, c: (slice(c, c+1), slice(-n, None), slice(n, -n)),
-    "south": lambda n, c: (slice(c, c+1), slice(0, n), slice(n, -n))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(0, ngh)),
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh, None)),
+    "north": lambda ngh: (slice(-ngh, None), slice(ngh, -ngh)),
+    "south": lambda ngh: (slice(0, ngh), slice(ngh, -ngh))
 }
 
 _inflow_topo_key = {
-    "west": lambda c: "xface",
-    "east": lambda c: "xface",
-    "north": lambda c: "yface",
-    "south": lambda c: "yface"
+    "west": "xface",
+    "east": "xface",
+    "north": "yface",
+    "south": "yface"
 }
 
 _inflow_topo_slc = {
@@ -70,7 +73,7 @@ _inflow_topo_slc = {
 }
 
 
-def periodic_factory(n_ghost, orientation, component):
+def periodic_factory(n_ghost, orientation):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
@@ -79,8 +82,6 @@ def periodic_factory(n_ghost, orientation, component):
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
-    component : int
-        Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
 
     Returns
     -------
@@ -88,8 +89,8 @@ def periodic_factory(n_ghost, orientation, component):
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
-    slc_left = _periodic_slc_left[orientation](n_ghost, component)
-    slc_right = _periodic_slc_right[orientation](n_ghost, component)
+    slc_left = _periodic_slc_left[orientation](n_ghost)
+    slc_right = _periodic_slc_right[orientation](n_ghost)
 
     def periodic(conserv_q):
         """Update the ghost cells with periodic BC.
@@ -111,7 +112,7 @@ def periodic_factory(n_ghost, orientation, component):
     return periodic
 
 
-def outflow_factory(n_ghost, orientation, component):
+def outflow_factory(n_ghost, orientation):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
@@ -120,8 +121,6 @@ def outflow_factory(n_ghost, orientation, component):
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
-    component : int
-        Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
 
     Returns
     -------
@@ -129,8 +128,8 @@ def outflow_factory(n_ghost, orientation, component):
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
-    anchor = _extrap_anchor[orientation](n_ghost, component)
-    slc = _extrap_slc[orientation](n_ghost, component)
+    anchor = _extrap_anchor[orientation](n_ghost)
+    slc = _extrap_slc[orientation](n_ghost)
 
     def outflow_extrap(conserv_q):
         """Update the ghost cells with outflow BC using constant extrapolation.
@@ -152,7 +151,7 @@ def outflow_factory(n_ghost, orientation, component):
     return outflow_extrap
 
 
-def linear_extrap_factory(n_ghost, orientation, component):
+def linear_extrap_factory(n_ghost, orientation):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
@@ -161,8 +160,6 @@ def linear_extrap_factory(n_ghost, orientation, component):
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
-    component : int
-        Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
 
     Returns
     -------
@@ -171,9 +168,9 @@ def linear_extrap_factory(n_ghost, orientation, component):
     """
 
     seq = _extrap_seq[orientation](n_ghost)
-    anchor = _extrap_anchor[orientation](n_ghost, component)
-    delta_slc = _extrap_delta_slc[orientation](n_ghost, component)
-    slc = _extrap_slc[orientation](n_ghost, component)
+    anchor = _extrap_anchor[orientation](n_ghost)
+    delta_slc = _extrap_delta_slc[orientation](n_ghost)
+    slc = _extrap_slc[orientation](n_ghost)
 
     def linear_extrap(conserv_q):
         """Update the ghost cells with outflow BC using linear extrapolation.
@@ -198,7 +195,7 @@ def linear_extrap_factory(n_ghost, orientation, component):
     return linear_extrap
 
 
-def constant_bc_factory(const, n_ghost, orientation, component):
+def constant_bc_factory(const, n_ghost, orientation):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
@@ -209,8 +206,6 @@ def constant_bc_factory(const, n_ghost, orientation, component):
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
-    component : int
-        Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
 
     Returns
     -------
@@ -219,8 +214,8 @@ def constant_bc_factory(const, n_ghost, orientation, component):
     """
 
     seq = _extrap_seq[orientation](n_ghost)
-    anchor = _extrap_anchor[orientation](n_ghost, component)
-    slc = _extrap_slc[orientation](n_ghost, component)
+    anchor = _extrap_anchor[orientation](n_ghost)
+    slc = _extrap_slc[orientation](n_ghost)
 
     def constant_bc(conserv_q):
         """Update the ghost cells with constant BC using linear extrapolation.
@@ -245,7 +240,7 @@ def constant_bc_factory(const, n_ghost, orientation, component):
     return constant_bc
 
 
-def inflow_bc_factory(const, n_ghost, orientation, component, topo):
+def inflow_bc_factory(const, n_ghost, orientation, topo, component):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
@@ -256,11 +251,10 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo):
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
+    topo : torchswe.utils.data.Topography
+        An instance of the topography data model.
     component : int
         Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
-    topo : DummyDict
-        Usually the topography data obtained from `create_topography` in initializer.py. Or at
-        least contains two keys: "xface" and "yface".
 
     Returns
     -------
@@ -269,9 +263,9 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo):
     """
 
     seq = _extrap_seq[orientation](n_ghost)
-    anchor = _extrap_anchor[orientation](n_ghost, component)
-    slc = _extrap_slc[orientation](n_ghost, component)
-    topo_cache = topo[_inflow_topo_key[orientation](component)]
+    anchor = _extrap_anchor[orientation](n_ghost)
+    slc = _extrap_slc[orientation](n_ghost)
+    topo_cache = topo[_inflow_topo_key[orientation]]
     bcslc = _inflow_topo_slc[orientation]
     w_idx = _extrap_anchor[orientation](n_ghost, 0)
 
@@ -322,99 +316,92 @@ def inflow_bc_factory(const, n_ghost, orientation, component, topo):
     return inflow_bc_velocity
 
 
-def update_all_factory(bcs: BCConfig, n_ghost: int, topo: DummyDict):
-    """A factory to create a update-all ghost-cell updating function.
+class BoundaryGhostUpdaterOneBound(BaseConfig):
+    """Ghost cell updaters on a single boundary."""
+    ngh: conint(ge=2)
+    orientation: Literal["west", "east", "south", "north"]
+    w: Callable[[numpy.ndarray], numpy.ndarray]
+    hu: Callable[[numpy.ndarray], numpy.ndarray]
+    hv: Callable[[numpy.ndarray], numpy.ndarray]
 
-    Arguments
-    ---------
-    bcs : torchswe.utils.config.BCConfig
-        The configuration from the "boundary" node in config.yaml.
-    n_ghost : int
-        Number of ghost cell layers at each boundary.
-    topo : DummyDict
-        Usually the topography data obtained from `create_topography` in initializer.py. Or at
-        least contains two keys: "xface" and "yface".
+    def __init__(self, bc: SingleBCConfig, ngh: int, orientation: str, topo: Topography):
+        # validate data models for a sanity check
+        bc.check()
 
-    Returns
-    -------
-    A function with a signature of f(numpy.ndarray) -> numpy.ndarray. Both the input and output
-    arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
-    """
+        keymap = {0: "w", 1: "hu", 2: "hv"}
+        kwargs = {}
 
-    # check periodicity
-    check_periodicity(bcs)
-
-    # initialize varaible
-    functions = DummyDict({
-        "west": [None, None, None], "east": [None, None, None],
-        "north": [None, None, None], "south": [None, None, None],
-    })
-
-    for key in ["west", "east", "south", "north"]:
-
-        # bctypes: {type: [...], values: [...]}
-        for i, bctype in enumerate(bcs[key]["types"]):
-
-            if bctype == BCType.PERIODIC:  # periodic BC
-                functions[key][i] = periodic_factory(n_ghost, key, i)
-            elif bctype == BCType.OUTFLOW:  # constant extrapolation BC (outflow)
-                functions[key][i] = outflow_factory(n_ghost, key, i)
-            elif bctype == BCType.EXTRAP:  # linear extrapolation BC
-                functions[key][i] = linear_extrap_factory(n_ghost, key, i)
-            elif bctype == BCType.CONST:  # constant/Dirichlet
-                functions[key][i] = constant_bc_factory(bcs[key]["values"][i], n_ghost, key, i)
-            elif bctype == BCType.INFLOW:  # inflow/constant non-conservative variables
-                functions[key][i] = inflow_bc_factory(
-                    bcs[key]["values"][i], n_ghost, key, i, topo)
-            else:  # others: error
+        for i, bctype in enumerate(bc.types):
+            if bctype == "periodic":  # periodic BC
+                kwargs[keymap[i]] = periodic_factory(ngh, orientation)
+            elif bctype == "outflow":  # constant extrapolation BC (outflow)
+                kwargs[keymap[i]] = outflow_factory(ngh, orientation)
+            elif bctype == "extrap":  # linear extrapolation BC
+                kwargs[keymap[i]] = linear_extrap_factory(ngh, orientation)
+            elif bctype == "const":  # constant/Dirichlet
+                kwargs[keymap[i]] = constant_bc_factory(bc.values[i], ngh, orientation)
+            elif bctype == "inflow":  # inflow/constant non-conservative variables
+                topo.check()
+                kwargs[keymap[i]] = inflow_bc_factory(bc.values[i], ngh, orientation, topo, i)
+            else:  # this shouldn't happen because pydantic should have catched the error
                 raise ValueError("{} is not recognized.".format(bctype))
 
-    def update_all(conserv_q):
-        """Update the ghost cells at all boundaries at once.
+        # initialize this data model instance and let pydantic validate the model
+        super().__init__(ngh=ngh, orientation=orientation, **kwargs)
+
+    def update_all(self, values: States):
+        """Update all ghost cell of all components on this boundary.
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+        values : torchswe.utils.data.States
+            An instance of the States data model.
 
         Returns
         -------
-        Updated conserv_q.
+        values : torchswe.utils.data.States
+            The same input object. Values are updated in-place. Returning it just for coding style.
         """
-
-        for val in functions.values():
-            for func in val:
-                conserv_q = func(conserv_q)
-
-        return conserv_q
-
-    update_all.functions = functions
-
-    return update_all
+        # values should be updated in-place; returning array again just for consistency in style
+        values.q.w = self.w(values.q.w)
+        values.q.hu = self.hu(values.q.hu)
+        values.q.hv = self.hv(values.q.hv)
+        return values
 
 
-def check_periodicity(bcs: BCConfig):
-    """Check whether periodic BCs match at corresponding boundary pairs.
+class BoundaryGhostUpdater(BaseConfig):
+    """Ghost cell updaters for all boundaries and all components."""
+    ngh: conint(ge=2)
+    west: BoundaryGhostUpdaterOneBound
+    east: BoundaryGhostUpdaterOneBound
+    south: BoundaryGhostUpdaterOneBound
+    north: BoundaryGhostUpdaterOneBound
 
-    Arguments
-    ---------
-    bcs : torchswe.utils.config.BCConfig
-        The configuration from the "boundary" node in config.yaml.
+    def __init__(self, bcs: BCConfig, ngh: int, topo: Topography):
+        super().__init__(
+            ngh=ngh,
+            west=BoundaryGhostUpdaterOneBound(bcs.west, ngh, "west", topo),
+            east=BoundaryGhostUpdaterOneBound(bcs.east, ngh, "east", topo),
+            south=BoundaryGhostUpdaterOneBound(bcs.south, ngh, "south", topo),
+            north=BoundaryGhostUpdaterOneBound(bcs.north, ngh, "north", topo)
+        )
 
-    Raises
-    ------
-    ValueError
-        When periodic BCs do not match.
-    """
+    def update_all(self, values: States):
+        """Update all ghost cell of all components on all boundaries.
 
-    result = True
+        Arguments
+        ---------
+        values : torchswe.utils.data.States
+            An instance of the States data model.
 
-    for types in zip(bcs["west"]["types"], bcs["east"]["types"]):
-        if any(t == BCType.PERIODIC for t in types):
-            result = all(t == BCType.PERIODIC for t in types)
-
-    for types in zip(bcs["north"]["types"], bcs["south"]["types"]):
-        if any(t == BCType.PERIODIC for t in types):
-            result = all(t == BCType.PERIODIC for t in types)
-
-    if not result:
-        raise ValueError("Periodic BCs do not match at boundaries and components.")
+        Returns
+        -------
+        values : torchswe.utils.data.States
+            The same input object. Values are updated in-place. Returning it just for coding style.
+        """
+        # values should be updated in-place; returning array again just for consistency in style
+        values = self.west.update_all(values)
+        values = self.east.update_all(values)
+        values = self.south.update_all(values)
+        values = self.north.update_all(values)
+        return values

@@ -11,15 +11,9 @@
 import collections
 
 
-class DummyDict(collections.UserDict):
+class DummyDict(collections.UserDict):  # pylint: disable=too-many-ancestors
     """A dummy dict of which the data can be accessed as attributes.
-
-    A dummy dictionary
-
-    1. allows accessing data through `.` as if they are the attributes of this instance, and
-    2. prohibiting setting new data/attribution is the key is not used to initialize this instance.
     """
-    # pylint: disable=too-many-ancestors
 
     def __init__(self, init_attrs=None, /, **kwargs):
         # pylint: disable=super-init-not-called

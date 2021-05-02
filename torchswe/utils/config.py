@@ -8,45 +8,42 @@
 
 """Objects holding simulation configuraions.
 """
-import enum
 import pathlib
-from typing import Tuple, Union, Optional
+from typing import Literal, Tuple, Union, Optional
 
 import yaml
-from pydantic import BaseModel, Field, validator, root_validator, conint, confloat
+from pydantic import BaseModel, Field, validator, root_validator, conint, confloat, validate_model
+
+
+# alias to type hints
+BCTypeHint = Literal["periodic", "extrap", "const", "inflow", "outflow"]
+OPTypeHint = Literal["at", "every"]
 
 
 class BaseConfig(BaseModel):
-    """Extending pydantic.BaseModel with __getitem__ method.
-    """
+    """Extending pydantic.BaseModel with __getitem__ method."""
+
+    class Config:  # pylint: disable=too-few-public-methods
+        """pydantic configuration of this model."""
+        allow_population_by_field_name = True
+        arbitrary_types_allowed = True
 
     def __getitem__(self, key):
         return super().__getattribute__(key)
 
+    def __setitem__(self, key, value):
+        self.__setattr__(key, value)
 
-class TemporalScheme(enum.Enum):
-    """Supported temporal schemes.
-    """
-    EULER = "Euler"
-    RK2 = "RK2"
-    RK4 = "RK4"
+    def check(self):
+        """Manually trigger the validation of the data in this instance."""
+        _, _, validation_error = validate_model(self.__class__, self.__dict__)
 
+        if validation_error:
+            raise validation_error
 
-class OutoutType(enum.Enum):
-    """Supported output mechanism.
-    """
-    EVERY = "every"
-    AT = "at"
-
-
-class BCType(enum.Enum):
-    """Supported boundary condition types.
-    """
-    PERIODIC = "periodic"
-    EXTRAP = "extrap"
-    CONST = "const"
-    INFLOW = "inflow"
-    OUTFLOW = "outflow"
+        for field in self.__dict__.values():
+            if isinstance(field, BaseConfig):
+                field.check()
 
 
 class SpatialConfig(BaseConfig):
@@ -88,15 +85,15 @@ class TemporalConfig(BaseConfig):
             2. ["at", [t1, t2, t3, ...]]: outputs at t1, t2, t3, ...
             3. None: don't output any solutions.
         Default: None
-    scheme : str or TemporalScheme
+    scheme : str
         Currently, either "Euler", "RK2", or "RK4". Default: "RK2"
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
     start: confloat(ge=0.)
     end: confloat(ge=0.)
-    output: Optional[Tuple[OutoutType, Union[confloat(ge=0.), Tuple[confloat(ge=0), ...]]]] = None
-    scheme: TemporalScheme = TemporalScheme.RK2
+    output: Optional[Tuple[OPTypeHint, Union[confloat(ge=0), Tuple[confloat(ge=0), ...]]]] = None
+    scheme: Literal["Euler", "RK2", "RK4"] = "RK2"
 
     @validator("end")
     def end_greater_than_start(cls, v, values):
@@ -105,20 +102,19 @@ class TemporalConfig(BaseConfig):
         assert v > values["start"], "The end time should greater than the start time."
         return v
 
-    @validator("output")
+    @validator("output", always=True)
     def output_method_pair_check(cls, v):
         """Validate the content in output makes sense.
         """
         if v is None:
             return v
 
-        if v[0] == OutoutType.AT:
+        if v[0] == "at":
             assert isinstance(v[1], (tuple, list)), \
                 "When using \"at\", the second element should be a tuple/list."
-        elif v[0] == OutoutType.EVERY:
+        elif v[0] == "every":
             assert isinstance(v[1], float), \
                 "When using \"every\", the second element should be a float."
-
         return v
 
 
@@ -127,7 +123,7 @@ class SingleBCConfig(BaseConfig):
 
     Attributes
     ----------
-    types : a length-3 tuple/list of str/BCType
+    types : a length-3 tuple/list of str
         Boundary conditions correspond to the three conservative quantities. If the type is
         "inflow", they correspond to non-conservative quantities, i.e., u and v. Applying "inflow"
         to depth h or elevation w seems not be make any sense.
@@ -138,7 +134,7 @@ class SingleBCConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    types: Tuple[BCType, BCType, BCType]
+    types: Tuple[BCTypeHint, BCTypeHint, BCTypeHint]
     values: Tuple[Optional[float], Optional[float], Optional[float]] = [None, None, None]
 
     @validator("values")
@@ -146,7 +142,7 @@ class SingleBCConfig(BaseConfig):
         """Check if values are set accordingly for some BC types.
         """
         for bctype, bcval in zip(values["types"], v):
-            if bctype in (BCType.CONST, BCType.INFLOW):
+            if bctype in ("const", "inflow"):
                 assert isinstance(bcval, float), \
                     "Using BC type \"{}\" requires setting a value.".format(bctype.value)
         return v
@@ -166,6 +162,20 @@ class BCConfig(BaseConfig):
     east: SingleBCConfig
     north: SingleBCConfig
     south: SingleBCConfig
+
+    @root_validator(pre=False)
+    def check_periodicity(cls, values):
+        """Check whether periodic BCs match at corresponding boundary pairs."""
+        result = True
+        for types in zip(values["west"]["types"], values["east"]["types"]):
+            if any(t == "periodic" for t in types):
+                result = all(t == "periodic" for t in types)
+        for types in zip(values["north"]["types"], values["south"]["types"]):
+            if any(t == "periodic" for t in types):
+                result = all(t == "periodic" for t in types)
+        if not result:
+            raise ValueError("Periodic BCs do not match at boundaries and components.")
+        return values
 
 
 class ICConfig(BaseConfig):
@@ -191,16 +201,13 @@ class ICConfig(BaseConfig):
     def check_mutually_exclusive_attrs(cls, values):
         """\"file\" and \"values" should be mutually exclusive.
         """
-        if "file" in values:
+        if "file" in values and values["file"] is not None:
             if "values" in values and values["values"] is not None:
                 raise AssertionError("Only one of \"file\" or \"values\" can be set for I.C.")
 
-            if "keys" not in values:
+            if "keys" not in values or values["keys"] is None:
                 raise AssertionError("\"keys\" has to be set when \"file\" is not None for I.C.")
-
-            if values["keys"] is None:
-                raise AssertionError("\"keys\" has to be a length-3 tuple/list of floats.")
-        else:
+        else:  # "file" is not specified or is None
             if "values" not in values or values["values"] is None:
                 raise AssertionError("Either \"file\" or \"values\" has to be set for I.C.")
 
@@ -234,12 +241,15 @@ class ParamConfig(BaseConfig):
         Parameter controlling numerical dissipation. 1.0 < theta < 2.0. Default: 1.3
     drytol : float
         Dry tolerance in meters. Default: 1.0e-4.
+    ngh : int
+        Number of ghost cell layers per boundary. At least 2 required.
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
     gravity: confloat(ge=0.) = 9.81
     theta: confloat(ge=1., le=2.) = 1.3
     drytol: confloat(ge=0.) = 1.0e-4
+    ngh: conint(ge=2) = 2
 
 
 class Config(BaseConfig):
@@ -263,8 +273,8 @@ class Config(BaseConfig):
         The path to a Python script that will be executed before running a simulation.
     case : path-like
         The path to the case folder.
-    ftype : type
-        The floating number type. Default: numpy.float64
+    dtype : str
+        The floating number type. Either "float32" or "float64". Default: "float64"
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
@@ -276,14 +286,7 @@ class Config(BaseConfig):
     params: ParamConfig = Field(..., alias="parameters")
     prehook: Optional[pathlib.Path]
     case: Optional[pathlib.Path]
-    ftype: str = "float64"
-
-    @validator("ftype")
-    def check_ftype(cls, v):
-        """Check ftype.
-        """
-        assert v in ("float32", "float64"), "\"ftype\" should be either \"float32\" or \"float64\"."
-        return v
+    dtype: Literal["float32", "float64"] = "float64"
 
 
 # register the Config class in yaml with tag !Config
