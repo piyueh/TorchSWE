@@ -1,0 +1,56 @@
+font.family: serif
+font.serif: DejaVu Serif
+font.sans-serif: DejaVu Sans
+font.size: 14.0 # the baseline font size (for "medium" size)
+
+mathtext.fontset: dejavuserif
+
+figure.titlesize: medium # for figure.suptitle
+figure.figsize: 6.4, 4.8
+figure.dpi: 166
+figure.subplot.left: 0.03
+figure.subplot.right: 0.97
+figure.subplot.bottom: 0.03
+figure.subplot.top: 0.83
+figure.subplot.wspace: 0.1
+figure.subplot.hspace: 0.1
+figure.autolayout: False
+figure.constrained_layout.use: True
+figure.constrained_layout.h_pad: 0.04167
+figure.constrained_layout.w_pad: 0.04167
+figure.constrained_layout.hspace: 0.02
+figure.constrained_layout.wspace: 0.02
+
+axes.linewidth:     0.8
+axes.titlelocation: center
+axes.titlesize:     medium
+axes.titlecolor:    black
+axes.titlepad:      6.0
+axes.labelsize:     medium
+axes.labelpad:      4.0
+axes.labelcolor:    black
+axes.axisbelow:     True
+axes.formatter.limits: -2, 2
+axes.formatter.use_mathtext: True
+axes.formatter.useoffset: True
+axes.formatter.offset_threshold: 3
+axes.autolimit_mode: data
+
+xtick.major.size: 10.
+xtick.labelsize: small
+xtick.direction: inout
+xtick.minor.visible: False
+xtick.alignment: center
+
+ytick.major.size: 10.
+ytick.labelsize: small
+ytick.direction: inout
+ytick.minor.visible: False
+ytick.alignment: center
+
+image.cmap : viridis
+
+savefig.dpi: 166
+savefig.format: pdf
+savefig.bbox: standard
+pdf.fonttype: 42

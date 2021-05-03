@@ -8,8 +8,12 @@
 
 """Comparison to the analytical solutions of subcritical flow benchmark.
 """
-import os
+import pathlib
 import numpy
+from matplotlib import pyplot
+from torchswe.utils.netcdf import read_cf
+# pylint: disable=invalid-name, too-many-locals, too-many-statements
+
 
 def topo(x):
     """Calculate the topography elevation.
@@ -30,6 +34,7 @@ def topo(x):
 
     return b
 
+
 def get_coeffs(b, q0, hL, g):
     """Coefficients of the quadratic and constant terms in the Bernoulli relation.
 
@@ -46,18 +51,16 @@ def get_coeffs(b, q0, hL, g):
 
     return C0, C1
 
+
 def main():
     """Plot and compare to analytical solutions."""
 
-    # it's users' responsibility to make sure TorchSWE package can be found
-    from TorchSWE.utils.netcdf import read_cf
-
     # read simulation data
-    filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "solutions.nc")
+    filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
     sim_data, _ = read_cf(filename, ["w", "hu"])
     x = sim_data["x"]
-    w = sim_data["w"][-1, :, :] # only keep the soln at the last time
-    w = numpy.mean(w, 0) # use the average in y direction
+    w = sim_data["w"][-1, :, :]  # only keep the soln at the last time
+    w = numpy.mean(w, 0)  # use the average in y direction
     hu = sim_data["hu"][-1, :, :]
     hu = numpy.mean(hu, 0)
 
@@ -88,8 +91,6 @@ def main():
           "simulation -- {} m^2".format(vol))
 
     # plot
-    from matplotlib import pyplot
-
     pyplot.figure()
     pyplot.plot(x_plot, b_plot, "k-", lw=4, label="Topography elevation (m)")
     pyplot.plot(x_plot, w_plot, "k-", lw=2, label="Analytical solution")
@@ -129,13 +130,9 @@ def main():
     pyplot.grid()
     pyplot.savefig("simulation_vs_analytical_w_L1.png", dpi=166)
 
+    return 0
+
+
 if __name__ == "__main__":
     import sys
-
-    # when execute this script directly, make sure TorchSWE can be found
-    pkg_path = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    sys.path.append(pkg_path)
-
-    # execute the main function
-    main()
+    sys.exit(main())

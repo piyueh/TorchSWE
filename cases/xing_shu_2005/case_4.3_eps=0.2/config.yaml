@@ -1,54 +1,46 @@
 # Xing and Shu, 2005: case 4.3 & eps=0.2
+--- !Config
 
-# domain information
-domain:
-    west: 0.0             # a float; x-coordinate of the left boundary
-    east: 2.0            # a float; x-coordinate of the right boundary
-    south: 0.0            # a float; y-coordinate of the top boundary
-    north: 1.0           # a float; y-coordinate of the bottom boundary
+# spatial information
+spatial:
+  domain: [0.0, 2.0, 0.0, 1.0]
+  discretization: [200, 100]
 
-# information regarding spatial discretization
-discretization:
-    Nx: 200               # in integer; number of cells in west-east direction
-    Ny: 100               # in integer; number of cells in north-south direction
+# temporal control, including writting result during a simulation
+temporal:
+  start: 0.0
+  end: 0.2
+  output: ["every", 0.01]
+  scheme: "RK2"
 
 # boundary conditions
-# options for type: periodic, extrap, const
-# the key "values" is only used by "const" type BC
-boundary conditions:
-    west:
-        types: [extrap, extrap, extrap]
-        values: [null, null, null]
-    east:
-        types: [extrap, extrap, extrap]
-        values: [null, null, null]
-    north:
-        types: [extrap, extrap, extrap]
-        values: [null, null, null]
-    south:
-        types: [extrap, extrap, extrap]
-        values: [null, null, null]
+boundary:
+  west:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+  east:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+  north:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+  south:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
 
-# control of outputing time-series data
-output time:
-    bg: 0.0
-    ed: 0.2
-    step: 0.01
-
-# gravity (m^2/s)
-gravity: 9.81
+# initial condition
+initial:
+  file: "initial.nc"
+  keys: ["w", "hu", "hv"]
 
 # topography
 topography:
-    file: topo.nc         # relative to case folder or absolute path
-    key: elevation        # the corresponding variable name in the NetCDF file
+  file: "topo.nc"       # relative to case folder or absolute path
+  key: elevation        # the corresponding variable name in the NetCDF file
 
-# initial condition
-ic:
-    file: initial.nc      # relative to case folder or absolute path
-    keys: [w, hu, hv]     # the corresponding variable names in the NetCDF file
-    values: null          # alternativelt, specify a length-3 list for constants
+# other parameters
+parameters:
+  gravity: 9.81   # gravity (m/s^2)
 
-# any Python script that should be executed first
-# relative path or absolute path begining wiht "/"
-prehook: create_data.py
+# any Python script that should be executed prior running the solver
+prehook: null

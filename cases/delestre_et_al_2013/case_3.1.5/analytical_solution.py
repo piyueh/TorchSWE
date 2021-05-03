@@ -8,8 +8,12 @@
 
 """Comparison to the analytical solutions of transcritical flow w/ shock benchmark.
 """
-import os
+import pathlib
 import numpy
+from matplotlib import pyplot
+from torchswe.utils.netcdf import read_cf
+# pylint: disable=invalid-name, too-many-locals, too-many-statements
+
 
 def topo(x):
     """Calculate the topography elevation.
@@ -29,6 +33,7 @@ def topo(x):
     b[loc] = 0.2 - 0.05 * numpy.power(x[loc]-10., 2)
 
     return b
+
 
 def solve_shock_loc(bM, hM, q0, hL, g):
     """Solve the location of shock.
@@ -69,7 +74,8 @@ def solve_shock_loc(bM, hM, q0, hL, g):
         # function value
         F[0, 0] = numpy.power(X[0], 3) + (X[2] - c1 - hM - bM) * numpy.power(X[0], 2) + c0
         F[1, 0] = numpy.power(X[1], 3) + (X[2] - c2 - hL) * numpy.power(X[1], 2) + c0
-        F[2, 0] = q02 * (1. / X[0] - 1. / X[1]) + g * (numpy.power(X[0], 2) - numpy.power(X[1], 2)) / 2.
+        F[2, 0] = q02 * (1. / X[0] - 1. / X[1]) + g * (
+            numpy.power(X[0], 2) - numpy.power(X[1], 2)) / 2.
 
         # Jacobian
         J[0, 0] = 3 * numpy.power(X[0], 2) + 2 * (X[2] - c1 - hM - bM) * X[0]
@@ -84,6 +90,7 @@ def solve_shock_loc(bM, hM, q0, hL, g):
         norm = numpy.linalg.norm(dX)
 
     return inverse_bump_topo(X[-1])
+
 
 def solve_hcr(q0, g):
     """Calculate the critical h.
@@ -105,6 +112,7 @@ def solve_hcr(q0, g):
 
     return hcr
 
+
 def inverse_bump_topo(b):
     """Solve the location given an elevation -- only applies to the bump.
 
@@ -117,6 +125,7 @@ def inverse_bump_topo(b):
     x = numpy.sort(numpy.roots([1., -20., 100.+b/0.05-4.]))[::-1][0]
 
     return x
+
 
 def get_trsnscritical_coeffs(b, bM, hM, q0, g):
     """2nd- & 0th-order term coefficients of transcritical Bernoulli relation.
@@ -143,6 +152,7 @@ def get_trsnscritical_coeffs(b, bM, hM, q0, g):
 
     return C0, C2
 
+
 def get_subcritical_coeffs(b, q0, hL, g):
     """2nd- & 0th-order term coefficients of subcritical Bernoulli relation.
 
@@ -164,6 +174,7 @@ def get_subcritical_coeffs(b, q0, hL, g):
 
     return C0, C2
 
+
 def get_analytical(x, bM, hM, xsh, q0, hL, g):
     """Get the analytical solution of transcritical flow w/ shock.
 
@@ -182,23 +193,21 @@ def get_analytical(x, bM, hM, xsh, q0, hL, g):
     """
 
     # first regime: transcritical w/o shock
-    x_trans = x[x<=xsh]
+    x_trans = x[x <= xsh]
     b_trans = topo(x_trans)
     h_trans = numpy.zeros_like(x_trans)
     C0, C2 = get_trsnscritical_coeffs(b_trans, bM, hM, q0, g)
     for i, c2 in enumerate(C2):
         R = numpy.sort(numpy.roots([1.0, c2, 0., C0]))[::-1]
         h_trans[i] = R[0] if x_trans[i] <= 10. else R[1]
-    w_trans = h_trans + b_trans
 
     # second regime: subcritical
-    x_sub = x[x>=xsh]
+    x_sub = x[x >= xsh]
     b_sub = topo(x_sub)
     h_sub = numpy.zeros_like(x_sub)
     C0, C2 = get_subcritical_coeffs(b_sub, q0, hL, g)
     for i, c2 in enumerate(C2):
         h_sub[i] = numpy.roots([1.0, c2, 0., C0])[0]
-    w_sub = h_sub + b_sub
 
     b = numpy.hstack([b_trans, b_sub])
     h = numpy.hstack([h_trans, h_sub])
@@ -209,27 +218,25 @@ def get_analytical(x, bM, hM, xsh, q0, hL, g):
 
     return b, h, w
 
+
 def main():
     """Plot and compare to analytical solutions."""
-
-    # it's users' responsibility to make sure TorchSWE package can be found
-    from TorchSWE.utils.netcdf import read_cf
 
     # get the critical depth; also represents h at b = 0.2 (& x = 10)
     hcr = solve_hcr(0.18, 9.81)
     xsh = solve_shock_loc(0.2, hcr, 0.18, 0.33, 9.81)
 
     # read simulation data
-    filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "solutions.nc")
+    filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
     sim_data, _ = read_cf(filename, ["w", "hu"])
     x = sim_data["x"]
-    w = sim_data["w"][-1, :, :] # only keep the soln at the last time
-    w = numpy.mean(w, 0) # use the average in y direction
+    w = sim_data["w"][-1, :, :]  # only keep the soln at the last time
+    w = numpy.mean(w, 0)  # use the average in y direction
     hu = sim_data["hu"][-1, :, :]
     hu = numpy.mean(hu, 0)
 
     # get a set of analytical solution for error
-    b_ana, h_ana, w_ana = get_analytical(x, 0.2, hcr, xsh, 0.18, 0.33, 9.81)
+    b_ana, _, w_ana = get_analytical(x, 0.2, hcr, xsh, 0.18, 0.33, 9.81)
 
     # get another set of solution for plotting
     x_plot = numpy.linspace(0., 25., 2500)
@@ -245,8 +252,6 @@ def main():
           "simulation -- {} m^2".format(vol))
 
     # plot
-    from matplotlib import pyplot
-
     pyplot.figure()
     pyplot.plot(x_plot, b_plot, "k-", lw=4, label="Topography elevation (m)")
     pyplot.plot(x_plot, w_plot, "k-", lw=2, label="Analytical solution")
@@ -286,13 +291,7 @@ def main():
     pyplot.grid()
     pyplot.savefig("simulation_vs_analytical_w_L1.png", dpi=166)
 
+
 if __name__ == "__main__":
     import sys
-
-    # when execute this script directly, make sure TorchSWE can be found
-    pkg_path = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    sys.path.append(pkg_path)
-
-    # execute the main function
-    main()
+    sys.exit(main())

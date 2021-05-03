@@ -1,7 +1,9 @@
 *.nogit
-**/*.nc
-**/*.nc.aux.xml
 cases/**/*.png
+cases/**/*.npz
+cases/**/*.npy
+cases/**/*.nc
+cases/**/*.nc.aux.xml
 comparisons/geoclaw/**/*.data
 comparisons/geoclaw/**/_output
 comparisons/geoclaw/**/.output

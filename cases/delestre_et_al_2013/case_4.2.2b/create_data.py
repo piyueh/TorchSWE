@@ -6,8 +6,7 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""
-Create topography and I.C. file for case 4.2.2-2 in Delestre et al., 2013.
+"""Create topography and I.C. file for case 4.2.2-2 in Delestre et al., 2013.
 
 Note, the elevation data in the resulting NetCDF file is defined at vertices,
 instead of cell centers. But the I.C. is defined at cell centers.
@@ -15,6 +14,7 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
+from torchswe.utils.config import Config
 from torchswe.utils.netcdf import write_cf
 
 
@@ -48,26 +48,23 @@ def main():
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as f:
-        config = yaml.load(f, Loader=yaml.CLoader)
+        config: Config = yaml.load(f, Loader=yaml.Loader)
 
     x = numpy.linspace(
-        config["domain"]["west"], config["domain"]["east"],
-        config["discretization"]["Nx"]+1, dtype=numpy.float64)
+        config.spatial.domain[0], config.spatial.domain[1],
+        config.spatial.discretization[0]+1, dtype=numpy.float64)
     y = numpy.linspace(
-        config["domain"]["south"], config["domain"]["north"],
-        config["discretization"]["Ny"]+1, dtype=numpy.float64)
+        config.spatial.domain[2], config.spatial.domain[3],
+        config.spatial.discretization[1]+1, dtype=numpy.float64)
 
     # 2D X, Y for temporarily use
     X, Y = numpy.meshgrid(x, y)
 
-    # topogeaphy elevation
-    B = topo(X, Y)
-
     # write topography file
     write_cf(
-        case.joinpath(config["topography"]["file"]), x, y,
-        {config["topography"]["key"]: B},
-        options={config["topography"]["key"]: {"units": "m"}})
+        case.joinpath(config.topo.file), {"x": x, "y": y},
+        {config.topo.key: topo(X, Y)},
+        options={config.topo.key: {"units": "m"}})
 
     # x and y for cell centers
     xc = (x[:-1] + x[1:]) / 2.
@@ -79,16 +76,15 @@ def main():
 
     # write I.C. file
     write_cf(
-        case.joinpath(config["ic"]["file"]), xc, yc,
-        dict(zip(config["ic"]["keys"], [w, hu, hv])),
-        options=dict(zip(config["ic"]["keys"], [
-            {"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
+        case.joinpath(config.ic.file), {"x": xc, "y": yc},
+        dict(zip(config.ic.keys, [w, hu, hv])),
+        options=dict(
+            zip(config.ic.keys, [{"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
 
     return 0
 
 
 if __name__ == "__main__":
-
-    # execute the main function
     import sys
+
     sys.exit(main())

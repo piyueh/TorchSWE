@@ -1,54 +1,48 @@
 # Xing and Shu, 2005: case 5.3
+--- !Config
 
-# domain information
-domain:
-    west: 0.0             # a float; x-coordinate of the left boundary
-    east: 2.0            # a float; x-coordinate of the right boundary
-    south: 0.0            # a float; y-coordinate of the top boundary
-    north: 1.0           # a float; y-coordinate of the bottom boundary
+# spatial information
+spatial:
+  domain: [0.0, 2.0, 0.0, 1.0]  # [west, east, south, north]
+  discretization: [2000, 1000]      # [N_{west<->east}, N_{north<->south}]
 
-# information regarding spatial discretization
-discretization:
-    Nx: 2000               # in integer; number of cells in west-east direction
-    Ny: 1000               # in integer; number of cells in north-south direction
+# temporal control, including writting result during a simulation
+temporal:
+  start: 0.0
+  end: 0.6
+  output: ["every", 0.12]  # ["at", [T1, T2, ...]] or ["every", delta T]
+  scheme: "RK2"           # RK2, RK4, Euler
 
 # boundary conditions
-# options for type: periodic, extrap, const
-# the key "values" is only used by "const" type BC
-boundary conditions:
-    west:
-        types: [outflow, outflow, outflow]
-        values: [null, null, null]
-    east:
-        types: [outflow, outflow, outflow]
-        values: [null, null, null]
-    north:
-        types: [outflow, outflow, outflow]
-        values: [null, null, null]
-    south:
-        types: [outflow, outflow, outflow]
-        values: [null, null, null]
+boundary:
+  west:
+    types: ["outflow", "outflow", "outflow"]   # periodic/extrap/outflow/const
+    values: [null, null, null]              # only used by "const" type BC
+  east:
+    types: ["outflow", "outflow", "outflow"]
+    values: [null, null, null]
+  north:
+    types: ["outflow", "outflow", "outflow"]
+    values: [null, null, null]
+  south:
+    types: ["outflow", "outflow", "outflow"]
+    values: [null, null, null]
 
-# control of outputing time-series data
-output time:
-    bg: 0.0
-    ed: 0.6
-    step: 0.12
-
-# gravity (m^2/s)
-gravity: 9.81
+# initial condition
+initial:
+  file: "initial.nc"
+  keys: ["w", "hu", "hv"]
 
 # topography
 topography:
-    file: topo.nc         # relative to case folder or absolute path
-    key: elevation        # the corresponding variable name in the NetCDF file
+  file: "topo.nc"       # relative to case folder or absolute path
+  key: elevation        # the corresponding variable name in the NetCDF file
 
-# initial condition
-ic:
-    file: initial.nc      # relative to case folder or absolute path
-    keys: [w, hu, hv]     # the corresponding variable names in the NetCDF file
-    values: null          # alternativelt, specify a length-3 list for constants
+# other parameters
+parameters:
+  gravity: 9.81  # gravity (m^2/s)
+  theta: 1.0  # control numerical dissipation
+  drytol: 1.0e-6  # dry tolerance
 
-# any Python script that should be executed first
-# relative path or absolute path begining wiht "/"
-prehook: create_data.py
+# any Python script that should be executed prior running the solver
+prehook: null

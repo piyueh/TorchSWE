@@ -6,21 +6,20 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
+"""Plot.
 """
-Plot.
-"""
-import os
+import pathlib
 import numpy
 from matplotlib import pyplot
+from torchswe.utils.netcdf import read_cf
+
 
 def main():
     """Plot and compare to analytical solutions."""
-
-    # it's users' responsibility to make sure TorchSWE package can be found
-    from TorchSWE.utils.netcdf import read_cf
+    # pylint: disable=invalid-name
 
     # read simulation data
-    filename = os.path.join(os.path.dirname(os.path.abspath(__file__)), "solutions.nc")
+    filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
     sim_data, _ = read_cf(filename, ["w"])
 
     # 2D coordinates
@@ -54,7 +53,8 @@ def main():
         pyplot.ylim(0., 1.)
         pyplot.colorbar()
         pyplot.tight_layout()
-        pyplot.savefig("water_level_contourline_t={}.png".format(t[i]), dpi=166, bbox_inches="tight")
+        pyplot.savefig(
+            "water_level_contourline_t={}.png".format(t[i]), dpi=166, bbox_inches="tight")
 
     # contourf
     for i in range(5):
@@ -69,13 +69,9 @@ def main():
         pyplot.tight_layout()
         pyplot.savefig("water_level_contour_t={}.png".format(t[i]), dpi=166, bbox_inches="tight")
 
+    return 0
+
+
 if __name__ == "__main__":
     import sys
-
-    # when execute this script directly, make sure TorchSWE can be found
-    pkg_path = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    sys.path.append(pkg_path)
-
-    # execute the main function
-    main()
+    sys.exit(main())

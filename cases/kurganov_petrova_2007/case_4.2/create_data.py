@@ -16,11 +16,28 @@ import yaml
 import numpy
 from torchswe.utils.config import Config
 from torchswe.utils.netcdf import write_cf
+# pylint: disable=invalid-name, too-many-locals
+
+
+def topo(x, y):
+    """Topography."""
+    B = 7. * numpy.exp(-8.*numpy.power(x-0.3, 2)-60.*numpy.power(y-0.1, 2)) / 32.
+    B -= (1. * numpy.exp(-30.*numpy.power(x+0.1, 2)-90.*numpy.power(y+0.2, 2)) / 8.)
+
+    loc = numpy.logical_and(numpy.abs(y) <= 0.5, (x-(y-1.)/2.) <= 0.)
+    B[loc] += numpy.power(y[loc], 2)
+
+    loc = numpy.logical_and(numpy.abs(y) > 0.5, (x-(y-1.)/2.) <= 0.)
+    B[loc] += (numpy.power(y[loc], 2) + numpy.sin(numpy.pi*x[loc]) / 10.)
+
+    loc = (x - (y - 1.) / 2. > 0.)
+    B[loc] += numpy.maximum(numpy.power(y[loc], 2)+numpy.sin(numpy.pi*x[loc])/10., 1./8.)
+
+    return B
 
 
 def main():
     """Main function"""
-    # pylint: disable=invalid-name
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
@@ -38,7 +55,7 @@ def main():
     X, Y = numpy.meshgrid(x, y)
 
     # topogeaphy elevation
-    B = 0.8 * numpy.exp(-5.*numpy.power(X-0.9, 2)-50.*numpy.power(Y-0.5, 2))
+    B = topo(X, Y)
 
     # write topography file
     write_cf(
@@ -48,25 +65,25 @@ def main():
     # x and y for cell centers
     xc = (x[:-1] + x[1:]) / 2.
     yc = (y[:-1] + y[1:]) / 2.
+    Xc, Yc = numpy.meshgrid(xc, yc)
+    Bc = (B[:-1, :-1] + B[1:, :-1] + B[:-1, 1:] + B[1:, 1:]) / 4.
+    assert Bc.shape == Xc.shape, "{} vs {}".format(Bc.shape, Xc.shape)
 
     # I.C.: w
-    w = numpy.ones_like(xc)
-    w[(xc >= 0.05)*(xc <= 0.15)] += 0.01
-    w = numpy.tile(w, (config.spatial.discretization[1], 1))
+    w = numpy.maximum(Bc, 0.25)
 
     # I.C.: hu & hv
-    hu = numpy.zeros_like(xc)
-    hv = numpy.zeros_like(xc)
-    hu = numpy.tile(hu, (config.spatial.discretization[1], 1))
-    hv = numpy.tile(hv, (config.spatial.discretization[1], 1))
+    hu = numpy.zeros_like(Bc)
+    hv = numpy.zeros_like(Bc)
+
+    loc = (numpy.abs(Yc) <= 0.5)
+    hu[loc] = (w[loc] - Bc[loc]) * 0.5
 
     # write I.C. file
     write_cf(
-        case.joinpath(config.ic.file), {"x": xc, "y": yc},
-        dict(zip(config.ic.keys, [w, hu, hv])), options=dict(
+        case.joinpath(config.ic.file), {"x": xc, "y": yc}, dict(zip(config.ic.keys, [w, hu, hv])),
+        options=dict(
             zip(config.ic.keys, [{"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
-
-    return 0
 
 
 if __name__ == "__main__":

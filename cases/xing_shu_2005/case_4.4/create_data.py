@@ -6,47 +6,45 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""
-Create topography and I.C. file for case 4.4 in Xing and Shu (2005).
+"""Create topography and I.C. file for case 4.4 in Xing and Shu (2005).
 
 Note, the elevation data in the resulting NetCDF file is defined at vertices,
 instead of cell centers. But the I.C. is defined at cell centers.
 """
-import os
+import pathlib
 import yaml
 import numpy
+from torchswe.utils.config import Config
+from torchswe.utils.netcdf import write_cf
+
 
 def main():
     """Main function"""
+    # pylint: disable=invalid-name
 
-    # it's users' responsibility to make sure TorchSWE package can be found
-    from TorchSWE.utils.netcdf import write_cf
+    case = pathlib.Path(__file__).expanduser().resolve().parent
 
-    me = os.path.abspath(__file__)
-    case = os.path.dirname(me)
-
-    with open(os.path.join(case, "config.yaml"), 'r') as f:
-        config = yaml.load(f, Loader=yaml.CLoader)
+    with open(case.joinpath("config.yaml"), 'r') as f:
+        config: Config = yaml.load(f, Loader=yaml.Loader)
 
     x = numpy.linspace(
-        config["domain"]["west"], config["domain"]["east"],
-        config["discretization"]["Nx"]+1, dtype=numpy.float64)
+        config.spatial.domain[0], config.spatial.domain[1],
+        config.spatial.discretization[0]+1, dtype=numpy.float64)
     y = numpy.linspace(
-        config["domain"]["south"], config["domain"]["north"],
-        config["discretization"]["Ny"]+1, dtype=numpy.float64)
+        config.spatial.domain[2], config.spatial.domain[3],
+        config.spatial.discretization[1]+1, dtype=numpy.float64)
 
     # create 1D version of B first
     B = numpy.zeros_like(x)
-    B = numpy.where(numpy.abs(x-750.)<=1500./8., 8, B)
+    B = numpy.where(numpy.abs(x-750.) <= 1500./8., 8, B)
 
     # make it 2D
-    B = numpy.tile(B, (config["discretization"]["Ny"]+1, 1))
+    B = numpy.tile(B, (config.spatial.discretization[1]+1, 1))
 
     # write topography file
     write_cf(
-        os.path.join(case, config["topography"]["file"]), x, y,
-        {config["topography"]["key"]: B},
-        options={config["topography"]["key"]: {"units": "m"}})
+        case.joinpath(config.topo.file), {"x": x, "y": y},
+        {config.topo.key: B}, options={config.topo.key: {"units": "m"}})
 
     # x and y for cell centers
     xc = (x[:-1] + x[1:]) / 2.
@@ -54,31 +52,24 @@ def main():
 
     # I.C.: w
     w = numpy.ones_like(xc)
-    w = numpy.where(xc<=750., 20., 15.)
-    w = numpy.tile(w, (config["discretization"]["Ny"], 1))
+    w = numpy.where(xc <= 750., 20., 15.)
+    w = numpy.tile(w, (config.spatial.discretization[1], 1))
 
     # I.C.: hu & hv
     hu = numpy.zeros_like(xc)
     hv = numpy.zeros_like(xc)
-    hu = numpy.tile(hu, (config["discretization"]["Ny"], 1))
-    hv = numpy.tile(hv, (config["discretization"]["Ny"], 1))
+    hu = numpy.tile(hu, (config.spatial.discretization[1], 1))
+    hv = numpy.tile(hv, (config.spatial.discretization[1], 1))
 
     # write I.C. file
-    data = dict(zip(config["ic"]["keys"], [w, hu, hv]))
     write_cf(
-        os.path.join(case, config["ic"]["file"]), xc, yc,
-        dict(zip(config["ic"]["keys"], [w, hu, hv])),
-        options=dict(zip(config["ic"]["keys"], [
+        case.joinpath(config.ic.file), {"x": xc, "y": yc},
+        dict(zip(config.ic.keys, [w, hu, hv])), options=dict(zip(config.ic.keys, [
             {"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
+
+    return 0
 
 
 if __name__ == "__main__":
     import sys
-
-    # when execute this script directly, make sure TorchSWE can be found
-    pkg_path = os.path.dirname(os.path.dirname(os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.abspath(__file__))))))
-    sys.path.append(pkg_path)
-
-    # execute the main function
-    main()
+    sys.exit(main())
