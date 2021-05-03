@@ -250,6 +250,7 @@ class ParamConfig(BaseConfig):
     theta: confloat(ge=1., le=2.) = 1.3
     drytol: confloat(ge=0.) = 1.0e-4
     ngh: conint(ge=2) = 2
+    log_steps: conint(ge=1) = 100
 
 
 class Config(BaseConfig):

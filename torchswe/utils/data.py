@@ -300,7 +300,7 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
     u: numpy.ndarray
     v: numpy.ndarray
     a: numpy.ndarray
-    flux: numpy.ndarray
+    flux: WHUHVModel
 
     # validator
     _val_arrays = validator(
@@ -312,7 +312,7 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
             hu=numpy.zeros((ny, nx), dtype=dtype), hv=numpy.zeros((ny, nx), dtype=dtype),
             h=numpy.zeros((ny, nx), dtype=dtype), u=numpy.zeros((ny, nx), dtype=dtype),
             v=numpy.zeros((ny, nx), dtype=dtype), a=numpy.zeros((ny, nx), dtype=dtype),
-            flux=numpy.zeros((ny, nx), dtype=dtype)
+            flux=WHUHVModel(nx, ny, dtype)
         )
 
 
@@ -323,7 +323,7 @@ class FaceTwoSideModel(BaseConfig, DummyDataModel):
     dtype: Literal["float32", "float64"]
     plus: FaceOneSideModel
     minus: FaceOneSideModel
-    num_flux: numpy.ndarray
+    num_flux: WHUHVModel
 
     # validator
     _val_arrays = validator("plus", "minus", "num_flux", allow_reuse=True)(_pydantic_val_arrays)
@@ -331,7 +331,7 @@ class FaceTwoSideModel(BaseConfig, DummyDataModel):
     def __init__(self, nx, ny, dtype):
         super().__init__(  # trigger pydantic validation
             nx=nx, ny=ny, dtype=dtype, plus=FaceOneSideModel(nx, ny, dtype),
-            minus=FaceOneSideModel(nx, ny, dtype), num_flux=numpy.zeros((ny, nx), dtype=dtype)
+            minus=FaceOneSideModel(nx, ny, dtype), num_flux=WHUHVModel(nx, ny, dtype)
         )
 
 
@@ -411,24 +411,28 @@ class States(BaseConfig, DummyDataModel):
             x: {                                            # shape: (ny, nx+1)
                 plus: {
                     w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray, flux: ndarray
+                    a: ndarray,
+                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
                 minus: {
                     w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray, flux: ndarray
+                    a: ndarray,
+                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
-                num_flux: ndarray
+                num_flux: {w: ndarray, hu: ndarray, hv: ndarray},
             },
             y: {                                            # shape: (ny+1, nx)
                 plus: {
                     w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray, flux: ndarray
+                    a: ndarray,
+                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
                 minus: {
                     w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray, flux: ndarray
+                    a: ndarray,
+                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
-                num_flux: ndarray
+                num_flux: {w: ndarray, hu: ndarray, hv: ndarray},
             }
         }
     }

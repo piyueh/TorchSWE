@@ -29,13 +29,13 @@ boundary:
 
 # initial condition
 initial:
-  file: "data.nc"       # relative to case folder or absolute path
+  file: "initial.nc"       # relative to case folder or absolute path
   keys: [w, hu, hv]     # the corresponding variable names in the NetCDF file
   values: null          # alternativelt, specify a length-3 list for constants
 
 # topography
 topography:
-  file: "data.nc"       # relative to case folder or absolute path
+  file: "topo.nc"       # relative to case folder or absolute path
   key: elevation        # the corresponding variable name in the NetCDF file
 
 # other parameters

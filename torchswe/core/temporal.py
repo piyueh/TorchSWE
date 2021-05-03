@@ -6,79 +6,79 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
+"""Time-marching.
 """
-Time-marching.
-"""
+import copy
 import warnings
-import torch
 from .misc import CFLWarning
+from ..utils.data import States, Gridlines, Topography, WHUHVModel
+from ..utils.config import Config
+from ..utils.dummydict import DummyDict
 
 
-def euler(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
-          t_current, t_end, dt, it_current=0, print_steps=1, tol=1e-10):
+def euler(
+    states: States, grid: Gridlines, topo: Topography, config: Config,
+        runtime: DummyDict, t_end: float):
     """A simple 1st-order forward Euler time-marching.
     """
+    # non-ghost domain slice
+    internal = slice(states.ngh, -states.ngh)
 
-    # exapnd variables
-    Bfx, Bfy = Bf["x"], Bf["y"]
-    dBx, dBy = dBc["x"], dBc["y"]
-
-    # total soil volume
-    soil_vol = Bc.sum().item() * dx * dx
-
-    # used to store maximum allowed time step size
-    max_dt = None
+    # cell area and total soil volume
+    cell_area = grid.x.delta * grid.y.delta
+    soil_vol = topo.cntr.sum() * cell_area
 
     # information string formatter
     info_str = "Step {}: step size = {} sec, time = {} sec, total volume = {}"
-    cfl_str1 = "Current dt (= {} sec)s is not safe, "
-    cfl_str2 = "lower down to {} sec"
 
     # an initial updating, just in case
-    U = update_ghost(U)
+    states = runtime.ghost_updater.update_all(states)
 
-    # loop till t_current reaches t_end
-    while True: # TODO: use iteration counter to avoid infinity loop
+    # initial time
+    runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure 1st step won't exceed end t
+
+    # loop till cur_t reaches t_range[0]
+    while True:  # TODO: use iteration counter to avoid infinity loop
 
         # Euler step
-        k, max_dt = rhs_fun(U, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
+        states, max_dt = runtime.rhs_updater(states, grid, topo, config, runtime)
 
-        # adjust time step size; modify dt if next step will exceed target end time
-        if t_current + dt > t_end:
-            dt = t_end - t_current
-        else:
-            dt = max_dt * 0.9
+        runtime.dt = max_dt * 0.9  # adjust time step size
+        runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure we won't exceed end t
 
         # update
-        U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * k
-        U = update_ghost(U)
+        states.q.w[internal, internal] += runtime.dt * states.rhs.w
+        states.q.hu[internal, internal] += runtime.dt * states.rhs.hu
+        states.q.hv[internal, internal] += runtime.dt * states.rhs.hv
+        states = runtime.ghost_updater.update_all(states)
 
         # update iteration index and time
-        it_current += 1
-        t_current += dt
+        runtime.counter += 1
+        runtime.cur_t += runtime.dt
 
         # print out information
-        if it_current % print_steps == 0:
-            fluid_vol = U[0, Ngh:-Ngh, Ngh:-Ngh].sum().item() * dx * dx - soil_vol
-            print(info_str.format(it_current, dt, t_current, fluid_vol))
+        if runtime.counter % config.params.log_steps == 0:
+            fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
+            print(info_str.format(runtime.counter, runtime.dt, runtime.cur_t, fluid_vol))
 
         # break loop
-        if abs(t_current-t_end) < tol:
+        if abs(runtime.cur_t-t_end) < runtime.tol:
             break
 
-    return U, it_current, t_current, dt
+    return states
 
-def RK2(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
-        t_current, t_end, dt, it_current=0, print_steps=1, tol=1e-10):
+
+def RK2(  # pylint: disable=invalid-name, too-many-locals
+    states: States, grid: Gridlines, topo: Topography, config: Config,
+        runtime: DummyDict, t_end: float):
     """Commonly seen explicit 2th-order Runge-Kutta scheme.
     """
+    # non-ghost domain slice
+    internal = slice(states.ngh, -states.ngh)
 
-    # exapnd variables
-    Bfx, Bfy = Bf["x"], Bf["y"]
-    dBx, dBy = dBc["x"], dBc["y"]
-
-    # total soil volume
-    soil_vol = Bc.sum().item() * dx * dx
+    # cell area and total soil volume
+    cell_area = grid.x.delta * grid.y.delta
+    soil_vol = topo.cntr.sum() * cell_area
 
     # used to store maximum allowed time step size
     max_dt = [None, None]
@@ -87,69 +87,81 @@ def RK2(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     info_str = "Step {}: step size = {} sec, time = {} sec, total volume = {}"
     cfl_str1 = "Current dt (= {} sec)s is not safe, "
     cfl_str2 = "lower down to {} sec"
-    cfl_str3 = "lower down to {} sec and restart the iteration {}"
 
     # previous solution; should not be changed until the end of each time-step
-    U = update_ghost(U)
+    states = runtime.ghost_updater.update_all(states)
 
-    # to hold temporary solution at intermediate steps
-    Utemp = torch.zeros_like(U)
+    # to hold previous solution
+    prev_q = copy.deepcopy(states.q)
+
+    # initial time
+    runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure 1st step won't exceed end t
 
     # loop till t_current reaches t_end
-    while True: # TODO: use iteration counter to avoid infinity loop
+    while True:  # TODO: use iteration counter to avoid infinity loop
 
-        # the slope from the first step, using U
-        k1, max_dt[0] = rhs_fun(U, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
+        # the slope from the first step
+        states, max_dt[0] = runtime.rhs_updater(states, grid, topo, config, runtime)
 
         # check if it is safe to update conservative variables
-        if dt / 2. >= max_dt[0]:
-            msg = cfl_str1.format(dt)
-            dt = max_dt[0] * 0.9
-            msg += cfl_str2.format(dt)
+        if runtime.dt / 2. >= max_dt[0]:
+            msg = cfl_str1.format(runtime.dt)
+            runtime.dt = max_dt[0] * 0.9
+            msg += cfl_str2.format(runtime.dt)
             warnings.warn(msg, CFLWarning)
 
         # update for the first step
-        Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k1 / 2.
-        Utemp = update_ghost(Utemp)
+        states.q.w[internal, internal] += (runtime.dt * states.rhs.w / 2.)
+        states.q.hu[internal, internal] += (runtime.dt * states.rhs.hu / 2.)
+        states.q.hv[internal, internal] += (runtime.dt * states.rhs.hv / 2.)
+        states = runtime.ghost_updater.update_all(states)
 
-        # the final step, using Utemp
-        k2, max_dt[1] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
+        # the final step; k2 is an alias to mid
+        states, max_dt[1] = runtime.rhs_updater(states, grid, topo, config, runtime)
 
-        # update U directly because we reach the end of this time step
-        U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * k2
-        U = update_ghost(U)
+        # swap object so the solution holder in `states` is from the previous time step
+        states.q, prev_q = prev_q, states.q
 
-        # update step counter and current time and print information
-        it_current += 1
-        t_current += dt
+        # update solution from previous steps and slopes from the 2nd stage in RK2
+        states.q.w[internal, internal] += (runtime.dt * states.rhs.w)
+        states.q.hu[internal, internal] += (runtime.dt * states.rhs.hu)
+        states.q.hv[internal, internal] += (runtime.dt * states.rhs.hv)
+        states = runtime.ghost_updater.update_all(states)
 
-        if it_current % print_steps == 0:
-            fluid_vol = U[0, Ngh:-Ngh, Ngh:-Ngh].sum().item() * dx * dx - soil_vol
-            print(info_str.format(it_current, dt, t_current, fluid_vol))
+        # update iteration index and time
+        runtime.counter += 1
+        runtime.cur_t += runtime.dt
+
+        # print out information
+        if runtime.counter % config.params.log_steps == 0:
+            fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
+            print(info_str.format(runtime.counter, runtime.dt, runtime.cur_t, fluid_vol))
 
         # break loop
-        if abs(t_current-t_end) < tol:
+        if abs(runtime.cur_t-t_end) < runtime.tol:
             break
 
+        # for the next time step; copying values should be faster than allocating new arrays
+        prev_q.w[...], prev_q.hu[...], prev_q.hv[...] = states.q.w, states.q.hu, states.q.hv
+
         # update dt; modify dt if the next step will exceed target end time
-        if t_current + dt > t_end:
-            dt = t_end - t_current
-        else:
-            dt = min(max_dt) * 0.9
+        runtime.dt = min(max_dt) * 0.9  # adjust time step size
+        runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure we won't exceed end t
 
-    return U, it_current, t_current, dt
+    return states
 
-def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
-        t_current, t_end, dt, it_current=0, print_steps=1, tol=1e-10):
+
+def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
+    states: States, grid: Gridlines, topo: Topography, config: Config,
+        runtime: DummyDict, t_end: float):
     """Commonly seen explicit 4th-order Runge-Kutta scheme.
     """
+    # non-ghost domain slice
+    internal = slice(states.ngh, -states.ngh)
 
-    # exapnd variables
-    Bfx, Bfy = Bf["x"], Bf["y"]
-    dBx, dBy = dBc["x"], dBc["y"]
-
-    # total soil volume
-    soil_vol = Bc.sum().item() * dx * dx
+    # cell area and total soil volume
+    cell_area = grid.x.delta * grid.y.delta
+    soil_vol = topo.cntr.sum() * cell_area
 
     # used to store maximum allowed time step size
     max_dt = [None, None, None, None]
@@ -161,81 +173,147 @@ def RK4(U, update_ghost, rhs_fun, Bf, Bc, dBc, dx, Ngh, g, epsilon, theta,
     cfl_str3 = "lower down to {} sec and restart the iteration {}"
 
     # previous solution; should not be changed until the end of each time-step
-    U = update_ghost(U)
+    states = runtime.ghost_updater.update_all(states)
 
-    # to hold temporary solution at intermediate steps
-    Utemp = torch.zeros_like(U)
+    # to hold previous solution
+    prev_q = copy.deepcopy(states.q)
+
+    # to hold slopes from intermediate RK4 stages
+    k1 = WHUHVModel(states.rhs.nx, states.rhs.ny, states.rhs.dtype)
+    k2 = WHUHVModel(states.rhs.nx, states.rhs.ny, states.rhs.dtype)
+    k3 = WHUHVModel(states.rhs.nx, states.rhs.ny, states.rhs.dtype)
+
+    # initial time
+    runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure 1st step won't exceed end t
 
     # loop till t_current reaches t_end
-    while True: # TODO: use iteration counter to avoid infinity loop
+    while True:  # TODO: use iteration counter to avoid infinity loop
 
-        # the slope from the first step, using U
-        k1, max_dt[0] = rhs_fun(U, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
+        # stage 1
+        # =========================================================================================
+        states, max_dt[0] = runtime.rhs_updater(states, grid, topo, config, runtime)
 
         # check if it is safe to update conservative variables
-        if dt / 2. >= max_dt[0]:
-            msg = cfl_str1.format(dt)
-            dt = max_dt[0] * 0.9
-            msg += cfl_str2.format(dt)
+        if runtime.dt / 2. >= max_dt[0]:
+            msg = cfl_str1.format(runtime.dt)
+            runtime.dt = max_dt[0] * 0.9
+            msg += cfl_str2.format(runtime.dt)
             warnings.warn(msg, CFLWarning)
+
+        # swap underlying objects
+        k1, states.rhs = states.rhs, k1
 
         # update for the first step
-        Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k1 / 2.
-        Utemp = update_ghost(Utemp)
+        states.q.w[internal, internal] = prev_q.w[internal, internal] + runtime.dt * k1.w / 2.
+        states.q.hu[internal, internal] = prev_q.hu[internal, internal] + runtime.dt * k1.hu / 2.
+        states.q.hv[internal, internal] = prev_q.hv[internal, internal] + runtime.dt * k1.hv / 2.
+        states = runtime.ghost_updater.update_all(states)
 
-        # the slope from the second step, using Utemp
-        k2, max_dt[1] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
-
-        # check if it is safe to update conservative variables
-        if dt / 2. >= max_dt[1]:
-            msg = cfl_str1.format(dt)
-            dt = max_dt[1] * 0.9
-            msg += cfl_str3.format(dt, it_current)
-            warnings.warn(msg, CFLWarning)
-            continue # restart the iteration to get correct soln from previos steps
-
-        # update for the second step
-        Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k2 / 2.
-        Utemp = update_ghost(Utemp)
-
-        # the slope from the second step, using Utemp
-        k3, max_dt[2] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
+        # stage 2
+        # =========================================================================================
+        states, max_dt[1] = runtime.rhs_updater(states, grid, topo, config, runtime)
 
         # check if it is safe to update conservative variables
-        if dt >= max_dt[2]:
-            msg = cfl_str1.format(dt)
-            dt = max_dt[2] * 0.9
-            msg += cfl_str3.format(dt, it_current)
+        if runtime.dt / 2. >= max_dt[1]:
+            msg = cfl_str1.format(runtime.dt)
+            runtime.dt = max_dt[1] * 0.9
+            msg += cfl_str3.format(runtime.dt, runtime.counter)
             warnings.warn(msg, CFLWarning)
-            continue # restart the iteration to get correct U from previos steps
+            continue  # restart the iteration to get correct soln from previos steps
 
-        # update for the third step
-        Utemp[:, Ngh:-Ngh, Ngh:-Ngh] = U[:, Ngh:-Ngh, Ngh:-Ngh] + dt * k3
-        Utemp = update_ghost(Utemp)
+        # swap underlying objects
+        k2, states.rhs = states.rhs, k2
 
-        # the final step, using Utemp
-        k4, max_dt[3] = rhs_fun(Utemp, Bfx, Bfy, Bc, dBx, dBy, dx, Ngh, g, epsilon, theta)
+        # update for the second step using k2
+        states.q.w[internal, internal] = prev_q.w[internal, internal] + runtime.dt * k2.w / 2.
+        states.q.hu[internal, internal] = prev_q.hu[internal, internal] + runtime.dt * k2.hu / 2.
+        states.q.hv[internal, internal] = prev_q.hv[internal, internal] + runtime.dt * k2.hv / 2.
+        states = runtime.ghost_updater.update_all(states)
+
+        # stage 3
+        # =========================================================================================
+        states, max_dt[2] = runtime.rhs_updater(states, grid, topo, config, runtime)
+
+        # check if it is safe to update conservative variables
+        if runtime.dt >= max_dt[2]:
+            msg = cfl_str1.format(runtime.dt)
+            runtime.dt = max_dt[2] * 0.9
+            msg += cfl_str3.format(runtime.dt, runtime.counter)
+            warnings.warn(msg, CFLWarning)
+            continue  # restart the iteration to get correct U from previos steps
+
+        # swap underlying objects
+        k3, states.rhs = states.rhs, k3
+
+        # update for the third step using k3
+        states.q.w[internal, internal] = prev_q.w[internal, internal] + runtime.dt * k3.w
+        states.q.hu[internal, internal] = prev_q.hu[internal, internal] + runtime.dt * k3.hu
+        states.q.hv[internal, internal] = prev_q.hv[internal, internal] + runtime.dt * k3.hv
+        states = runtime.ghost_updater.update_all(states)
+
+        # stage 3
+        # =========================================================================================
+        states, max_dt[3] = runtime.rhs_updater(states, grid, topo, config, runtime)
 
         # update U directly because we reach the end of this time step
-        U[:, Ngh:-Ngh, Ngh:-Ngh] += dt * (k1 + 2. * k2 + 2. * k3 + k4) / 6.
-        U = update_ghost(U)
+        states.q.w[internal, internal] = prev_q.w[internal, internal] + \
+            runtime.dt * (k1.w + 2. * k2.w + 2. * k3.w + states.rhs.w) / 6.
+        states.q.hu[internal, internal] = prev_q.w[internal, internal] + \
+            runtime.dt * (k1.hu + 2. * k2.hu + 2. * k3.hu + states.rhs.hu) / 6.
+        states.q.hv[internal, internal] = prev_q.w[internal, internal] + \
+            runtime.dt * (k1.hv + 2. * k2.hv + 2. * k3.hv + states.rhs.hv) / 6.
+        states = runtime.ghost_updater.update_all(states)
 
-        # update step counter and current time and print information
-        it_current += 1
-        t_current += dt
+        # update iteration index and time
+        runtime.counter += 1
+        runtime.cur_t += runtime.dt
 
-        if it_current % print_steps == 0:
-            fluid_vol = U[0, Ngh:-Ngh, Ngh:-Ngh].sum().item() * dx * dx - soil_vol
-            print(info_str.format(it_current, dt, t_current, fluid_vol))
+        # print out information
+        if runtime.counter % config.params.log_steps == 0:
+            fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
+            print(info_str.format(runtime.counter, runtime.dt, runtime.cur_t, fluid_vol))
 
         # break loop
-        if abs(t_current-t_end) < tol:
+        if abs(runtime.cur_t-t_end) < runtime.tol:
             break
 
-        # update dt; modify dt if the next step will exceed target end time
-        if t_current + dt > t_end:
-            dt = t_end - t_current
-        else:
-            dt = min(max_dt) * 0.9
+        # for the next time step; copying values should be faster than allocating new arrays
+        prev_q.w[...], prev_q.hu[...], prev_q.hv[...] = states.q.w, states.q.hu, states.q.hv
 
-    return U, it_current, t_current, dt
+        # update dt; modify dt if the next step will exceed target end time
+        runtime.dt = min(max_dt) * 0.9  # adjust time step size
+        runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure we won't exceed end t
+
+    return states
+
+
+def euler_debug(
+    states: States, grid: Gridlines, topo: Topography, config: Config,
+        runtime: DummyDict, t_end: float):
+    """A simple 1st-order forward Euler for debug.
+    """
+    # non-ghost domain slice
+    internal = slice(states.ngh, -states.ngh)
+
+    # an initial updating, just in case
+    states = runtime.ghost_updater.update_all(states)
+
+    # loop till cur_t reaches t_range[0]
+    for _ in range(runtime.max_it):
+
+        # Euler step
+        states, _ = runtime.rhs_updater(states, grid, topo, config, runtime)
+
+        # update
+        states.q.w[internal, internal] += runtime.dt * states.rhs.w
+        states.q.hu[internal, internal] += runtime.dt * states.rhs.hu
+        states.q.hv[internal, internal] += runtime.dt * states.rhs.hv
+        states = runtime.ghost_updater.update_all(states)
+
+        print(runtime.counter)
+
+        # update iteration index and time
+        runtime.counter += 1
+        runtime.cur_t += runtime.dt
+
+    return states

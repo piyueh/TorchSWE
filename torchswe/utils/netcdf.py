@@ -320,7 +320,7 @@ def add_spatial_axis(dset, coords, options=None):
     for key in ("x", "y"):
         _ = dset.createDimension(key, len(coords[key]))
         axes[key] = dset.createVariable(key, "f8", (key,))
-        axes[key][:] = coords["x"]
+        axes[key][:] = coords[key]
         axes[key].units = "m"
         axes[key].long_name = "{}-coordinate in EPSG:3857 WGS 84".format(key)
         axes[key].standard_name = "projection_{}_coordinate".format(key)

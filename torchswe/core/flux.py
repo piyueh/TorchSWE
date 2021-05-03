@@ -8,82 +8,95 @@
 
 """Functions for calculating discontinuous flux.
 """
-import torch
+from ..utils.data import States, Topography
 
-@torch.jit.script
-def fluxF(h, u, v, w, B, g: float):
-    """Calculting the PDE flux in x direction.
 
-    Note that when we calculate h**2, we use W*W-W*B-B*W+B*B to lower down
-    the effect of rounding error. The results will be slightly different than
-    using h * h naively, or even different from W^2 - 2WB + B^2.
+def get_discontinuous_flux(states: States, topo: Topography, gravity: float) -> States:
+    """Calculting the discontinuous fluxes on the both sides at cell faces.
 
-    Args:
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    topo : torchswe.utils.data.Topography
+    gravity : float
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Changed inplace. Returning it just for coding style.
+
+    Notes
     -----
-        h: a (Ny, Nx+1) torch.tensor of depth defined at cell interfaces of
-            those normal to x direction.
-        u: a (Ny, Nx+1) torch.tensor of u velocity defined at cell interfaces
-            of those normal to x direction.
-        v: a (Ny, Nx+1) torch.tensor of v velocity defined at cell interfaces
-            of those normal to x direction.
-        w: a (Ny, Nx+1) torch.tensor of w defined at cell interfaces of those
-            normal to x direction. (w = h + B)
-        B: a (Ny, Nx+1) torch.tensor of elevation defined at cell interfaces of
-            those normal to x direction. (B = w - h)
-        g: gravity.
-
-    Returns:
-    --------
-        F: a (3, Ny, Nx+1) torch.tensor of PDE flux.
+    When calculating (w-z)^2, it seems using w*w-w*z-z*w+z*z has smaller rounding errors. Not sure
+    why. But it worth more investigation. This is apparently slower, though with smaller errors.
     """
 
-    hu = h * u
+    grav2 = gravity / 2.
+    topoxface2 = topo.xface * topo.xface
+    topoyface2 = topo.yface * topo.yface
 
-    F = torch.stack(
-        [
-            hu,
-            hu * u + g * (w * w - w * B - B * w + B * B) / 2.,
-            hu * v
-        ], dim=0
-    )
+    # face normal to x-direction, minus side; the scheme requires reconstruct hu
+    # --------------------------------------------------------------------------
+    states.face.x.minus.hu = states.face.x.minus.h * states.face.x.minus.u
 
-    return F
+    # flux for continuity eq at x-direction is hu
+    states.face.x.minus.flux.w = states.face.x.minus.hu
 
-@torch.jit.script
-def fluxG(h, u, v, w, B, g: float):
-    """Calculting the PDE flux in y direction.
+    # flus for x-momentum eq at x-direction is hu^2 + (g*(w-z)^2)/2
+    states.face.x.minus.flux.hu = states.face.x.minus.hu * states.face.x.minus.u + \
+        grav2 * (
+            states.face.x.minus.w * states.face.x.minus.w - states.face.x.minus.w * topo.xface -
+            topo.xface * states.face.x.minus.w + topoxface2)
 
-    Note that when we calculate h**2, we use W*W-W*B-B*W+B*B to lower down
-    the effect of rounding error. The results will be slightly different than
-    using h * h naively, or even different from W^2 - 2WB + B^2.
+    # flux for y-momentum eq at x-direction is huv
+    states.face.x.minus.flux.hv = states.face.x.minus.hu * states.face.x.minus.v
 
-    Args:
-    -----
-        h: a (Ny+1, Nx) torch.tensor of depth defined at cell interfaces of
-            those normal to y direction.
-        u: a (Ny+1, Nx) torch.tensor of u velocity defined at cell interfaces
-            of those normal to y direction.
-        v: a (Ny+1, Nx) torch.tensor of v velocity defined at cell interfaces
-            of those normal to y direction.
-        w: a (Ny+1, Nx) torch.tensor of w defined at cell interfaces of those
-            normal to y direction. (w = h + B)
-        B: a (Ny+1, Nx) torch.tensor of elevation defined at cell interfaces of
-            those normal to y direction. (B = w - h)
-        g: gravity.
+    # face normal to x-direction, plus side; the scheme requires reconstruct hu
+    # --------------------------------------------------------------------------
+    states.face.x.plus.hu = states.face.x.plus.h * states.face.x.plus.u
 
-    Returns:
-    --------
-        G: a (3, Ny+1, Nx) torch.tensor of PDE flux.
-    """
+    # flux for continuity eq at x-direction is hu
+    states.face.x.plus.flux.w = states.face.x.plus.hu
 
-    hv = h * v
+    # flus for x-momentum eq at x-direction is hu^2 + (g*(w-z)^2)/2
+    states.face.x.plus.flux.hu = states.face.x.plus.hu * states.face.x.plus.u + \
+        grav2 * (
+            states.face.x.plus.w * states.face.x.plus.w - states.face.x.plus.w * topo.xface -
+            topo.xface * states.face.x.plus.w + topoxface2)
 
-    G = torch.stack(
-        [
-            hv,
-            hv * u,
-            hv * v + g * (w * w - w * B - B * w + B * B) / 2.,
-        ], dim=0
-    )
+    # flux for y-momentum eq at x-direction is huv
+    states.face.x.plus.flux.hv = states.face.x.plus.hu * states.face.x.plus.v
 
-    return G
+    # face normal to y-direction, minus side; the scheme requires reconstruct hv
+    # --------------------------------------------------------------------------
+    states.face.y.minus.hv = states.face.y.minus.h * states.face.y.minus.v
+
+    # flux for continuity eq at y-direction is hv
+    states.face.y.minus.flux.w = states.face.y.minus.hv
+
+    # flux for x-momentum eq at y-direction is huv
+    states.face.y.minus.flux.hu = states.face.y.minus.u * states.face.y.minus.hv
+
+    # flus for y-momentum eq at y-direction is hv^2 + (g*(w-z)^2)/2
+    states.face.y.minus.flux.hv = states.face.y.minus.hv * states.face.y.minus.v + \
+        grav2 * (
+            states.face.y.minus.w * states.face.y.minus.w - states.face.y.minus.w * topo.yface -
+            topo.yface * states.face.y.minus.w + topoyface2)
+
+    # face normal to y-direction, plus side; the scheme requires reconstruct hv
+    # --------------------------------------------------------------------------
+    states.face.y.plus.hv = states.face.y.plus.h * states.face.y.plus.v
+
+    # flux for continuity eq at y-direction is hv
+    states.face.y.plus.flux.w = states.face.y.plus.hv
+
+    # flux for x-momentum eq at y-direction is huv
+    states.face.y.plus.flux.hu = states.face.y.plus.u * states.face.y.plus.hv
+
+    # flus for y-momentum eq at y-direction is hv^2 + (g*(w-z)^2)/2
+    states.face.y.plus.flux.hv = states.face.y.plus.hv * states.face.y.plus.v + \
+        grav2 * (
+            states.face.y.plus.w * states.face.y.plus.w - states.face.y.plus.w * topo.yface -
+            topo.yface * states.face.y.plus.w + topoyface2)
+
+    return states

@@ -8,133 +8,104 @@
 
 """Linear reconstruction.
 """
-import torch
+import numpy
+from ..utils.data import States, Gridlines, Topography
 
-@torch.jit.script
-def correct_negative_depth(U, Bfx, Bfy, Ufxm, Ufxp, Ufym, Ufyp, Ngh: int):
-    """Fix negative interface depth.
 
-    Args:
-    -----
-        U: a (3, Ny+2*Ngh, Nx+2*Ngh) torch.tensor of conservative variables at
-            cell centers.
-        Bfx: a (Ny, Nx+1) torch.tensor representing the elevations at the
-            interface midpoints of those normal to x-direction. Must be
-            calculated from the linear interpolation from corner elevations.
-        Bfy: a (Ny+1, Nx) torch.tensor representing the elevations at the
-            interface midpoints of those normal to y-direction. Must be
-            calculated from the linear interpolation from corner elevations.
-        Ufxm: a (3, Ny, Nx+1) torch.tensor representing the U values at the
-            left sides of the cell interfaces normal to x-direction.
-        Ufxp: a (3, Ny, Nx+1) torch.tensor representing the U values at the
-            right sides of the cell interfaces normal to x-direction.
-        Ufym: a (3, Ny+1, Nx) torch.tensor representing the U values at the
-            bottom sides of the cell interfaces normal to y-direction.
-        Ufyp: a (3, Ny+1, Nx) torch.tensor representing the U values at the
-            top sides of the cell interfaces normal to y-direction.
-        Ngh: an integer of the number of ghost cells at each boundary.
+def correct_negative_depth(states: States, topo: Topography) -> States:
+    """Fix negative depth on the both sides of cell faces.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    topo : torchswe.utils.data.Topography
 
     Returns:
     --------
-        Fixed Ufxm, Ufxp, Ufym, Ufyp, i.e., positivity preserving.
+    states : torchswe.utils.data.States
+        The same object as the input. Changed inplace. Returning it just for coding style.
     """
-
-    # aliases
-    Ny, Nx = U.shape[1]-2*Ngh, U.shape[2]-2*Ngh
 
     # fix the case when the left depth of an interface is negative
-    j, i = torch.where(Ufxm[0, :, :]<Bfx)
-    Ufxm[0, j, i] = Bfx[j, i]
-    j, i = j[i!=0], i[i!=0] # to avoid those i - 1 = -1
-    Ufxp[0, j, i-1] = 2 * U[0, j+Ngh, i-1+Ngh] - Bfx[j, i]
+    j, i = numpy.nonzero(states.face.x.minus.w < topo.xface)
+    states.face.x.minus.w[j, i] = topo.xface[j, i]
+    j, i = j[i != 0], i[i != 0]  # to avoid those i - 1 = -1
+    states.face.x.plus.w[j, i-1] = 2 * states.q.w[j+states.ngh, i-1+states.ngh] - topo.xface[j, i]
 
     # fix the case when the right depth of an interface is negative
-    j, i = torch.where(Ufxp[0, :, :]<Bfx)
-    Ufxp[0, j, i] = Bfx[j, i]
-    j, i = j[i!=Nx], i[i!=Nx] # to avoid i + 1 = Nx + 1
-    Ufxm[0, j, i+1] = 2 * U[0, j+Ngh, i+Ngh] - Bfx[j, i]
+    j, i = numpy.nonzero(states.face.x.plus.w < topo.xface)
+    states.face.x.plus.w[j, i] = topo.xface[j, i]
+    j, i = j[i != states.nx], i[i != states.nx]  # to avoid i + 1 = nx + 1
+    states.face.x.minus.w[j, i+1] = 2 * states.q.w[j+states.ngh, i+states.ngh] - topo.xface[j, i]
 
     # fix the case when the bottom depth of an interface is negative
-    j, i = torch.where(Ufym[0, :, :]<Bfy)
-    Ufym[0, j, i] = Bfy[j, i]
-    j, i = j[j!=0], i[j!=0] # to avoid j - 1 = -1
-    Ufyp[0, j-1, i] = 2 * U[0, j-1+Ngh, i+Ngh] - Bfy[j, i]
+    j, i = numpy.nonzero(states.face.y.minus.w < topo.yface)
+    states.face.y.minus.w[j, i] = topo.yface[j, i]
+    j, i = j[j != 0], i[j != 0]  # to avoid j - 1 = -1
+    states.face.y.plus.w[j-1, i] = 2 * states.q.w[j-1+states.ngh, i+states.ngh] - topo.yface[j, i]
 
     # fix the case when the top depth of an interface is negative
-    j, i = torch.where(Ufyp[0, :, :]<Bfy)
-    Ufyp[0, j, i] = Bfy[j, i]
-    j, i = j[j!=Ny], i[j!=Ny] # to avoid j + 1 = Ny + 1
-    Ufym[0, j+1, i] = 2 * U[0, j+Ngh, i+Ngh] - Bfy[j, i]
+    j, i = numpy.nonzero(states.face.y.plus.w < topo.yface)
+    states.face.y.plus.w[j, i] = topo.yface[j, i]
+    j, i = j[j != states.ny], i[j != states.ny]  # to avoid j + 1 = Ny + 1
+    states.face.y.minus.w[j+1, i] = 2 * states.q.w[j+states.ngh, i+states.ngh] - topo.yface[j, i]
 
     # fix tiny tolerance due to numerical rounding error
-    j, i = torch.where(Ufxp[0]<Bfx)
-    Ufxp[0, j, i] = Bfx[j, i]
+    j, i = numpy.nonzero(states.face.x.plus.w < topo.xface)
+    states.face.x.plus.w[j, i] = topo.xface[j, i]
 
-    j, i = torch.where(Ufxm[0]<Bfx)
-    Ufxm[0, j, i] = Bfx[j, i]
+    j, i = numpy.nonzero(states.face.x.minus.w < topo.xface)
+    states.face.x.minus.w[j, i] = topo.xface[j, i]
 
-    j, i = torch.where(Ufyp[0]<Bfy)
-    Ufyp[0, j, i] = Bfy[j, i]
+    j, i = numpy.nonzero(states.face.y.plus.w < topo.yface)
+    states.face.y.plus.w[j, i] = topo.yface[j, i]
 
-    j, i = torch.where(Ufym[0]<Bfy)
-    Ufym[0, j, i] = Bfy[j, i]
+    j, i = numpy.nonzero(states.face.y.minus.w < topo.yface)
+    states.face.y.minus.w[j, i] = topo.yface[j, i]
 
-    return Ufxm, Ufxp, Ufym, Ufyp
+    return states
 
-@torch.jit.script
-def discont_soln(U, dUx, dUy, Bfx, Bfy, dx: float, Ngh: int):
-    """Discontinuous solution at interfaces with piecewise linear approximation.
 
-    Note, the returned interface values have not been fixed for postivity
-    preserving.
+def get_discontinuous_cnsrv_q(states: States, grid: Gridlines):
+    """Distinuous conservative quantity on both sides of cell faces in both x- and y-direction.
 
-    Args:
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    grid : torchswe.utils.data.Gridlines
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Changed inplace. Returning it just for coding style.
+
+    Notes
     -----
-        U: a 3D torch.tensor of shape (3, Ny+2*Ngh, Nx+2*Ngh) representing w,
-            hu, and hv at cell centers; the extra cells are ghost cells.
-        dUx: a (3, Ny, Nx+2) torch.tensor for $\partial U / \partial x$ at cell
-            centers. Only one layer of ghost cells is included at each domain
-            boundary in x direction.
-        dUy: a (3, Ny+2, Nx) torch.tensor for $\partial U / \partial y$ at cell
-            centers. Only one layer of ghost cells is included at each domain
-            boundary in y direction.
-        Bfx: a (Ny, Nx+1) torch.tensor representing the elevations at the
-            interface midpoints of those normal to x-direction. Must be
-            calculated from the linear interpolation from corner elevations.
-        Bfy: a (Ny+1, Nx) torch.tensor representing the elevations at the
-            interface midpoints of those normal to y-direction. Must be
-            calculated from the linear interpolation from corner elevations.
-        dx: a scalar of cell szie, assuming dx = dy and is uniform everywhere.
-        Ngh: an integer, number of ghost cells outside each boundary
-
-    Returns:
-    --------
-        Ufxm: a (3, Ny, Nx+1) torch.tensor representing the U values at the
-            left sides of the cell interfaces normal to x-direction.
-        Ufxp: a (3, Ny, Nx+1) torch.tensor representing the U values at the
-            right sides of the cell interfaces normal to x-direction.
-        Ufym: a (3, Ny+1, Nx) torch.tensor representing the U values at the
-            bottom sides of the cell interfaces normal to y-direction.
-        Ufyp: a (3, Ny+1, Nx) torch.tensor representing the U values at the
-            top sides of the cell interfaces normal to y-direction.
+    Linear interpolation.
     """
 
-    dx2 = dx / 2
+    # aliases; n_ghost must >= 2, so it should be safe to use -ngh+1 and ngh-1
+    i = slice(states.ngh, -states.ngh)  # length ny or nx
+    im1 = slice(states.ngh-1, -states.ngh)  # length ny+1 or nx+1
+    ip1 = slice(states.ngh, -states.ngh+1)  # length ny+1 or nx+1
 
-    # left value at each x-interface
-    Ufxm = U[:, Ngh:-Ngh, Ngh-1:-Ngh] + dUx[:, :, :-1] * dx2
+    delta_x_half = grid.x.delta / 2.
+    delta_y_half = grid.y.delta / 2.
 
-    # right value at each x-interface
-    Ufxp = U[:, Ngh:-Ngh, Ngh:-Ngh+1] - dUx[:, :, 1:] * dx2
+    states.face.x.minus.w = states.q.w[i, im1] + states.slp.x.w[:, :-1] * delta_x_half
+    states.face.x.minus.hu = states.q.hu[i, im1] + states.slp.x.hu[:, :-1] * delta_x_half
+    states.face.x.minus.hv = states.q.hv[i, im1] + states.slp.x.hv[:, :-1] * delta_x_half
 
-    # bottom value at each y-interface
-    Ufym = U[:, Ngh-1:-Ngh, Ngh:-Ngh] + dUy[:, :-1, :] * dx2
+    states.face.x.plus.w = states.q.w[i, ip1] - states.slp.x.w[:, 1:] * delta_x_half
+    states.face.x.plus.hu = states.q.hu[i, ip1] - states.slp.x.hu[:, 1:] * delta_x_half
+    states.face.x.plus.hv = states.q.hv[i, ip1] - states.slp.x.hv[:, 1:] * delta_x_half
 
-    # top value at each y-interface
-    Ufyp = U[:, Ngh:-Ngh+1, Ngh:-Ngh] - dUy[:, 1:, :] * dx2
+    states.face.y.minus.w = states.q.w[im1, i] + states.slp.y.w[:-1, :] * delta_y_half
+    states.face.y.minus.hu = states.q.hu[im1, i] + states.slp.y.hu[:-1, :] * delta_y_half
+    states.face.y.minus.hv = states.q.hv[im1, i] + states.slp.y.hv[:-1, :] * delta_y_half
 
-    # fix non-physical negative path
-    Ufxm, Ufxp, Ufym, Ufyp = correct_negative_depth(
-        U, Bfx, Bfy, Ufxm, Ufxp, Ufym, Ufyp, Ngh)
+    states.face.y.plus.w = states.q.w[ip1, i] - states.slp.y.w[1:, :] * delta_y_half
+    states.face.y.plus.hu = states.q.hu[ip1, i] - states.slp.y.hu[1:, :] * delta_y_half
+    states.face.y.plus.hv = states.q.hv[ip1, i] - states.slp.y.hv[1:, :] * delta_y_half
 
-    return Ufxm, Ufxp, Ufym, Ufyp
+    return states

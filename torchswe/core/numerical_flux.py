@@ -8,50 +8,41 @@
 
 """Functions to calculate numerical/common flux.
 """
-import torch
+import numpy
+from ..utils.data import States
 
-@torch.jit.script
-def central_scheme(Ufm, Ufp, Fm, Fp, am, ap):
+
+def central_scheme(states: States, tol: float = 1e-12) -> States:
     """A central scheme to calculate numerical flux at interfaces.
 
-    Should not be used explicitly. It is supposed to be called by other schemes.
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    tol : float
+        The tolerance that can be considered as zero.
 
-    Args:
-    -----
-        Ufm: either a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
-            whether it's in x or y direction; the discontinuous conservative
-            quantities at the left or the bottom of cell interfaces.
-        Ufp: either a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
-            whether it's in x or y direction; the discontinuous conservative
-            quantities at the right or the top of cell interfaces.
-        Fm: ither a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
-            whether it's in x or y direction; the flux at the left or the bottom
-            of cell interfaces.
-        Fp: ither a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
-            whether it's in x or y direction; the flux at the right or the top
-            of cell interfaces.
-        am: ither a (Ny, Nx+1) or (Ny+1, Nx) torch.tensor, depending on whether
-            it's in x or y direction; the local speed at the left or the bottom
-            of cell interfaces.
-        ap: ither a (Ny, Nx+1) or (Ny+1, Nx) torch.tensor, depending on whether
-            it's in x or y direction; the local speed at the right or the top of
-            cell interfaces.
-
-    Returns:
-    --------
-        H: ither a (3, Ny, Nx+1) or (3, Ny+1, Nx) torch.tensor, depending on
-            whether it's in x or y direction; the numerical (common) flux at the
-            cell interfaces.
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Updated in-place. Returning it just for coding style.
     """
+    # TODO: check if denominator == 0, ap and am should also be zeros
 
-    # for convenience
-    zero_tensor = torch.tensor(0, device=Fm.device, dtype=Fm.dtype)
-    one_tensor = torch.tensor(1, device=Fm.device, dtype=Fm.dtype)
+    for axis in ["x", "y"]:
+        denominator = states.face[axis].plus.a - states.face[axis].minus.a
+        coeff = states.face[axis].plus.a * states.face[axis].minus.a
 
-    # flux in x direction
-    H = ap * Fm - am * Fp + ap * am * (Ufp - Ufm)
-    denominator = ap - am
-    denominator[denominator==0] = one_tensor # to avoid division by zero
-    H /= denominator
+        # if denominator == 0, the division result will just be the zeros
+        zero_ji = numpy.nonzero(numpy.logical_and(denominator > -tol, denominator < tol))
 
-    return H
+        for key in ["w", "hu", "hv"]:
+            with numpy.errstate(divide="ignore", invalid="ignore"):
+                states.face[axis].num_flux[key] = (
+                    states.face[axis].plus.a * states.face[axis].minus.flux[key] -
+                    states.face[axis].minus.a * states.face[axis].plus.flux[key] +
+                    coeff * (states.face[axis].plus[key] - states.face[axis].minus[key])
+                ) / denominator
+
+            states.face[axis].num_flux[key][zero_ji] = 0.
+
+    return states

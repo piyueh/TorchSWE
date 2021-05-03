@@ -10,6 +10,8 @@
 """
 import pathlib
 import argparse
+from typing import Tuple, List, Optional
+
 import yaml
 import numpy
 from scipy.interpolate import RectBivariateSpline
@@ -18,8 +20,14 @@ from ..utils.config import Config
 from ..utils.data import Gridlines, Topography, WHUHVModel
 
 
-def init():
+def init(argv: Optional[List[str]] = None) -> Tuple[Config, Gridlines, Topography, WHUHVModel]:
     """Initialize a simulation and read configuration.
+
+    Attributes
+    ----------
+    argv : None or list or str
+        By default, None means getting arguments from command-line. Only explicitly use this
+        argument for debug.
 
     Returns:
     --------
@@ -35,7 +43,7 @@ def init():
     """
 
     # get cmd arguments
-    args = get_cmd_arguments()
+    args = get_cmd_arguments(argv)
     args.case_folder = args.case_folder.expanduser().resolve()
     args.yaml = args.case_folder.joinpath("config.yaml")
 
@@ -50,6 +58,9 @@ def init():
     # add args to config
     config.case = args.case_folder
     config.dtype = "float32" if args.sp else "float64"
+
+    if args.log_steps is not None:
+        config.params.log_steps = args.log_steps
 
     if args.tm is not None:  # overwrite the setting in config.yaml
         config.temporal.scheme = args.tm
@@ -83,8 +94,13 @@ def init():
     return config, grid, topo, state_ic
 
 
-def get_cmd_arguments():
+def get_cmd_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     """Parse and get CMD arguments.
+
+    Attributes
+    ----------
+    argv : list
+        By default, None means using `sys.argv`. Only explicitly use this argument for debug.
 
     Returns
     -------
@@ -116,7 +132,12 @@ def get_cmd_arguments():
         help="Overwrite the time-marching scheme. Default is to respect the setting in config.yaml."
     )
 
-    args = parser.parse_args()
+    parser.add_argument(
+        "--log-steps", action="store", type=int, default=None, metavar="STEPS",
+        help="How many steps to output a log message to stdout. Default is to respect config.yaml."
+    )
+
+    args = parser.parse_args(argv)
     return args
 
 

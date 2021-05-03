@@ -8,87 +8,91 @@
 
 """Linear reconstruction.
 """
-import torch
-from .sources import source
-from .limiters import minmod_limiter
-from .reconstruction import discont_soln
-from .misc import decompose_variables, local_speed
-from .flux import fluxF, fluxG
+import numpy
+from .sources import topography_gradient
+from .limiters import minmod_slope
+from .reconstruction import get_discontinuous_cnsrv_q, correct_negative_depth
+from .misc import decompose_variables, get_local_speed
+from .flux import get_discontinuous_flux
 from .numerical_flux import central_scheme
+from ..utils.config import Config
+from ..utils.data import States, Gridlines, Topography
+from ..utils.dummydict import DummyDict
 
-@torch.jit.script
-def fvm(U, Bfx, Bfy, Bc, dBx, dBy,
-        dx: float, Ngh: int, g: float, epsilon: float, theta: float):
+
+def fvm(states: States, grid: Gridlines, topo: Topography, config: Config, runtime: DummyDict):
     """Get the right-hand-side of a time-marching step with finite volume method.
 
-    Args:
-    -----
-        U: a 3D torch.tensor of shape (3, Ny+2*Ngh, Nx+2Ngh) representing
-            w, hu, and hv.
-        Bfx: a (Ny, Nx+1) torch.tensor representing the elevations at the
-            interface midpoints of those normal to x-direction. Must be
-            calculated from the linear interpolation from corner elevations.
-        Bfy: a (Ny+1, Nx) torch.tensor representing the elevations at the
-            interface midpoints of those normal to y-direction. Must be
-            calculated from the linear interpolation from corner elevations.
-        Bc: a 2D torch.tensor of shape (Ny, Nx) representing elevations at cell
-            centers, excluding ghost cells. Bc must be from the bilinear
-            interpolation of elevation of cell coreners.
-        dBx: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
-            x-gradient at cell centers, i.e., $\partial B / \partial x$.
-        dBy: a 2d torch.tensor of shape (Ny, Nx) representing the topographic
-            y-gradient at cell centers, i.e., $\partial B / \partial y$.
-        dx: a scalar of cell szie, assuming dx = dy and is uniform everywhere.
-        Ngh: an integer, the number of ghost cells outside each boundary
-        g: gravity
-        epsilon: a very small number to avoid division by zero.
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    grid : torchswe.utils.data.Gridlines
+    topo : torchswe.utils.data.Topography
+    config : torchswe.utils.config.Config
+    runtime : torchswe.utils.dummydict.DummyDict
 
     Returns:
     --------
-        f: a (3, Ny, Nx) torch.tensor to update the conservative variables in
-            interior cell centers.
-        max_dt: a scalar indicating the maximum safe time-step size.
+    states : torchswe.utils.data.States
+        The same object as the input. Updated in-place. Returning it just for coding style.
+    max_dt : float
+        A scalar indicating the maximum safe time-step size.
     """
+    # pylint: disable=invalid-name
 
-    # calculate source term
-    S = source(U, dBx, dBy, Bc, Ngh, g)
+    # calculate source term contributed from topography gradients
+    states = topography_gradient(states, topo, config.params.gravity)
 
     # calculate slopes of piecewise linear approximation
-    dUx, dUy = minmod_limiter(U, dx, Ngh, theta)
+    states = minmod_slope(states, grid, config.params.theta, runtime.tol)
 
-    # reconstruct solution at cell interfaces
-    Ufxm, Ufxp, Ufym, Ufyp = discont_soln(U, dUx, dUy, Bfx, Bfy, dx, Ngh)
+    # interpolate to get discontinuous conservative quantities at cell faces
+    states = get_discontinuous_cnsrv_q(states, grid)
 
-    # get non-conservative variables
-    hxm, uxm, vxm = decompose_variables(Ufxm, Bfx, epsilon)
-    hxp, uxp, vxp = decompose_variables(Ufxp, Bfx, epsilon)
-    hym, uym, vym = decompose_variables(Ufym, Bfy, epsilon)
-    hyp, uyp, vyp = decompose_variables(Ufyp, Bfy, epsilon)
+    # fix non-physical negative depth
+    states = correct_negative_depth(states, topo)
 
-    # get local speed
-    axm, axp, aym, ayp = local_speed(
-        hxm, hxp, hym, hyp, uxm, uxp, vym, vyp, g)
+    # get non-conservative variables at cell faces
+    states = decompose_variables(states, topo, runtime.epsilon)
 
-    # get discontinuous PDE flux
-    Fxm = fluxF(hxm, uxm, vxm, Ufxm[0], Bfx, g)
-    Fxp = fluxF(hxp, uxp, vxp, Ufxp[0], Bfx, g)
-    Gym = fluxG(hym, uym, vym, Ufym[0], Bfy, g)
-    Gyp = fluxG(hyp, uyp, vyp, Ufyp[0], Bfy, g)
+    # get local speed at cell faces
+    states = get_local_speed(states, config.params.gravity)
 
-    # get common/continuous numerical flux
-    Hx = central_scheme(Ufxm, Ufxp, Fxm, Fxp, axm, axp)
-    Hy = central_scheme(Ufym, Ufyp, Gym, Gyp, aym, ayp)
+    # get discontinuous PDE flux at cell faces
+    states = get_discontinuous_flux(states, topo, config.params.gravity)
+
+    # get common/continuous numerical flux at cell faces
+    states = central_scheme(states, runtime.tol)
 
     # get final right hand side
-    f = (Hx[:, :, :-1] - Hx[:, :, 1:] + Hy[:, :-1, :] - Hy[:, 1:, :]) / dx + S
+    states.rhs.w = \
+        (states.face.x.num_flux.w[:, :-1] - states.face.x.num_flux.w[:, 1:]) / grid.x.delta + \
+        (states.face.y.num_flux.w[:-1, :] - states.face.y.num_flux.w[1:, :]) / grid.y.delta + \
+        states.src.w
+
+    states.rhs.hu = \
+        (states.face.x.num_flux.hu[:, :-1] - states.face.x.num_flux.hu[:, 1:]) / grid.x.delta + \
+        (states.face.y.num_flux.hu[:-1, :] - states.face.y.num_flux.hu[1:, :]) / grid.y.delta + \
+        states.src.hu
+
+    states.rhs.hv = \
+        (states.face.x.num_flux.hv[:, :-1] - states.face.x.num_flux.hv[:, 1:]) / grid.x.delta + \
+        (states.face.y.num_flux.hv[:-1, :] - states.face.y.num_flux.hv[1:, :]) / grid.y.delta + \
+        states.src.hv
 
     # remove rounding errors
-    zero_tensor = torch.tensor(0., device=f.device, dtype=f.dtype)
-    f = torch.where(torch.abs(f)<=1e-10, zero_tensor, f)
+    ji = numpy.nonzero(numpy.logical_and(states.rhs.w > -runtime.tol, states.rhs.w < runtime.tol))
+    states.rhs.w[ji] = 0.
+
+    ji = numpy.nonzero(numpy.logical_and(states.rhs.hu > -runtime.tol, states.rhs.hu < runtime.tol))
+    states.rhs.hu[ji] = 0.
+
+    ji = numpy.nonzero(numpy.logical_and(states.rhs.hv > -runtime.tol, states.rhs.hv < runtime.tol))
+    states.rhs.hv[ji] = 0.
 
     # obtain the maximum safe dt
-    amax = torch.max(torch.max(axp, -axm)).item()
-    bmax = torch.max(torch.max(ayp, -aym)).item()
-    max_dt = min(0.25*dx/amax, 0.25*dx/bmax)
+    amax = numpy.max(numpy.maximum(states.face.x.plus.a, -states.face.x.minus.a))
+    bmax = numpy.max(numpy.maximum(states.face.y.plus.a, -states.face.y.minus.a))
+    max_dt = min(0.25*grid.x.delta/amax, 0.25*grid.y.delta/bmax)
 
-    return f, max_dt
+    return states, max_dt
