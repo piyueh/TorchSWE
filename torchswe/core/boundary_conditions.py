@@ -9,10 +9,10 @@
 """
 from typing import Literal, Callable
 
-import numpy
 from pydantic import conint
-from ..utils.config import BaseConfig, SingleBCConfig, BCConfig
-from ..utils.data import Topography, States
+from torchswe import nplike
+from torchswe.utils.config import BaseConfig, SingleBCConfig, BCConfig
+from torchswe.utils.data import Topography, States
 
 # to create corresponding slices for the left-hand-side of periodic BC
 _periodic_slc_left = {
@@ -85,7 +85,7 @@ def periodic_factory(n_ghost, orientation):
 
     Returns
     -------
-    A function with a signature of f(numpy.ndarray) -> numpy.ndarray. Both the input and output
+    A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
@@ -97,7 +97,7 @@ def periodic_factory(n_ghost, orientation):
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
 
         Returns
         -------
@@ -124,7 +124,7 @@ def outflow_factory(n_ghost, orientation):
 
     Returns
     -------
-    A function with a signature of f(numpy.ndarray) -> numpy.ndarray. Both the input and output
+    A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
@@ -136,7 +136,7 @@ def outflow_factory(n_ghost, orientation):
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
 
         Returns
         -------
@@ -163,7 +163,7 @@ def linear_extrap_factory(n_ghost, orientation):
 
     Returns
     -------
-    A function with a signature of f(numpy.ndarray) -> numpy.ndarray. Both the input and output
+    A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
@@ -177,7 +177,7 @@ def linear_extrap_factory(n_ghost, orientation):
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
 
         Returns
         -------
@@ -209,7 +209,7 @@ def constant_bc_factory(const, n_ghost, orientation):
 
     Returns
     -------
-    A function with a signature of f(numpy.ndarray) -> numpy.ndarray. Both the input and output
+    A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
@@ -222,7 +222,7 @@ def constant_bc_factory(const, n_ghost, orientation):
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
 
         Returns
         -------
@@ -258,7 +258,7 @@ def inflow_bc_factory(const, n_ghost, orientation, topo, component):
 
     Returns
     -------
-    A function with a signature of f(numpy.ndarray) -> numpy.ndarray. Both the input and output
+    A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
@@ -282,7 +282,7 @@ def inflow_bc_factory(const, n_ghost, orientation, topo, component):
     inflow_bc_depth.bcslc = bcslc
 
     def inflow_bc_velocity(conserv_q):
-        depth = numpy.maximum(conserv_q[w_idx]-topo_cache[bcslc], 0.)
+        depth = nplike.maximum(conserv_q[w_idx]-topo_cache[bcslc], 0.)
         delta = (const * depth - conserv_q[anchor]) * 2
         conserv_q[slc] = conserv_q[anchor] + seq * delta
         return conserv_q
@@ -303,7 +303,7 @@ def inflow_bc_factory(const, n_ghost, orientation, topo, component):
 
     Arguments
     ---------
-    conserv_q: a (3, Ny+2*n_ghost, Nx+2*n_ghost) numpy.ndarray
+    conserv_q: a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
 
     Returns
     -------
@@ -320,9 +320,9 @@ class BoundaryGhostUpdaterOneBound(BaseConfig):
     """Ghost cell updaters on a single boundary."""
     ngh: conint(ge=2)
     orientation: Literal["west", "east", "south", "north"]
-    w: Callable[[numpy.ndarray], numpy.ndarray]
-    hu: Callable[[numpy.ndarray], numpy.ndarray]
-    hv: Callable[[numpy.ndarray], numpy.ndarray]
+    w: Callable[[nplike.ndarray], nplike.ndarray]
+    hu: Callable[[nplike.ndarray], nplike.ndarray]
+    hv: Callable[[nplike.ndarray], nplike.ndarray]
 
     def __init__(self, bc: SingleBCConfig, ngh: int, orientation: str, topo: Topography):
         # validate data models for a sanity check

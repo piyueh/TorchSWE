@@ -8,7 +8,7 @@
 
 """Source terms.
 """
-from ..utils.data import States, Topography
+from torchswe.utils.data import States, Topography
 
 
 def topography_gradient(states: States, topo: Topography, gravity: float) -> States:

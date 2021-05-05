@@ -8,8 +8,8 @@
 
 """Slope/flux limiters.
 """
-import numpy
-from ..utils.data import States, Gridlines
+from torchswe import nplike
+from torchswe.utils.data import States, Gridlines
 
 
 def minmod_slope(states: States, grid: Gridlines, theta: float, tol: float = 1e-12) -> States:
@@ -40,12 +40,12 @@ def minmod_slope(states: States, grid: Gridlines, theta: float, tol: float = 1e-
     return states
 
 
-def minmod_slope_x_one_comp(q: numpy.ndarray, dx: float, ngh: int, theta: float, tol: float):
+def minmod_slope_x_one_comp(q: nplike.ndarray, dx: float, ngh: int, theta: float, tol: float):
     """Minmod slope in x direction for only one conservative quantity.
 
     Arguments
     ---------
-    q : numpy.ndarray
+    q : nplike.ndarray
         (ny+2*ngh, nx+2*ngh) array of a conservative quantity.
     dx : float
         Cell size in x-direction. Assume an uniform grid.
@@ -58,7 +58,7 @@ def minmod_slope_x_one_comp(q: numpy.ndarray, dx: float, ngh: int, theta: float,
 
     Returns
     -------
-    slpx : numpy.ndarray
+    slpx : nplike.ndarray
         (ny, nx+2) array of the slopes in x-direction, including one ghost layer at west and east.
     """
     # pylint: disable=invalid-name
@@ -69,16 +69,16 @@ def minmod_slope_x_one_comp(q: numpy.ndarray, dx: float, ngh: int, theta: float,
     im1 = slice(ngh-2, q.shape[1]-ngh)  # i - 1; length nx+2
 
     denominator = q[cells, ip1] - q[cells, i]  # q_{j, i+1} - q_{j, i} for all j
-    zeros = numpy.nonzero(numpy.logical_and(denominator > -tol, denominator < tol))
+    zeros = nplike.nonzero(nplike.logical_and(denominator > -tol, denominator < tol))
 
-    with numpy.errstate(divide="ignore", invalid="ignore"):
+    with nplike.errstate(divide="ignore", invalid="ignore"):
         slpx = (q[cells, i] - q[cells, im1]) / denominator
 
     slpx[zeros] = 0.  # where q_{j, i+1} - q_{j, i} = 0
 
-    slpx = numpy.maximum(
-        numpy.minimum(
-            numpy.minimum(theta*slpx, (1.+slpx)/2.),
+    slpx = nplike.maximum(
+        nplike.minimum(
+            nplike.minimum(theta*slpx, (1.+slpx)/2.),
             theta),
         0.
     )
@@ -89,12 +89,12 @@ def minmod_slope_x_one_comp(q: numpy.ndarray, dx: float, ngh: int, theta: float,
     return slpx
 
 
-def minmod_slope_y_one_comp(q: numpy.ndarray, dy: float, ngh: int, theta: float, tol: float):
+def minmod_slope_y_one_comp(q: nplike.ndarray, dy: float, ngh: int, theta: float, tol: float):
     """Minmod slope in x direction for only one conservative quantity.
 
     Arguments
     ---------
-    q : numpy.ndarray
+    q : nplike.ndarray
         (ny+2*ngh, nx+2*ngh) array of a conservative quantity.
     dy : float
         Cell size in y-direction. Assume an uniform grid.
@@ -107,7 +107,7 @@ def minmod_slope_y_one_comp(q: numpy.ndarray, dy: float, ngh: int, theta: float,
 
     Returns
     -------
-    slpy : numpy.ndarray
+    slpy : nplike.ndarray
         (ny+2, nx) array of the slopes in y-direction, including one ghost layer at west and east.
     """
     # pylint: disable=invalid-name
@@ -118,16 +118,16 @@ def minmod_slope_y_one_comp(q: numpy.ndarray, dy: float, ngh: int, theta: float,
     jm1 = slice(ngh-2, q.shape[0]-ngh)  # j - 1; length ny+2
 
     denominator = q[jp1, cells] - q[j, cells]  # q_{j+1, i} - q_{j, i} for all i
-    zeros = numpy.nonzero(numpy.logical_and(denominator > -tol, denominator < tol))
+    zeros = nplike.nonzero(nplike.logical_and(denominator > -tol, denominator < tol))
 
-    with numpy.errstate(divide="ignore", invalid="ignore"):
+    with nplike.errstate(divide="ignore", invalid="ignore"):
         slpy = (q[j, cells] - q[jm1, cells]) / denominator
 
     slpy[zeros] = 0.  # where q_{j+1, i} - q_{j, i} = 0
 
-    slpy = numpy.maximum(
-        numpy.minimum(
-            numpy.minimum(theta*slpy, (1.+slpy)/2.),
+    slpy = nplike.maximum(
+        nplike.minimum(
+            nplike.minimum(theta*slpy, (1.+slpy)/2.),
             theta),
         0.
     )

@@ -11,14 +11,14 @@
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 from typing import Literal, Tuple, List, Union
 
-import numpy
-from scipy.interpolate import RectBivariateSpline
 from pydantic import validator, conint, confloat
-from .config import BaseConfig, TemporalConfig, SpatialConfig, TopoConfig
-from .netcdf import read_cf
+from scipy.interpolate import RectBivariateSpline
+from torchswe import nplike
+from torchswe.utils.config import BaseConfig, TemporalConfig, SpatialConfig, TopoConfig
+from torchswe.utils.netcdf import read_cf
 
 
-def _pydantic_val_dtype(val: numpy.ndarray, values: dict) -> numpy.ndarray:
+def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:
     """Validating a given ndarray has dtype matching dtype; used by pydantic."""
     try:
         assert val.dtype == values["dtype"], \
@@ -86,10 +86,10 @@ class Gridline(BaseConfig):
     end: float
     delta: confloat(gt=0.)
     dtype: Literal["float32", "float64"]
-    vert: numpy.ndarray
-    cntr: numpy.ndarray
-    xface: numpy.ndarray
-    yface: numpy.ndarray
+    vert: nplike.ndarray
+    cntr: nplike.ndarray
+    xface: nplike.ndarray
+    yface: nplike.ndarray
 
     # common validators
     _val_vert = validator('vert', allow_reuse=True)(_shape_val_factory(1))
@@ -99,8 +99,8 @@ class Gridline(BaseConfig):
     def __init__(self, direction, n, start, end, dtype):
 
         delta = (end - start) / n
-        vert = numpy.linspace(start, end, n+1, dtype=dtype)
-        cntr = numpy.linspace(start+delta/2., end-delta/2., n, dtype=dtype)
+        vert = nplike.linspace(start, end, n+1, dtype=dtype)
+        cntr = nplike.linspace(start+delta/2., end-delta/2., n, dtype=dtype)
 
         if direction == "x":
             xface = vert.copy()
@@ -150,7 +150,7 @@ class Gridlines(BaseConfig):
             t = []
         elif temporal.output[0] == "every":  # output every dt
             dt = temporal.output[1]  # alias # pylint: disable=invalid-name
-            t = numpy.arange(temporal.start, temporal.end+dt/2., dt).tolist()
+            t = nplike.arange(temporal.start, temporal.end+dt/2., dt).tolist()
         elif temporal.output[0] == "at":  # output at the given times
             t = temporal.output[1]
             if temporal.start not in t:
@@ -181,12 +181,12 @@ class Topography(BaseConfig):
     nx: conint(gt=0)
     ny: conint(gt=0)
     dtype: Literal["float32", "float64"]
-    vert: numpy.ndarray
-    cntr: numpy.ndarray
-    xface: numpy.ndarray
-    yface: numpy.ndarray
-    xgrad: numpy.ndarray
-    ygrad: numpy.ndarray
+    vert: nplike.ndarray
+    cntr: nplike.ndarray
+    xface: nplike.ndarray
+    yface: nplike.ndarray
+    xgrad: nplike.ndarray
+    ygrad: nplike.ndarray
 
     # validators
     _val_dtypes = validator(
@@ -200,14 +200,14 @@ class Topography(BaseConfig):
     def __init__(self, topoconfig: TopoConfig, grid: Gridlines, dtype: str):
         dem, _ = read_cf(topoconfig.file, [topoconfig.key])
 
-        # copy to a numpy.ndarray
+        # copy to a nplike.ndarray
         vert = dem[topoconfig.key][:].copy()
 
         # see if we need to do interpolation
         try:
             interp = not (
-                numpy.allclose(grid.x.vert, dem["x"]) and
-                numpy.allclose(grid.y.vert, dem["y"]))
+                nplike.allclose(grid.x.vert, dem["x"]) and
+                nplike.allclose(grid.y.vert, dem["y"]))
         except ValueError:  # assume thie excpetion means a shape mismatch
             interp = True
 
@@ -252,9 +252,9 @@ class WHUHVModel(BaseConfig, DummyDataModel):
     nx: conint(gt=0)
     ny: conint(gt=0)
     dtype: Literal["float32", "float64"]
-    w: numpy.ndarray
-    hu: numpy.ndarray
-    hv: numpy.ndarray
+    w: nplike.ndarray
+    hu: nplike.ndarray
+    hv: nplike.ndarray
 
     # validators
     _val_arrays = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_arrays)
@@ -264,7 +264,7 @@ class WHUHVModel(BaseConfig, DummyDataModel):
         kwargs = {"w": w, "hu": hu, "hv": hv}
         for key, val in kwargs.items():
             if val is None:
-                kwargs[key] = numpy.zeros((ny, nx), dtype=dtype)
+                kwargs[key] = nplike.zeros((ny, nx), dtype=dtype)
 
         # trigger pydantic validation
         super().__init__(nx=nx, ny=ny, dtype=dtype, **kwargs)
@@ -275,17 +275,17 @@ class HUVModel(BaseConfig, DummyDataModel):
     nx: conint(gt=0)
     ny: conint(gt=0)
     dtype: Literal["float32", "float64"]
-    h: numpy.ndarray
-    u: numpy.ndarray
-    v: numpy.ndarray
+    h: nplike.ndarray
+    u: nplike.ndarray
+    v: nplike.ndarray
 
     # validators
     _val_arrays = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_arrays)
 
     def __init__(self, nx, ny, dtype):
         super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype, h=numpy.zeros((ny, nx), dtype=dtype),
-            u=numpy.zeros((ny, nx), dtype=dtype), v=numpy.zeros((ny, nx), dtype=dtype))
+            nx=nx, ny=ny, dtype=dtype, h=nplike.zeros((ny, nx), dtype=dtype),
+            u=nplike.zeros((ny, nx), dtype=dtype), v=nplike.zeros((ny, nx), dtype=dtype))
 
 
 class FaceOneSideModel(BaseConfig, DummyDataModel):
@@ -293,13 +293,13 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
     nx: conint(gt=0)
     ny: conint(gt=0)
     dtype: Literal["float32", "float64"]
-    w: numpy.ndarray
-    hu: numpy.ndarray
-    hv: numpy.ndarray
-    h: numpy.ndarray
-    u: numpy.ndarray
-    v: numpy.ndarray
-    a: numpy.ndarray
+    w: nplike.ndarray
+    hu: nplike.ndarray
+    hv: nplike.ndarray
+    h: nplike.ndarray
+    u: nplike.ndarray
+    v: nplike.ndarray
+    a: nplike.ndarray
     flux: WHUHVModel
 
     # validator
@@ -308,10 +308,10 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
 
     def __init__(self, nx, ny, dtype):
         super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype, w=numpy.zeros((ny, nx), dtype=dtype),
-            hu=numpy.zeros((ny, nx), dtype=dtype), hv=numpy.zeros((ny, nx), dtype=dtype),
-            h=numpy.zeros((ny, nx), dtype=dtype), u=numpy.zeros((ny, nx), dtype=dtype),
-            v=numpy.zeros((ny, nx), dtype=dtype), a=numpy.zeros((ny, nx), dtype=dtype),
+            nx=nx, ny=ny, dtype=dtype, w=nplike.zeros((ny, nx), dtype=dtype),
+            hu=nplike.zeros((ny, nx), dtype=dtype), hv=nplike.zeros((ny, nx), dtype=dtype),
+            h=nplike.zeros((ny, nx), dtype=dtype), u=nplike.zeros((ny, nx), dtype=dtype),
+            v=nplike.zeros((ny, nx), dtype=dtype), a=nplike.zeros((ny, nx), dtype=dtype),
             flux=WHUHVModel(nx, ny, dtype)
         )
 

@@ -8,8 +8,8 @@
 
 """Miscellaneous functions.
 """
-import numpy
-from ..utils.data import States, Topography
+from torchswe import nplike
+from torchswe.utils.data import States, Topography
 
 
 class CFLWarning(Warning):
@@ -37,8 +37,8 @@ def decompose_variables(states: States, topo: Topography, epsilon: float) -> Sta
 
     def get_uv(h, hu, hv):
         # pylint: disable=invalid-name
-        h4 = numpy.power(h, 4)
-        coeff = h * sqrt2 / numpy.sqrt(h4+numpy.maximum(h4, epsilon))
+        h4 = nplike.power(h, 4)
+        coeff = h * sqrt2 / nplike.sqrt(h4+nplike.maximum(h4, epsilon))
         return coeff * hu, coeff * hv
 
     # all dpeths
@@ -82,23 +82,23 @@ def get_local_speed(states: States, gravity: float) -> States:
     """
 
     # faces normal to x-direction
-    sqrt_gh_plus = numpy.sqrt(gravity*states.face.x.plus.h)
-    sqrt_gh_minus = numpy.sqrt(gravity*states.face.x.minus.h)
+    sqrt_gh_plus = nplike.sqrt(gravity*states.face.x.plus.h)
+    sqrt_gh_minus = nplike.sqrt(gravity*states.face.x.minus.h)
 
-    states.face.x.plus.a = numpy.maximum(numpy.maximum(
+    states.face.x.plus.a = nplike.maximum(nplike.maximum(
         states.face.x.plus.u+sqrt_gh_plus, states.face.x.minus.u+sqrt_gh_minus), 0.)
 
-    states.face.x.minus.a = numpy.minimum(numpy.minimum(
+    states.face.x.minus.a = nplike.minimum(nplike.minimum(
         states.face.x.plus.u-sqrt_gh_plus, states.face.x.minus.u-sqrt_gh_minus), 0.)
 
     # faces normal to y-direction
-    sqrt_gh_plus = numpy.sqrt(gravity*states.face.y.plus.h)
-    sqrt_gh_minus = numpy.sqrt(gravity*states.face.y.minus.h)
+    sqrt_gh_plus = nplike.sqrt(gravity*states.face.y.plus.h)
+    sqrt_gh_minus = nplike.sqrt(gravity*states.face.y.minus.h)
 
-    states.face.y.plus.a = numpy.maximum(numpy.maximum(
+    states.face.y.plus.a = nplike.maximum(nplike.maximum(
         states.face.y.plus.v+sqrt_gh_plus, states.face.y.minus.v+sqrt_gh_minus), 0.)
 
-    states.face.y.minus.a = numpy.minimum(numpy.minimum(
+    states.face.y.minus.a = nplike.minimum(nplike.minimum(
         states.face.y.plus.v-sqrt_gh_plus, states.face.y.minus.v-sqrt_gh_minus), 0.)
 
     return states
@@ -131,4 +131,4 @@ def write_states(states: States, fname: str):
     data.update({"face_y_num_flux_{}".format(k): states.face.y.num_flux[k] for k in keys})
     data.update({"rhs_{}".format(k): states.rhs[k] for k in keys})
 
-    numpy.savez(fname, **data)
+    nplike.savez(fname, **data)

@@ -12,7 +12,8 @@ import pathlib
 from datetime import datetime, timezone
 
 import netCDF4
-from .dummydict import DummyDict  # pylint: disable=import-error
+import numpy  # real numpy because NetCDF library only works with real numpy ndarray
+from torchswe.utils.dummydict import DummyDict  # pylint: disable=import-error
 
 
 def read_cf(fpath, data_keys, **kwargs):
@@ -38,9 +39,9 @@ def read_cf(fpath, data_keys, **kwargs):
     -------
     data : a dict
         This dict has key-value pairs of:
-        - x: a 1D numpy.ndarray; gridline in x direction.
-        - y: a 1D numpy.ndarray; gridline in y direction.
-        - time: (optional) a 1D numpy.ndarray if gridline in time exists.
+        - x: a 1D nplike.ndarray; gridline in x direction.
+        - y: a 1D nplike.ndarray; gridline in y direction.
+        - time: (optional) a 1D nplike.ndarray if gridline in time exists.
         - And all keys specified in data_key argument.
     attrs : a dict of dicts
         Attributes for each key in data (exclude root group's).
@@ -116,9 +117,9 @@ def write_cf_to_dataset(dset, gridline, data, options=None):
         The destination of data output.
     gridline : a dict
         This dict contains the following key-value pair
-        - x, y : 1D numpy.ndarray of length Nx and Ny repectively
+        - x, y : 1D nplike.ndarray of length Nx and Ny repectively
             The x and y coordinates
-        - time : (optional) 1D numpy.ndarray of length Nt
+        - time : (optional) 1D nplike.ndarray of length Nt
             The coordinates in temporal axis.
     data: a dictionary of (variable name, array) pairs; the arrays are
             spatial data only, i.e., with shape (Ny, Nx)
@@ -248,7 +249,7 @@ def append_time_data(fpath, time, data, options=None, **kwargs):
 
         # add data
         for key, array in data.items():
-            dset[key][tidx, :, :] = array
+            dset[key][tidx, :, :] = numpy.array(array)
 
 
 def add_time_axis(dset, values=None, timestamp=None, options=None):
@@ -260,7 +261,7 @@ def add_time_axis(dset, values=None, timestamp=None, options=None):
     ---------
     dset : netCDF4.Dataset
         The target dataset.
-    values : None, a list, or numpy.ndarray
+    values : None, a list, or nplike.ndarray
         Given time values. None means users will assign values later.
     timestamp: None or str
         A custom timestamp used in "since ..." in CF convention. Use ISO time format. If None, the
@@ -279,7 +280,7 @@ def add_time_axis(dset, values=None, timestamp=None, options=None):
 
     _ = dset.createDimension("time", None)
     axis = dset.createVariable("time", "f8", ("time",))
-    axis[:] = values if values is not None else []
+    axis[:] = numpy.array(values) if values is not None else []
     axis.axis = "T"
     axis.long_name = "Simulation time"
     axis.units = "seconds since " + timestamp
@@ -303,7 +304,7 @@ def add_spatial_axis(dset, coords, options=None):
     ---------
     dset : netCDF4.Dataset
         The target dataset.
-    coords: a dict of 1D numpy.ndarray
+    coords: a dict of 1D nplike.ndarray
         Coordinates in "x" and "y".
     options: None or a dict
         An optional dictionary to overwrite default attributes or add new attributes. If not None,
@@ -320,7 +321,7 @@ def add_spatial_axis(dset, coords, options=None):
     for key in ("x", "y"):
         _ = dset.createDimension(key, len(coords[key]))
         axes[key] = dset.createVariable(key, "f8", (key,))
-        axes[key][:] = coords[key]
+        axes[key][:] = numpy.array(coords[key])
         axes[key].units = "m"
         axes[key].long_name = "{}-coordinate in EPSG:3857 WGS 84".format(key)
         axes[key].standard_name = "projection_{}_coordinate".format(key)

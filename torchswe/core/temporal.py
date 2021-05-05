@@ -10,10 +10,10 @@
 """
 import copy
 import warnings
-from .misc import CFLWarning
-from ..utils.data import States, Gridlines, Topography, WHUHVModel
-from ..utils.config import Config
-from ..utils.dummydict import DummyDict
+from torchswe.core.misc import CFLWarning
+from torchswe.utils.data import States, Gridlines, Topography, WHUHVModel
+from torchswe.utils.config import Config
+from torchswe.utils.dummydict import DummyDict
 
 
 def euler(
@@ -289,7 +289,7 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
 
 def euler_debug(
     states: States, grid: Gridlines, topo: Topography, config: Config,
-        runtime: DummyDict, t_end: float):
+        runtime: DummyDict, t_end: float):  # pylint: disable=unused-argument
     """A simple 1st-order forward Euler for debug.
     """
     # non-ghost domain slice

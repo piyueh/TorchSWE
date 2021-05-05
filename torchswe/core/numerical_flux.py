@@ -8,8 +8,8 @@
 
 """Functions to calculate numerical/common flux.
 """
-import numpy
-from ..utils.data import States
+from torchswe import nplike
+from torchswe.utils.data import States
 
 
 def central_scheme(states: States, tol: float = 1e-12) -> States:
@@ -33,10 +33,10 @@ def central_scheme(states: States, tol: float = 1e-12) -> States:
         coeff = states.face[axis].plus.a * states.face[axis].minus.a
 
         # if denominator == 0, the division result will just be the zeros
-        zero_ji = numpy.nonzero(numpy.logical_and(denominator > -tol, denominator < tol))
+        zero_ji = nplike.nonzero(nplike.logical_and(denominator > -tol, denominator < tol))
 
         for key in ["w", "hu", "hv"]:
-            with numpy.errstate(divide="ignore", invalid="ignore"):
+            with nplike.errstate(divide="ignore", invalid="ignore"):
                 states.face[axis].num_flux[key] = (
                     states.face[axis].plus.a * states.face[axis].minus.flux[key] -
                     states.face[axis].minus.a * states.face[axis].plus.flux[key] +

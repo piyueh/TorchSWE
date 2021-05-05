@@ -8,7 +8,7 @@
 
 """Functions for calculating discontinuous flux.
 """
-from ..utils.data import States, Topography
+from torchswe.utils.data import States, Topography
 
 
 def get_discontinuous_flux(states: States, topo: Topography, gravity: float) -> States:

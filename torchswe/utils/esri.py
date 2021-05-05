@@ -9,7 +9,7 @@
 """Functions related Esri ASCII format.
 """
 import os
-import numpy
+from torchswe import nplike
 
 def read_esri_ascii(filepath):
     """Read an Esri ASCII raster file.
@@ -26,9 +26,9 @@ def read_esri_ascii(filepath):
     Returns:
     --------
         data: a dictionary that has key-value pairs of
-            x: a 1D numpy.ndarray; gridline in x direction.
-            y: a 1D numpy.ndarray; gridline in y direction.
-            data: a 2D numpy.ndarray; the data
+            x: a 1D nplike.ndarray; gridline in x direction.
+            y: a 1D nplike.ndarray; gridline in y direction.
+            data: a 2D nplike.ndarray; the data
 
         attrs: a mimic to the output of read_cf. The only output is a dictionary:
             {"data": {"_fill_value": nodata_value}}.
@@ -78,15 +78,15 @@ def read_esri_ascii(filepath):
 
     del H["xllcenter"], H["yllcenter"], H["xllcorner"], H["yllcorner"]
 
-    x = numpy.linspace(
-        H["xll"], H["xll"]+H["cellsize"]*(H["ncols"]-1), H["ncols"], dtype=numpy.float64)
-    y = numpy.linspace(
-        H["yll"], H["yll"]+H["cellsize"]*(H["nrows"]-1), H["nrows"], dtype=numpy.float64)
+    x = nplike.linspace(
+        H["xll"], H["xll"]+H["cellsize"]*(H["ncols"]-1), H["ncols"], dtype=nplike.float64)
+    y = nplike.linspace(
+        H["yll"], H["yll"]+H["cellsize"]*(H["nrows"]-1), H["nrows"], dtype=nplike.float64)
 
-    data = numpy.zeros((H["nrows"], H["ncols"]), dtype=numpy.float64)
+    data = nplike.zeros((H["nrows"], H["ncols"]), dtype=nplike.float64)
 
     for i, line in zip(range(H["nrows"]-1, -1, -1), raw[6:]):
-        data[i, :] = numpy.fromstring(line, numpy.float64, -1, " ")
+        data[i, :] = nplike.fromstring(line, nplike.float64, -1, " ")
 
     return {"x": x, "y": y, "data": data}, {"data": {"_fill_value": H["nodata_value"]}}
 
@@ -102,9 +102,9 @@ def write_esri_ascii(filepath, x, y, data, loc):
     Args:
     -----
         stream: a stream; usually an opened file's handle.
-        x: a 1D numpy.ndarray; gridline in x direction.
-        y: a 1D numpy.ndarray; gridline in y direction.
-        data: a 2D numpy.ndarray with shape (Ny, Nx); data.
+        x: a 1D nplike.ndarray; gridline in x direction.
+        y: a 1D nplike.ndarray; gridline in y direction.
+        data: a 2D nplike.ndarray with shape (Ny, Nx); data.
         loc: indicates whether the gridlines are defined at cell corners
             (vertices) or cell centers; allowed values: "center" or "corner".
         nodata_value: the nodata_value in the Esri ASCII file.
@@ -131,9 +131,9 @@ def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
     Args:
     -----
         stream: a stream; usually an opened file's handle.
-        x: a 1D numpy.ndarray of length Nx; gridline in x direction.
-        y: a 1D numpy.ndarray of length Ny; gridline in y direction.
-        data: a 2D numpy.ndarray with shape (Ny, Nx); data.
+        x: a 1D nplike.ndarray of length Nx; gridline in x direction.
+        y: a 1D nplike.ndarray of length Ny; gridline in y direction.
+        data: a 2D nplike.ndarray with shape (Ny, Nx); data.
         loc: indicates whether the gridlines are defined at cell corners
             (vertices) or cell centers; allowed values: "center" or "corner".
         nodata_value: the nodata_value in the Esri ASCII file.
@@ -157,6 +157,6 @@ def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
     stream.write("{:15s} {}\n".format("NODATA_VALUE", nodata_value))
 
     for row in data[::-1, :]:
-        s = numpy.array2string(row, precision=16, separator=' ', threshold=x.shape[0]+1)
+        s = nplike.array2string(row, precision=16, separator=' ', threshold=x.shape[0]+1)
         s = s.lstrip("[ \t").rstrip("] \t").replace("\n", "")
         stream.write(s+"\n")

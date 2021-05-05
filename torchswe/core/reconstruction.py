@@ -8,8 +8,8 @@
 
 """Linear reconstruction.
 """
-import numpy
-from ..utils.data import States, Gridlines, Topography
+from torchswe import nplike
+from torchswe.utils.data import States, Gridlines, Topography
 
 
 def correct_negative_depth(states: States, topo: Topography) -> States:
@@ -27,40 +27,40 @@ def correct_negative_depth(states: States, topo: Topography) -> States:
     """
 
     # fix the case when the left depth of an interface is negative
-    j, i = numpy.nonzero(states.face.x.minus.w < topo.xface)
+    j, i = nplike.nonzero(states.face.x.minus.w < topo.xface)
     states.face.x.minus.w[j, i] = topo.xface[j, i]
     j, i = j[i != 0], i[i != 0]  # to avoid those i - 1 = -1
     states.face.x.plus.w[j, i-1] = 2 * states.q.w[j+states.ngh, i-1+states.ngh] - topo.xface[j, i]
 
     # fix the case when the right depth of an interface is negative
-    j, i = numpy.nonzero(states.face.x.plus.w < topo.xface)
+    j, i = nplike.nonzero(states.face.x.plus.w < topo.xface)
     states.face.x.plus.w[j, i] = topo.xface[j, i]
     j, i = j[i != states.nx], i[i != states.nx]  # to avoid i + 1 = nx + 1
     states.face.x.minus.w[j, i+1] = 2 * states.q.w[j+states.ngh, i+states.ngh] - topo.xface[j, i]
 
     # fix the case when the bottom depth of an interface is negative
-    j, i = numpy.nonzero(states.face.y.minus.w < topo.yface)
+    j, i = nplike.nonzero(states.face.y.minus.w < topo.yface)
     states.face.y.minus.w[j, i] = topo.yface[j, i]
     j, i = j[j != 0], i[j != 0]  # to avoid j - 1 = -1
     states.face.y.plus.w[j-1, i] = 2 * states.q.w[j-1+states.ngh, i+states.ngh] - topo.yface[j, i]
 
     # fix the case when the top depth of an interface is negative
-    j, i = numpy.nonzero(states.face.y.plus.w < topo.yface)
+    j, i = nplike.nonzero(states.face.y.plus.w < topo.yface)
     states.face.y.plus.w[j, i] = topo.yface[j, i]
     j, i = j[j != states.ny], i[j != states.ny]  # to avoid j + 1 = Ny + 1
     states.face.y.minus.w[j+1, i] = 2 * states.q.w[j+states.ngh, i+states.ngh] - topo.yface[j, i]
 
     # fix tiny tolerance due to numerical rounding error
-    j, i = numpy.nonzero(states.face.x.plus.w < topo.xface)
+    j, i = nplike.nonzero(states.face.x.plus.w < topo.xface)
     states.face.x.plus.w[j, i] = topo.xface[j, i]
 
-    j, i = numpy.nonzero(states.face.x.minus.w < topo.xface)
+    j, i = nplike.nonzero(states.face.x.minus.w < topo.xface)
     states.face.x.minus.w[j, i] = topo.xface[j, i]
 
-    j, i = numpy.nonzero(states.face.y.plus.w < topo.yface)
+    j, i = nplike.nonzero(states.face.y.plus.w < topo.yface)
     states.face.y.plus.w[j, i] = topo.yface[j, i]
 
-    j, i = numpy.nonzero(states.face.y.minus.w < topo.yface)
+    j, i = nplike.nonzero(states.face.y.minus.w < topo.yface)
     states.face.y.minus.w[j, i] = topo.yface[j, i]
 
     return states

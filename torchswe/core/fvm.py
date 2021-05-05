@@ -8,16 +8,16 @@
 
 """Linear reconstruction.
 """
-import numpy
-from .sources import topography_gradient
-from .limiters import minmod_slope
-from .reconstruction import get_discontinuous_cnsrv_q, correct_negative_depth
-from .misc import decompose_variables, get_local_speed
-from .flux import get_discontinuous_flux
-from .numerical_flux import central_scheme
-from ..utils.config import Config
-from ..utils.data import States, Gridlines, Topography
-from ..utils.dummydict import DummyDict
+from torchswe import nplike
+from torchswe.core.sources import topography_gradient
+from torchswe.core.limiters import minmod_slope
+from torchswe.core.reconstruction import get_discontinuous_cnsrv_q, correct_negative_depth
+from torchswe.core.misc import decompose_variables, get_local_speed
+from torchswe.core.flux import get_discontinuous_flux
+from torchswe.core.numerical_flux import central_scheme
+from torchswe.utils.config import Config
+from torchswe.utils.data import States, Gridlines, Topography
+from torchswe.utils.dummydict import DummyDict
 
 
 def fvm(states: States, grid: Gridlines, topo: Topography, config: Config, runtime: DummyDict):
@@ -81,18 +81,19 @@ def fvm(states: States, grid: Gridlines, topo: Topography, config: Config, runti
         states.src.hv
 
     # remove rounding errors
-    ji = numpy.nonzero(numpy.logical_and(states.rhs.w > -runtime.tol, states.rhs.w < runtime.tol))
+    rhs = states.rhs  # alias
+    ji = nplike.nonzero(nplike.logical_and(rhs.w > -runtime.tol, rhs.w < runtime.tol))
     states.rhs.w[ji] = 0.
 
-    ji = numpy.nonzero(numpy.logical_and(states.rhs.hu > -runtime.tol, states.rhs.hu < runtime.tol))
+    ji = nplike.nonzero(nplike.logical_and(rhs.hu > -runtime.tol, rhs.hu < runtime.tol))
     states.rhs.hu[ji] = 0.
 
-    ji = numpy.nonzero(numpy.logical_and(states.rhs.hv > -runtime.tol, states.rhs.hv < runtime.tol))
+    ji = nplike.nonzero(nplike.logical_and(rhs.hv > -runtime.tol, rhs.hv < runtime.tol))
     states.rhs.hv[ji] = 0.
 
     # obtain the maximum safe dt
-    amax = numpy.max(numpy.maximum(states.face.x.plus.a, -states.face.x.minus.a))
-    bmax = numpy.max(numpy.maximum(states.face.y.plus.a, -states.face.y.minus.a))
+    amax = nplike.max(nplike.maximum(states.face.x.plus.a, -states.face.x.minus.a))
+    bmax = nplike.max(nplike.maximum(states.face.y.plus.a, -states.face.y.minus.a))
     max_dt = min(0.25*grid.x.delta/amax, 0.25*grid.y.delta/bmax)
 
     return states, max_dt

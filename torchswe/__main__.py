@@ -10,7 +10,7 @@
 """
 
 import time
-import numpy
+from torchswe import nplike
 from torchswe.utils.dummydict import DummyDict
 from torchswe.utils.data import States
 from torchswe.utils.netcdf import write_cf, append_time_data
@@ -20,7 +20,7 @@ from torchswe.core.boundary_conditions import BoundaryGhostUpdater
 from torchswe.core.temporal import euler, RK2, RK4
 
 # enforce print precision
-numpy.set_printoptions(precision=15, linewidth=200)
+nplike.set_printoptions(precision=15, linewidth=200)
 
 
 def main():
@@ -40,13 +40,13 @@ def main():
     runtime.ghost_updater = BoundaryGhostUpdater(config.bc, config.params.ngh, topo)
     runtime.rhs_updater = fvm
 
+    # slice indicating the non-ghost cells
+    slc = slice(config.params.ngh, -config.params.ngh)
+
     # solution object
     soln = States(
         config.spatial.discretization[0], config.spatial.discretization[1],
         config.params.ngh, config.dtype)
-
-    # slice indicating the non-ghost cells
-    slc = slice(soln.ngh, -soln.ngh)
 
     # copy I.C.
     soln.q.w[slc, slc], soln.q.hu[slc, slc], soln.q.hv[slc, slc] = ic_data.w, ic_data.hu, ic_data.hv
