@@ -9,7 +9,7 @@
 """Miscellaneous functions.
 """
 from torchswe import nplike
-from torchswe.utils.data import States, Topography
+from torchswe.utils.data import WHUHVModel, States, Topography
 
 
 class CFLWarning(Warning):
@@ -132,3 +132,27 @@ def write_states(states: States, fname: str):
     data.update({"rhs_{}".format(k): states.rhs[k] for k in keys})
 
     nplike.savez(fname, **data)
+
+
+def remove_rounding_errors(whuhv: WHUHVModel, tol: float):
+    """Removing rounding errors from states.
+
+    Arguments
+    ---------
+    whuhv : torchswe.utils.data.WHUHVModel
+        Any instance of WHUHVModel data model.
+    tol : float
+        Rounding error.
+    """
+
+    # remove rounding errors
+    zero_ji = nplike.nonzero(nplike.logical_and(whuhv.w > -tol, whuhv.w < tol))
+    whuhv.w[zero_ji] = 0.
+
+    zero_ji = nplike.nonzero(nplike.logical_and(whuhv.hu > -tol, whuhv.hu < tol))
+    whuhv.hu[zero_ji] = 0.
+
+    zero_ji = nplike.nonzero(nplike.logical_and(whuhv.hv > -tol, whuhv.hv < tol))
+    whuhv.hv[zero_ji] = 0.
+
+    return whuhv

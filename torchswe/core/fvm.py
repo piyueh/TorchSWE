@@ -10,14 +10,23 @@
 """
 from torchswe import nplike
 from torchswe.core.sources import topography_gradient
-from torchswe.core.limiters import minmod_slope
-from torchswe.core.reconstruction import get_discontinuous_cnsrv_q, correct_negative_depth
+from torchswe.core.reconstruction import get_discontinuous_cnsrv_q
 from torchswe.core.misc import decompose_variables, get_local_speed
 from torchswe.core.flux import get_discontinuous_flux
-from torchswe.core.numerical_flux import central_scheme
 from torchswe.utils.config import Config
 from torchswe.utils.data import States, Gridlines, Topography
 from torchswe.utils.dummydict import DummyDict
+
+if nplike.__name__ == "legate.numpy":
+    from torchswe.core.legate.limiters import minmod_slope
+    from torchswe.core.legate.reconstruction import correct_negative_depth
+    from torchswe.core.legate.numerical_flux import central_scheme
+    from torchswe.core.legate.misc import remove_rounding_errors
+else:
+    from torchswe.core.limiters import minmod_slope
+    from torchswe.core.reconstruction import correct_negative_depth
+    from torchswe.core.numerical_flux import central_scheme
+    from torchswe.core.misc import remove_rounding_errors
 
 
 def fvm(states: States, grid: Gridlines, topo: Topography, config: Config, runtime: DummyDict):
@@ -81,15 +90,7 @@ def fvm(states: States, grid: Gridlines, topo: Topography, config: Config, runti
         states.src.hv
 
     # remove rounding errors
-    rhs = states.rhs  # alias
-    ji = nplike.nonzero(nplike.logical_and(rhs.w > -runtime.tol, rhs.w < runtime.tol))
-    states.rhs.w[ji] = 0.
-
-    ji = nplike.nonzero(nplike.logical_and(rhs.hu > -runtime.tol, rhs.hu < runtime.tol))
-    states.rhs.hu[ji] = 0.
-
-    ji = nplike.nonzero(nplike.logical_and(rhs.hv > -runtime.tol, rhs.hv < runtime.tol))
-    states.rhs.hv[ji] = 0.
+    states.rhs = remove_rounding_errors(states.rhs, runtime.tol)
 
     # obtain the maximum safe dt
     amax = nplike.max(nplike.maximum(states.face.x.plus.a, -states.face.x.minus.a))
