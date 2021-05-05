@@ -201,7 +201,7 @@ class Topography(BaseConfig):
         dem, _ = read_cf(topoconfig.file, [topoconfig.key])
 
         # copy to a nplike.ndarray
-        vert = dem[topoconfig.key][:].copy()
+        vert = nplike.array(dem[topoconfig.key][:].copy())
 
         # see if we need to do interpolation
         try:
@@ -230,7 +230,7 @@ class Topography(BaseConfig):
         # gradient at cell centers through central difference; here allows nonuniform grids
         # this function does not assume constant cell sizes, so we re-calculate dx, dy
         # the `delta`s in grid.x and y are constants (current solver only supports uniform grid)
-        xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid.x.vert[1:] - grid.x.vert[:-1])
+        xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid.x.vert[1:] - grid.x.vert[:-1])[None, :]
         ygrad = (yface[1:, :] - yface[:-1, :]) / (grid.y.vert[1:] - grid.y.vert[:-1])[:, None]
 
         # initialize DataModel and let pydantic validates data
