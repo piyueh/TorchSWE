@@ -191,9 +191,9 @@ def create_ic(ic_config, gridlines, topo, dtype):
         interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[2]][:].T)
         hv = interpolator(gridlines.x.cntr, gridlines.y.cntr).T
     else:
-        w = icdata[ic_config.keys[0]][:].copy()
-        hu = icdata[ic_config.keys[1]][:].copy()
-        hv = icdata[ic_config.keys[2]][:].copy()
+        w = nplike.array(icdata[ic_config.keys[0]][:].copy())
+        hu = nplike.array(icdata[ic_config.keys[1]][:].copy())
+        hv = nplike.array(icdata[ic_config.keys[2]][:].copy())
 
     # make sure the w can not be smaller than topopgraphy elevation
     w = nplike.maximum(w, topo.cntr)
