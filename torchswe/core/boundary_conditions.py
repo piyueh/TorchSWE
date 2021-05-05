@@ -31,10 +31,14 @@ _periodic_slc_right = {
 }
 
 _extrap_seq = {
-    "west": lambda ngh: numpy.arange(ngh, 0, -1),
-    "east": lambda ngh: numpy.arange(1, ngh+1),
-    "north": lambda ngh: numpy.arange(1, ngh+1).reshape((ngh, 1)),
-    "south": lambda ngh: numpy.arange(ngh, 0, -1).reshape((ngh, 1))
+    "west": lambda n, ngh, dtype: nplike.tile(
+        nplike.arange(ngh, 0, -1, dtype=dtype), (n, 1)),
+    "east": lambda n, ngh, dtype: nplike.tile(
+        nplike.arange(1, ngh+1, dtype=dtype), (n, 1)),
+    "north": lambda n, ngh, dtype: nplike.tile(
+        nplike.arange(1, ngh+1, dtype=dtype).reshape((ngh, 1)), (1, n)),
+    "south": lambda n, ngh, dtype: nplike.tile(
+        nplike.arange(ngh, 0, -1, dtype=dtype).reshape((ngh, 1)), (1, n))
 }
 
 _extrap_anchor = {
@@ -151,15 +155,19 @@ def outflow_factory(n_ghost, orientation):
     return outflow_extrap
 
 
-def linear_extrap_factory(n_ghost, orientation):
+def linear_extrap_factory(n, n_ghost, orientation, dtype):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
+    n : int
+        Number of non-ghost cells along the target boundary.
     n_ghost : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
+    dtype : str
+        Either "float64" or "float32".
 
     Returns
     -------
@@ -167,7 +175,7 @@ def linear_extrap_factory(n_ghost, orientation):
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
-    seq = _extrap_seq[orientation](n_ghost)
+    seq = _extrap_seq[orientation](n, n_ghost, dtype)
     anchor = _extrap_anchor[orientation](n_ghost)
     delta_slc = _extrap_delta_slc[orientation](n_ghost)
     slc = _extrap_slc[orientation](n_ghost)
@@ -195,17 +203,21 @@ def linear_extrap_factory(n_ghost, orientation):
     return linear_extrap
 
 
-def constant_bc_factory(const, n_ghost, orientation):
+def constant_bc_factory(const, n, n_ghost, orientation, dtype):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
+    n : int
+        Number of non-ghost cells along the target boundary.
     const : float
         The constant of either w, hu, or hv, depending the values in component.
     n_ghost : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
+    dtype : str
+        Either "float64" or "float32".
 
     Returns
     -------
@@ -213,7 +225,7 @@ def constant_bc_factory(const, n_ghost, orientation):
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
-    seq = _extrap_seq[orientation](n_ghost)
+    seq = _extrap_seq[orientation](n, n_ghost, dtype)
     anchor = _extrap_anchor[orientation](n_ghost)
     slc = _extrap_slc[orientation](n_ghost)
 
@@ -240,11 +252,13 @@ def constant_bc_factory(const, n_ghost, orientation):
     return constant_bc
 
 
-def inflow_bc_factory(const, n_ghost, orientation, topo, component):
+def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
+    n : int
+        Number of non-ghost cells along the target boundary.
     const : float
         The constant of either h, u, or v, depending the values in component.
     n_ghost : int
@@ -255,6 +269,8 @@ def inflow_bc_factory(const, n_ghost, orientation, topo, component):
         An instance of the topography data model.
     component : int
         Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
+    dtype : str
+        Either "float64" or "float32".
 
     Returns
     -------
@@ -262,7 +278,7 @@ def inflow_bc_factory(const, n_ghost, orientation, topo, component):
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
 
-    seq = _extrap_seq[orientation](n_ghost)
+    seq = _extrap_seq[orientation](n, n_ghost, dtype)
     anchor = _extrap_anchor[orientation](n_ghost)
     slc = _extrap_slc[orientation](n_ghost)
     topo_cache = topo[_inflow_topo_key[orientation]]
@@ -318,13 +334,14 @@ def inflow_bc_factory(const, n_ghost, orientation, topo, component):
 
 class BoundaryGhostUpdaterOneBound(BaseConfig):
     """Ghost cell updaters on a single boundary."""
+    nedge: conint(ge=1)  # number of non-ghost cells ALONG this boundary
     ngh: conint(ge=2)
     orientation: Literal["west", "east", "south", "north"]
     w: Callable[[nplike.ndarray], nplike.ndarray]
     hu: Callable[[nplike.ndarray], nplike.ndarray]
     hv: Callable[[nplike.ndarray], nplike.ndarray]
 
-    def __init__(self, bc: SingleBCConfig, ngh: int, orientation: str, topo: Topography):
+    def __init__(self, bc: SingleBCConfig, n: int, ngh: int, orient: str, topo: Topography = None):
         # validate data models for a sanity check
         bc.check()
 
@@ -333,21 +350,22 @@ class BoundaryGhostUpdaterOneBound(BaseConfig):
 
         for i, bctype in enumerate(bc.types):
             if bctype == "periodic":  # periodic BC
-                kwargs[keymap[i]] = periodic_factory(ngh, orientation)
+                kwargs[keymap[i]] = periodic_factory(ngh, orient)
             elif bctype == "outflow":  # constant extrapolation BC (outflow)
-                kwargs[keymap[i]] = outflow_factory(ngh, orientation)
+                kwargs[keymap[i]] = outflow_factory(ngh, orient)
             elif bctype == "extrap":  # linear extrapolation BC
-                kwargs[keymap[i]] = linear_extrap_factory(ngh, orientation)
+                kwargs[keymap[i]] = linear_extrap_factory(n, ngh, orient, topo.dtype)
             elif bctype == "const":  # constant/Dirichlet
-                kwargs[keymap[i]] = constant_bc_factory(bc.values[i], ngh, orientation)
+                kwargs[keymap[i]] = constant_bc_factory(bc.values[i], n, ngh, orient, topo.dtype)
             elif bctype == "inflow":  # inflow/constant non-conservative variables
                 topo.check()
-                kwargs[keymap[i]] = inflow_bc_factory(bc.values[i], ngh, orientation, topo, i)
+                kwargs[keymap[i]] = inflow_bc_factory(
+                    bc.values[i], n, ngh, orient, topo, i, topo.dtype)
             else:  # this shouldn't happen because pydantic should have catched the error
                 raise ValueError("{} is not recognized.".format(bctype))
 
         # initialize this data model instance and let pydantic validate the model
-        super().__init__(ngh=ngh, orientation=orientation, **kwargs)
+        super().__init__(nedge=n, ngh=ngh, orientation=orient, **kwargs)
 
     def update_all(self, values: States):
         """Update all ghost cell of all components on this boundary.
@@ -377,13 +395,13 @@ class BoundaryGhostUpdater(BaseConfig):
     south: BoundaryGhostUpdaterOneBound
     north: BoundaryGhostUpdaterOneBound
 
-    def __init__(self, bcs: BCConfig, ngh: int, topo: Topography):
+    def __init__(self, bcs: BCConfig, nx: int, ny: int, ngh: int, topo: Topography = None):
         super().__init__(
             ngh=ngh,
-            west=BoundaryGhostUpdaterOneBound(bcs.west, ngh, "west", topo),
-            east=BoundaryGhostUpdaterOneBound(bcs.east, ngh, "east", topo),
-            south=BoundaryGhostUpdaterOneBound(bcs.south, ngh, "south", topo),
-            north=BoundaryGhostUpdaterOneBound(bcs.north, ngh, "north", topo)
+            west=BoundaryGhostUpdaterOneBound(bcs.west, ny, ngh, "west", topo),
+            east=BoundaryGhostUpdaterOneBound(bcs.east, ny, ngh, "east", topo),
+            south=BoundaryGhostUpdaterOneBound(bcs.south, nx, ngh, "south", topo),
+            north=BoundaryGhostUpdaterOneBound(bcs.north, nx, ngh, "north", topo)
         )
 
     def update_all(self, values: States):

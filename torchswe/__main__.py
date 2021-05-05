@@ -37,7 +37,9 @@ def main():
     runtime.cur_t = config.temporal.start  # the current simulation time
     runtime.counter = 0  # to count the current number of iterations
     runtime.tol = 1e-12  # can be treated as zero
-    runtime.ghost_updater = BoundaryGhostUpdater(config.bc, config.params.ngh, topo)
+    runtime.ghost_updater = BoundaryGhostUpdater(
+        config.bc, config.spatial.discretization[0], config.spatial.discretization[1],
+        config.params.ngh, topo)
     runtime.rhs_updater = fvm
 
     # slice indicating the non-ghost cells
