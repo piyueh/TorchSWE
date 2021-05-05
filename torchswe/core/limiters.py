@@ -12,6 +12,11 @@ from torchswe import nplike
 from torchswe.utils.data import States, Gridlines
 
 
+# TODO: according to nv-legate/legate.numpy#14, the `where` argument in legate.numpy.divide is not
+#       working as expected. Will be fixed later. Use `legate.numpy.where` for now. Check if the
+#       `divide` function is fixed, or even better check if advanced indexing is working.
+
+
 def minmod_slope(states: States, grid: Gridlines, theta: float, tol: float = 1e-12) -> States:
     """Calculate minmod slopes in x- and y-direction of quantity.
 
@@ -179,12 +184,10 @@ def minmod_slope_x_one_comp_legate(q: nplike.ndarray, dx: float, ngh: int, theta
     denominator = q[cells, ip1] - q[cells, i]  # q_{j, i+1} - q_{j, i} for all j
 
     # legate currently has no `logical_and`, so we use element-wise multiplication
-    non_zero_locs = nplike.logical_not((denominator > -tol) * (denominator < tol))
+    zero_locs = (denominator > -tol) * (denominator < tol)
 
-    # TODO: remember to check if nv-legate/legate.numpy#14 is resolved or not
-    slpx = nplike.divide(
-        (q[cells, i] - q[cells, im1]), denominator,
-        out=nplike.zeros_like(denominator), where=non_zero_locs)
+    with nplike.errstate(divide="ignore", invalid="ignore"):
+        slpx = nplike.where(zero_locs, 0., (q[cells, i] - q[cells, im1]) / denominator)
 
     slpx = nplike.maximum(
         nplike.minimum(
@@ -230,12 +233,10 @@ def minmod_slope_y_one_comp_legate(q: nplike.ndarray, dy: float, ngh: int, theta
     denominator = q[jp1, cells] - q[j, cells]  # q_{j+1, i} - q_{j, i} for all i
 
     # legate currently has no `logical_and`, so we use element-wise multiplication
-    non_zero_locs = nplike.logical_not((denominator > -tol) * (denominator < tol))
+    zero_locs = (denominator > -tol) * (denominator < tol)
 
-    # TODO: remember to check if nv-legate/legate.numpy#14 is resolved or not
-    slpy = nplike.divide(
-        (q[j, cells] - q[jm1, cells]), denominator,
-        out=nplike.zeros_like(denominator), where=non_zero_locs)
+    with nplike.errstate(divide="ignore", invalid="ignore"):
+        slpy = nplike.where(zero_locs, 0., (q[j, cells]-q[jm1, cells])/denominator)
 
     slpy = nplike.maximum(
         nplike.minimum(
