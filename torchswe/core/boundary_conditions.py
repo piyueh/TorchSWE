@@ -13,22 +13,7 @@ from pydantic import conint
 from torchswe import nplike
 from torchswe.utils.config import BaseConfig, SingleBCConfig, BCConfig
 from torchswe.utils.data import Topography, States
-
-# to create corresponding slices for the left-hand-side of periodic BC
-_periodic_slc_left = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(0, ngh)),
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh, None)),
-    "north": lambda ngh: (slice(-ngh, None), slice(ngh, -ngh)),
-    "south": lambda ngh: (slice(0, ngh), slice(ngh, -ngh))
-}
-
-# to create corresponding slices for the left-hand-side of periodic BC
-_periodic_slc_right = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(-ngh-ngh, -ngh)),
-    "east": lambda ngh: (slice(ngh, -ngh), slice(ngh, ngh+ngh)),
-    "north": lambda ngh: (slice(ngh, ngh+ngh), slice(ngh, -ngh)),
-    "south": lambda ngh: (slice(-ngh-ngh, -ngh), slice(ngh, -ngh))
-}
+# pylint: disable=fixme
 
 _extrap_seq = {
     "west": lambda n, ngh, dtype: nplike.tile(
@@ -77,12 +62,12 @@ _inflow_topo_slc = {
 }
 
 
-def periodic_factory(n_ghost, orientation):
+def periodic_factory(ngh: int, orientation: str):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    n_ghost : int
+    ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
@@ -92,36 +77,37 @@ def periodic_factory(n_ghost, orientation):
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
+    # TODO: here we use `.copy()` to make legate happy, see nv-legate/legate.numpy#16
 
-    slc_left = _periodic_slc_left[orientation](n_ghost)
-    slc_right = _periodic_slc_right[orientation](n_ghost)
-
-    def periodic(conserv_q):
-        """Update the ghost cells with periodic BC.
-
-        Arguments
-        ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
-
-        Returns
-        -------
-        Updated conserv_q.
-        """
-        conserv_q[slc_left] = conserv_q[slc_right]
+    def periodic_west(conserv_q):
+        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, -ngh-ngh:-ngh].copy()
         return conserv_q
 
-    periodic.slc_left = slc_left
-    periodic.slc_right = slc_right
+    def periodic_east(conserv_q):
+        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, ngh:ngh+ngh].copy()
+        return conserv_q
 
-    return periodic
+    def periodic_south(conserv_q):
+        conserv_q[:ngh, ngh:-ngh] = conserv_q[-ngh-ngh:-ngh, ngh:-ngh].copy()
+        return conserv_q
+
+    def periodic_north(conserv_q):
+        conserv_q[-ngh:, ngh:-ngh] = conserv_q[ngh:ngh+ngh, ngh:-ngh].copy()
+        return conserv_q
+
+    candidates = {
+        "west": periodic_west, "east": periodic_east,
+        "south": periodic_south, "north": periodic_north, }
+
+    return candidates[orientation]
 
 
-def outflow_factory(n_ghost, orientation):
+def outflow_factory(ngh: int, orientation: str):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    n_ghost : int
+    ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
@@ -131,28 +117,34 @@ def outflow_factory(n_ghost, orientation):
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
     arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
     """
+    # TODO: Legate hasn't supported implict broadcasting; chage the code once they support it
+    # TODO: affected by nv-legate/legate.numpy#16; it should be simply an in-array slice copying.
 
-    anchor = _extrap_anchor[orientation](n_ghost)
-    slc = _extrap_slc[orientation](n_ghost)
-
-    def outflow_extrap(conserv_q):
-        """Update the ghost cells with outflow BC using constant extrapolation.
-
-        Arguments
-        ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
-
-        Returns
-        -------
-        Updated conserv_q.
-        """
-        conserv_q[slc] = conserv_q[anchor]
+    def outflow_west(conserv_q):
+        for i in range(ngh):
+            conserv_q[ngh:-ngh, i] = conserv_q[ngh:-ngh, ngh].copy()
         return conserv_q
 
-    outflow_extrap.anchor = anchor
-    outflow_extrap.slc = slc
+    def outflow_east(conserv_q):
+        for i in range(1, ngh+1):
+            conserv_q[ngh:-ngh, -i] = conserv_q[ngh:-ngh, -ngh-1].copy()
+        return conserv_q
 
-    return outflow_extrap
+    def outflow_south(conserv_q):
+        for i in range(ngh):
+            conserv_q[i, ngh:-ngh] = conserv_q[ngh, ngh:-ngh].copy()
+        return conserv_q
+
+    def outflow_north(conserv_q):
+        for i in range(1, ngh+1):
+            conserv_q[-i, ngh:-ngh] = conserv_q[-ngh-1, ngh:-ngh].copy()
+        return conserv_q
+
+    candidates = {
+        "west": outflow_west, "east": outflow_east,
+        "south": outflow_south, "north": outflow_north, }
+
+    return candidates[orientation]
 
 
 def linear_extrap_factory(n, n_ghost, orientation, dtype):
