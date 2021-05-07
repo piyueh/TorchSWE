@@ -45,6 +45,12 @@ def _pydantic_val_arrays(val, values):
     return val
 
 
+def _pydantic_val_nan_inf(val):
+    assert not nplike.any(nplike.isnan(val)), "Got NaN."
+    assert not nplike.any(nplike.isinf(val)), "Got inf."
+    return val
+
+
 def _shape_val_factory(shift: Union[Tuple[int, int], Literal["ghost"], int]):
     def _core_func(val, values):
         try:
@@ -192,7 +198,10 @@ class Gridlines(BaseConfig):
             t = []
         elif temporal.output[0] == "every":  # output every dt
             dt = temporal.output[1]  # alias # pylint: disable=invalid-name
-            t = nplike.arange(temporal.start, temporal.end+dt/2., dt).tolist()
+            if (temporal.start + dt) >= temporal.end:  # TODO: mitigator nv-legate/legate.numpy#23
+                t = [temporal.start, temporal.end]
+            else:
+                t = nplike.arange(temporal.start, temporal.end+dt/2., dt).tolist()
         elif temporal.output[0] == "at":  # output at the given times
             t = temporal.output[1]
             if temporal.start not in t:
@@ -300,6 +309,7 @@ class WHUHVModel(BaseConfig, DummyDataModel):
 
     # validators
     _val_arrays = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_arrays)
+    _val_valid_numbers = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_nan_inf)
 
     def __init__(self, nx, ny, dtype, w=None, hu=None, hv=None):
 
@@ -323,6 +333,7 @@ class HUVModel(BaseConfig, DummyDataModel):
 
     # validators
     _val_arrays = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_arrays)
+    _val_valid_numbers = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_nan_inf)
 
     def __init__(self, nx, ny, dtype):
         super().__init__(  # trigger pydantic validation
