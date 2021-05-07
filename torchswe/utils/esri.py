@@ -9,6 +9,7 @@
 """Functions related Esri ASCII format.
 """
 import os
+import numpy as truenumpy  # TODO: remove once nv-legate/legate.numpy#17 gets resolved
 from torchswe import nplike
 
 def read_esri_ascii(filepath):
@@ -78,10 +79,10 @@ def read_esri_ascii(filepath):
 
     del H["xllcenter"], H["yllcenter"], H["xllcorner"], H["yllcorner"]
 
-    x = nplike.linspace(
-        H["xll"], H["xll"]+H["cellsize"]*(H["ncols"]-1), H["ncols"], dtype=nplike.float64)
-    y = nplike.linspace(
-        H["yll"], H["yll"]+H["cellsize"]*(H["nrows"]-1), H["nrows"], dtype=nplike.float64)
+    x = nplike.array(truenumpy.linspace(  # TODO: remove truenumpy after nv-legate/legate.numpy#17
+        H["xll"], H["xll"]+H["cellsize"]*(H["ncols"]-1), H["ncols"], dtype=truenumpy.float64))
+    y = nplike.array(truenumpy.linspace(  # TODO: remove truenumpy after nv-legate/legate.numpy#17
+        H["yll"], H["yll"]+H["cellsize"]*(H["nrows"]-1), H["nrows"], dtype=truenumpy.float64))
 
     data = nplike.zeros((H["nrows"], H["ncols"]), dtype=nplike.float64)
 

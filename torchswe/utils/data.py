@@ -9,8 +9,11 @@
 """Data models.
 """
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
+import warnings  # TODO: should be removed once legate works as expected
 from typing import Literal, Tuple, List, Union
 
+import numpy as truenumpy  # TODO: should be removed once legate works as expected
+from pydantic import root_validator  # TODO: should be removed once legate works as expected
 from pydantic import validator, conint, confloat
 from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
@@ -114,6 +117,45 @@ class Gridline(BaseConfig):
             direction=direction, n=n, start=start, end=end, delta=delta, dtype=dtype,
             vert=vert, cntr=cntr, xface=xface, yface=yface)
 
+    @root_validator(pre=True)
+    def _legate_mitigator(cls, values):
+        """A mitigator to the issue nv-legate/legate.numpy#17"""
+        # TODO: This is a validator that should be removed once the issue is resolved.
+
+        # these values have nothing to do with Legate, should be safe
+        start, end, dtype, n = values["start"], values["end"], values["dtype"], values["n"]
+
+        truevals = {}
+        truevals["vert"], truedelta = truenumpy.linspace(start, end, n+1, dtype=dtype, retstep=True)
+        truevals["cntr"] = truenumpy.linspace(start+truedelta/2., end-truedelta/2., n, dtype=dtype)
+
+        if values["direction"] == "x":
+            truevals["xface"] = truevals["vert"].copy()
+            truevals["yface"] = truevals["cntr"].copy()
+        else:  # if this is not "y", pydantic will let me know
+            truevals["xface"] = truevals["cntr"].copy()
+            truevals["yface"] = truevals["vert"].copy()
+
+        if abs(values["delta"]-truedelta) > 1e-12:
+            warnings.warn(
+                "Delta should be {}; Legate returns {}".format(truedelta, values["delta"]),
+                category=UserWarning,
+                stacklevel=3)
+
+            # using true data from true NumPy
+            values["delta"] = float(truedelta)
+
+        for key, val in truevals.items():
+            if not truenumpy.allclose(val, values[key]):
+                warnings.warn(
+                    "Legate NumPy created wrong {}. ".format(key) +
+                        "Replacing it with true values from vanilla NumPy.",
+                    category=UserWarning,
+                    stacklevel=3)
+                values[key] = nplike.array(val)
+
+        return values
+
     @validator("xface")
     def _val_xface(cls, v, values):
         if values["direction"] == "x":
@@ -214,7 +256,7 @@ class Topography(BaseConfig):
         # unfortunately, we need to do interpolation in such a situation
         if interp:
             interpolator = RectBivariateSpline(dem["x"], dem["y"], vert.T)
-            vert = interpolator(grid.x.vert, grid.y.vert).T
+            vert = nplike.array(interpolator(grid.x.vert, grid.y.vert).T)  # scipy uses vanilla numpy
 
         # cast to desired float type
         vert = vert.astype(dtype)
