@@ -92,7 +92,10 @@ def RK2(  # pylint: disable=invalid-name, too-many-locals
     states = runtime.ghost_updater.update_all(states)
 
     # to hold previous solution
-    prev_q = copy.deepcopy(states.q)
+    # prev_q = copy.deepcopy(states.q)  # TODO: check nv-legate/legate.numpy#19
+    prev_q = WHUHVModel(
+        states.q.nx, states.q.ny, states.q.dtype,
+        states.q.w.copy(), states.q.hu.copy(), states.q.hv.copy())
 
     # initial time
     runtime.dt = min(t_end-runtime.cur_t, runtime.dt)  # make sure 1st step won't exceed end t
@@ -176,7 +179,10 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
     states = runtime.ghost_updater.update_all(states)
 
     # to hold previous solution
-    prev_q = copy.deepcopy(states.q)
+    # prev_q = copy.deepcopy(states.q)  # TODO: check nv-legate/legate.numpy#19
+    prev_q = WHUHVModel(
+        states.q.nx, states.q.ny, states.q.dtype,
+        states.q.w.copy(), states.q.hu.copy(), states.q.hv.copy())
 
     # to hold slopes from intermediate RK4 stages
     k1 = WHUHVModel(states.rhs.nx, states.rhs.ny, states.rhs.dtype)
