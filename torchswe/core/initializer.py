@@ -20,14 +20,15 @@ from torchswe.utils.config import Config
 from torchswe.utils.data import Gridlines, Topography, WHUHVModel
 
 
-def init(argv: Optional[List[str]] = None) -> Tuple[Config, Gridlines, Topography, WHUHVModel]:
+def init(args: Optional[argparse.Namespace] = None) -> \
+        Tuple[Config, Gridlines, Topography, WHUHVModel]:
     """Initialize a simulation and read configuration.
 
     Attributes
     ----------
-    argv : None or list or str
-        By default, None means getting arguments from command-line. Only explicitly use this
-        argument for debug.
+    args : None or argparse.Namespace
+        By default, None means getting arguments from command-line. If not None, it should be the
+        return from ArgumentParser.parse().
 
     Returns:
     --------
@@ -43,7 +44,8 @@ def init(argv: Optional[List[str]] = None) -> Tuple[Config, Gridlines, Topograph
     """
 
     # get cmd arguments
-    args = get_cmd_arguments(argv)
+    if args is None:
+        args = get_cmd_arguments()
     args.case_folder = args.case_folder.expanduser().resolve()
     args.yaml = args.case_folder.joinpath("config.yaml")
 
@@ -135,6 +137,17 @@ def get_cmd_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     parser.add_argument(
         "--log-steps", action="store", type=int, default=None, metavar="STEPS",
         help="How many steps to output a log message to stdout. Default is to respect config.yaml."
+    )
+
+    parser.add_argument(
+        "--log-level", action="store", type=str, default="normal", metavar="LEVEL",
+        choices=["debug", "normal", "quiet"],
+        help="Enabling logging debug messages."
+    )
+
+    parser.add_argument(
+        "--log-file", action="store", type=pathlib.Path, default=None, metavar="FILE",
+        help="Saving log messages to a file instead of stdout."
     )
 
     args = parser.parse_args(argv)

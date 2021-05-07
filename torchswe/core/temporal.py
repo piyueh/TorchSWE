@@ -9,11 +9,12 @@
 """Time-marching.
 """
 import copy
-import warnings
-from torchswe.core.misc import CFLWarning
+import logging
 from torchswe.utils.data import States, Gridlines, Topography, WHUHVModel
 from torchswe.utils.config import Config
 from torchswe.utils.dummydict import DummyDict
+
+logger = logging.getLogger("torchswe.core.temporal")
 
 
 def euler(
@@ -29,7 +30,7 @@ def euler(
     soil_vol = topo.cntr.sum() * cell_area
 
     # information string formatter
-    info_str = "Step {}: step size = {} sec, time = {} sec, total volume = {}"
+    info_str = "Step %s: step size = %s sec, time = %s sec, total volume = %s"
 
     # an initial updating, just in case
     states = runtime.ghost_updater.update_all(states)
@@ -59,7 +60,7 @@ def euler(
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
-            print(info_str.format(runtime.counter, runtime.dt, runtime.cur_t, fluid_vol))
+            logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
         if abs(runtime.cur_t-t_end) < runtime.tol:
@@ -84,7 +85,7 @@ def RK2(  # pylint: disable=invalid-name, too-many-locals
     max_dt = [None, None]
 
     # information string formatter
-    info_str = "Step {}: step size = {} sec, time = {} sec, total volume = {}"
+    info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
     cfl_str1 = "Current dt (= {} sec)s is not safe, "
     cfl_str2 = "lower down to {} sec"
 
@@ -111,12 +112,13 @@ def RK2(  # pylint: disable=invalid-name, too-many-locals
             msg = cfl_str1.format(runtime.dt)
             runtime.dt = max_dt[0] * 0.9
             msg += cfl_str2.format(runtime.dt)
-            warnings.warn(msg, CFLWarning)
+            logger.warning(msg)
 
         # update for the first step
         states.q.w[internal, internal] += (runtime.dt * states.rhs.w / 2.)
         states.q.hu[internal, internal] += (runtime.dt * states.rhs.hu / 2.)
         states.q.hv[internal, internal] += (runtime.dt * states.rhs.hv / 2.)
+
         states = runtime.ghost_updater.update_all(states)
 
         # the final step; k2 is an alias to mid
@@ -129,6 +131,7 @@ def RK2(  # pylint: disable=invalid-name, too-many-locals
         states.q.w[internal, internal] += (runtime.dt * states.rhs.w)
         states.q.hu[internal, internal] += (runtime.dt * states.rhs.hu)
         states.q.hv[internal, internal] += (runtime.dt * states.rhs.hv)
+
         states = runtime.ghost_updater.update_all(states)
 
         # update iteration index and time
@@ -138,7 +141,7 @@ def RK2(  # pylint: disable=invalid-name, too-many-locals
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
-            print(info_str.format(runtime.counter, runtime.dt, runtime.cur_t, fluid_vol))
+            logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
         if abs(runtime.cur_t-t_end) < runtime.tol:
@@ -204,7 +207,7 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
             msg = cfl_str1.format(runtime.dt)
             runtime.dt = max_dt[0] * 0.9
             msg += cfl_str2.format(runtime.dt)
-            warnings.warn(msg, CFLWarning)
+            logger.warning(msg)
 
         # swap underlying objects
         k1, states.rhs = states.rhs, k1
@@ -224,7 +227,7 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
             msg = cfl_str1.format(runtime.dt)
             runtime.dt = max_dt[1] * 0.9
             msg += cfl_str3.format(runtime.dt, runtime.counter)
-            warnings.warn(msg, CFLWarning)
+            logger.warning(msg)
             continue  # restart the iteration to get correct soln from previos steps
 
         # swap underlying objects
@@ -245,7 +248,7 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
             msg = cfl_str1.format(runtime.dt)
             runtime.dt = max_dt[2] * 0.9
             msg += cfl_str3.format(runtime.dt, runtime.counter)
-            warnings.warn(msg, CFLWarning)
+            logger.warning(msg)
             continue  # restart the iteration to get correct U from previos steps
 
         # swap underlying objects
