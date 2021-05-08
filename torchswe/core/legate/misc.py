@@ -23,13 +23,13 @@ def remove_rounding_errors(whuhv: WHUHVModel, tol: float):
         Rounding error.
     """
 
-    zero_loc = (whuhv.w > -tol) * (whuhv.w < tol)
-    whuhv.w = nplike.where(zero_loc, 0, whuhv.w)
+    zero_loc = (whuhv.w > -tol).astype(int) * (whuhv.w < tol).astype(int)
+    whuhv.w = nplike.where(zero_loc.astype(bool), 0, whuhv.w)
 
-    zero_loc = (whuhv.hu > -tol) * (whuhv.hu < tol)
-    whuhv.hu = nplike.where(zero_loc, 0, whuhv.hu)
+    zero_loc = (whuhv.hu > -tol).astype(int) * (whuhv.hu < tol).astype(int)
+    whuhv.hu = nplike.where(zero_loc.astype(bool), 0, whuhv.hu)
 
-    zero_loc = (whuhv.hv > -tol) * (whuhv.hv < tol)
-    whuhv.hv = nplike.where(zero_loc, 0, whuhv.hv)
+    zero_loc = (whuhv.hv > -tol).astype(int) * (whuhv.hv < tol).astype(int)
+    whuhv.hv = nplike.where(zero_loc.astype(bool), 0, whuhv.hv)
 
     return whuhv

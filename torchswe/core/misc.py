@@ -156,3 +156,32 @@ def remove_rounding_errors(whuhv: WHUHVModel, tol: float):
     whuhv.hv[zero_ji] = 0.
 
     return whuhv
+
+
+def states_assertions(states):
+    """A naive assertions for NaN."""
+
+    for item in ["q", "src", "rhs"]:
+        for k in  ["w", "hu", "hv"]:
+            msg = "NaN found in {}.{}".format(item, k)
+            assert not any(nplike.isnan(states[item][k])), msg
+
+    for axis in ["x", "y"]:
+        for k in  ["w", "hu", "hv"]:
+            msg = "NaN found in slp.{}.{}".format(axis, k)
+            assert not any(nplike.isnan(states.slp[axis][k])), msg
+
+            msg = "NaN found in face.{}.num_flux.{}".format(axis, k)
+            assert not any(nplike.isnan(states.face[axis].num_flux[k])), msg
+
+    for axis in ["x", "y"]:
+        for side in ["minus", "plus"]:
+            for k in ["w", "hu", "hv", "h", "u", "v", "a"]:
+                msg = "NaN found in face.{}.{}.{}".format(axis, side, k)
+                assert not any(nplike.isnan(states.face[axis][side][k])), msg
+
+    for axis in ["x", "y"]:
+        for side in ["minus", "plus"]:
+            for k in ["w", "hu", "hv"]:
+                msg = "NaN found in face.{}.{}.flux.{}".format(axis, side, k)
+                assert not any(nplike.isnan(states.face[axis][side].flux[k])), msg

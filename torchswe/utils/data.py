@@ -45,9 +45,9 @@ def _pydantic_val_arrays(val, values):
     return val
 
 
-def _pydantic_val_nan_inf(val):
-    assert not nplike.any(nplike.isnan(val)), "Got NaN."
-    assert not nplike.any(nplike.isinf(val)), "Got inf."
+def _pydantic_val_nan_inf(val, field):
+    assert not nplike.any(nplike.isnan(val)), "Got NaN in {}".format(field.name)
+    assert not nplike.any(nplike.isinf(val)), "Got Inf in {}".format(field.name)
     return val
 
 
@@ -265,7 +265,7 @@ class Topography(BaseConfig):
         # unfortunately, we need to do interpolation in such a situation
         if interp:
             interpolator = RectBivariateSpline(dem["x"], dem["y"], vert.T)
-            vert = nplike.array(interpolator(grid.x.vert, grid.y.vert).T)  # scipy uses vanilla numpy
+            vert = nplike.array(interpolator(grid.x.vert, grid.y.vert).T)  # it uses vanilla numpy
 
         # cast to desired float type
         vert = vert.astype(dtype)

@@ -34,12 +34,12 @@ def central_scheme(states: States, tol: float = 1e-12) -> States:
         coeff = states.face[axis].plus.a * states.face[axis].minus.a
 
         # legate does not have logical_and, so use element-wise multiplication
-        zero_loc = (denominator > -tol) * (denominator < tol)
+        zero_loc = (denominator > -tol).astype(int) * (denominator < tol).astype(int)
 
         for key in ["w", "hu", "hv"]:
             with nplike.errstate(divide="ignore", invalid="ignore"):
                 states.face[axis].num_flux[key] = nplike.where(
-                    zero_loc, 0., (
+                    zero_loc.astype(bool), 0., (
                         states.face[axis].plus.a * states.face[axis].minus.flux[key] -
                         states.face[axis].minus.a * states.face[axis].plus.flux[key] +
                         coeff * (states.face[axis].plus[key] - states.face[axis].minus[key])

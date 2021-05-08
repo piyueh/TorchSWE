@@ -78,10 +78,10 @@ def minmod_slope_x_one_comp(q: nplike.ndarray, dx: float, ngh: int, theta: float
     denominator = q[cells, ip1] - q[cells, i]  # q_{j, i+1} - q_{j, i} for all j
 
     # legate currently has no `logical_and`, so we use element-wise multiplication
-    zero_locs = (denominator > -tol) * (denominator < tol)
+    zero_locs = (denominator > -tol).astype(int) * (denominator < tol).astype(int)
 
     with nplike.errstate(divide="ignore", invalid="ignore"):
-        slpx = nplike.where(zero_locs, 0., (q[cells, i] - q[cells, im1]) / denominator)
+        slpx = nplike.where(zero_locs.astype(bool), 0., (q[cells, i] - q[cells, im1]) / denominator)
 
     slpx = nplike.maximum(
         nplike.minimum(
@@ -127,10 +127,10 @@ def minmod_slope_y_one_comp(q: nplike.ndarray, dy: float, ngh: int, theta: float
     denominator = q[jp1, cells] - q[j, cells]  # q_{j+1, i} - q_{j, i} for all i
 
     # legate currently has no `logical_and`, so we use element-wise multiplication
-    zero_locs = (denominator > -tol) * (denominator < tol)
+    zero_locs = (denominator > -tol).astype(int) * (denominator < tol).astype(int)
 
     with nplike.errstate(divide="ignore", invalid="ignore"):
-        slpy = nplike.where(zero_locs, 0., (q[j, cells]-q[jm1, cells])/denominator)
+        slpy = nplike.where(zero_locs.astype(bool), 0., (q[j, cells]-q[jm1, cells])/denominator)
 
     slpy = nplike.maximum(
         nplike.minimum(
