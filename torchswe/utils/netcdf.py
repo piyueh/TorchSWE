@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 import netCDF4
 import numpy  # real numpy because NetCDF library only works with real numpy ndarray
-from torchswe.utils.dummydict import DummyDict  # pylint: disable=import-error
+from torchswe.utils.dummy import DummyDict
 
 
 def read_cf(fpath, data_keys, **kwargs):
@@ -249,7 +249,14 @@ def append_time_data(fpath, time, data, options=None, **kwargs):
 
         # add data
         for key, array in data.items():
-            dset[key][tidx, :, :] = numpy.array(array)
+
+            try:
+                dset[key][tidx, :, :] = numpy.array(array)
+            except TypeError as err:
+                if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
+                    dset[key][tidx, :, :] = array.get()
+                else:
+                    raise
 
 
 def add_time_axis(dset, values=None, timestamp=None, options=None):
@@ -321,7 +328,15 @@ def add_spatial_axis(dset, coords, options=None):
     for key in ("x", "y"):
         _ = dset.createDimension(key, len(coords[key]))
         axes[key] = dset.createVariable(key, "f8", (key,))
-        axes[key][:] = numpy.array(coords[key])
+
+        try:
+            axes[key][:] = numpy.array(coords[key])
+        except TypeError as err:
+            if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
+                axes[key][:] = coords[key].get()
+            else:
+                raise
+
         axes[key].units = "m"
         axes[key].long_name = "{}-coordinate in EPSG:3857 WGS 84".format(key)
         axes[key].standard_name = "projection_{}_coordinate".format(key)

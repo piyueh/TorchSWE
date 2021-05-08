@@ -12,7 +12,7 @@
 import time
 import logging
 from torchswe import nplike
-from torchswe.utils.dummydict import DummyDict
+from torchswe.utils.dummy import DummyDict
 from torchswe.utils.data import States
 from torchswe.utils.netcdf import write_cf, append_time_data
 from torchswe.core.initializer import init, get_cmd_arguments

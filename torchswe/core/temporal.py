@@ -12,7 +12,7 @@ import copy
 import logging
 from torchswe.utils.data import States, Gridlines, Topography, WHUHVModel
 from torchswe.utils.config import Config
-from torchswe.utils.dummydict import DummyDict
+from torchswe.utils.dummy import DummyDict
 
 logger = logging.getLogger("torchswe.core.temporal")
 
