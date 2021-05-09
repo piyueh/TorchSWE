@@ -79,8 +79,8 @@ def minmod_slope_x_one_comp(q: nplike.ndarray, dx: float, ngh: int, theta: float
     slpx = nplike.maximum(
         nplike.minimum(
             nplike.minimum(theta*slpx, (1.+slpx)/2.),
-            theta),
-        0.
+            nplike.array(theta)),
+        nplike.array(0.)
     )
 
     slpx *= denominator
@@ -128,8 +128,8 @@ def minmod_slope_y_one_comp(q: nplike.ndarray, dy: float, ngh: int, theta: float
     slpy = nplike.maximum(
         nplike.minimum(
             nplike.minimum(theta*slpy, (1.+slpy)/2.),
-            theta),
-        0.
+            nplike.array(theta)),
+        nplike.array(0.)
     )
 
     slpy *= denominator

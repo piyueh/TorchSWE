@@ -38,7 +38,7 @@ def decompose_variables(states: States, topo: Topography, epsilon: float) -> Sta
     def get_uv(h, hu, hv):
         # pylint: disable=invalid-name
         h4 = nplike.power(h, 4)
-        coeff = h * sqrt2 / nplike.sqrt(h4+nplike.maximum(h4, epsilon))
+        coeff = h * sqrt2 / nplike.sqrt(h4+nplike.maximum(h4, nplike.array(epsilon)))
         return coeff * hu, coeff * hv
 
     # all dpeths
@@ -85,21 +85,24 @@ def get_local_speed(states: States, gravity: float) -> States:
     sqrt_gh_plus = nplike.sqrt(gravity*states.face.x.plus.h)
     sqrt_gh_minus = nplike.sqrt(gravity*states.face.x.minus.h)
 
+    # for convenience
+    zero = nplike.array(0.)
+
     states.face.x.plus.a = nplike.maximum(nplike.maximum(
-        states.face.x.plus.u+sqrt_gh_plus, states.face.x.minus.u+sqrt_gh_minus), 0.)
+        states.face.x.plus.u+sqrt_gh_plus, states.face.x.minus.u+sqrt_gh_minus), zero)
 
     states.face.x.minus.a = nplike.minimum(nplike.minimum(
-        states.face.x.plus.u-sqrt_gh_plus, states.face.x.minus.u-sqrt_gh_minus), 0.)
+        states.face.x.plus.u-sqrt_gh_plus, states.face.x.minus.u-sqrt_gh_minus), zero)
 
     # faces normal to y-direction
     sqrt_gh_plus = nplike.sqrt(gravity*states.face.y.plus.h)
     sqrt_gh_minus = nplike.sqrt(gravity*states.face.y.minus.h)
 
     states.face.y.plus.a = nplike.maximum(nplike.maximum(
-        states.face.y.plus.v+sqrt_gh_plus, states.face.y.minus.v+sqrt_gh_minus), 0.)
+        states.face.y.plus.v+sqrt_gh_plus, states.face.y.minus.v+sqrt_gh_minus), zero)
 
     states.face.y.minus.a = nplike.minimum(nplike.minimum(
-        states.face.y.plus.v-sqrt_gh_plus, states.face.y.minus.v-sqrt_gh_minus), 0.)
+        states.face.y.plus.v-sqrt_gh_plus, states.face.y.minus.v-sqrt_gh_minus), zero)
 
     return states
 

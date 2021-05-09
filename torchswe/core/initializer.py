@@ -176,9 +176,9 @@ def create_ic(ic_config, gridlines, topo, dtype):
     if ic_config.values is not None:
         return WHUHVModel(
             gridlines.x.n, gridlines.y.n, dtype,
-            w=nplike.maximum(topo.cntr, ic_config.values[0]),
-            hu=nplike.full(topo.cntr.shape, ic_config.values[1], dtype),
-            hv=nplike.full(topo.cntr.shape, ic_config.values[2], dtype))
+            w=nplike.maximum(topo.cntr, nplike.array(ic_config.values[0])),
+            hu=nplike.full(topo.cntr.shape, ic_config.values[1], dtype=topo.dtype),
+            hv=nplike.full(topo.cntr.shape, ic_config.values[2], dtype=topo.dtype))
 
     # otherwise, read data from a NetCDF file
     icdata, _ = read_cf(ic_config.file, ic_config.keys)
@@ -186,8 +186,8 @@ def create_ic(ic_config, gridlines, topo, dtype):
     # see if we need to do interpolation
     try:
         interp = not (
-            nplike.allclose(gridlines.x.cntr, icdata["x"]) and
-            nplike.allclose(gridlines.y.cntr, icdata["y"]))
+            nplike.allclose(gridlines.x.cntr, nplike.array(icdata["x"])) and
+            nplike.allclose(gridlines.y.cntr, nplike.array(icdata["y"])))
     except ValueError:  # assume thie excpetion means a shape mismatch
         interp = True
 

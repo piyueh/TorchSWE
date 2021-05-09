@@ -10,6 +10,7 @@
 """
 import os
 import logging
+import functools
 from .utils.dummy import DummyErrState, dummy_function
 
 
@@ -21,6 +22,21 @@ elif "USE_CUPY" in os.environ and os.environ["USE_CUPY"] == "1":
     import cupyx
     nplike.errstate = DummyErrState
     nplike.set_printoptions = dummy_function
+elif "USE_TORCH" in os.environ and os.environ["USE_TORCH"] == "1":
+    import torch as _torch
+    import torch as nplike
+    nplike.errstate = DummyErrState
+    nplike.ndarray = _torch.Tensor
+    nplike.ndarray.astype = _torch.Tensor.to
+    nplike.array = _torch.tensor
+    nplike.nonzero = functools.partial(_torch.nonzero, as_tuple=True)
+    nplike.power = _torch.pow
+    nplike.ndarray.__str__ = lambda self: "{}".format(self.item())
+
+    if "TORCH_USE_CPU" in os.environ and os.environ["TORCH_USE_CPU"] == "1":
+        nplike.set_default_tensor_type('torch.FloatTensor')
+    else:
+        nplike.set_default_tensor_type('torch.cuda.FloatTensor')
 else:
     import numpy as nplike
 

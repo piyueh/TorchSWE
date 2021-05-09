@@ -8,8 +8,20 @@
 
 """A collection of some dummy stuff.
 """
+import os
 import logging
 import collections
+
+# instead of importing from torchswe, we do it here again to avoid circular importing
+if "LEGATE_MAX_DIM" in os.environ and "LEGATE_MAX_FIELDS" in os.environ:
+    from legate.numpy import float32, float64
+elif "USE_CUPY" in os.environ and os.environ["USE_CUPY"] == "1":
+    from cupy import float32, float64
+elif "USE_TORCH" in os.environ and os.environ["USE_TORCH"] == "1":
+    from torch import float32, float64
+else:
+    from numpy import float32, float64
+
 logger = logging.getLogger("torchswe.utils.dummy")
 
 
@@ -57,3 +69,30 @@ class DummyErrState:  # pylint: disable=too-few-public-methods
     __exit__ = dummy_function
     def __init__(self, *args, **kwargs):
         pass
+
+
+class DummyDtype:  # pylint: disable=too-few-public-methods
+    """A dummy dtype to make all NumPy, Legate, CuPy and PyTorch happy.
+
+    PyTorch is the least numpy-compatible. This class is actually prepared for PyTorch!
+    """
+    @classmethod
+    def __get_validators__(cls):
+        """Iteratorate throuh available validators for pydantic's data model"""
+        yield cls.validator
+
+    @classmethod
+    def validator(cls, v):  # pylint: disable=invalid-name
+        """validator."""
+
+        msg = "Either nplike.float32/nplike.float64 or their str representations."
+
+        if isinstance(v, str):
+            try:
+                return {"float32": float32, "float64": float64}[v]
+            except KeyError as err:
+                raise ValueError(msg) from err
+        elif v not in (float32, float64):
+            raise ValueError(msg)
+
+        return v

@@ -7,6 +7,7 @@
 # Distributed under terms of the BSD 3-Clause license.
 """Functions related to updating ghost cells, i.e., boundary conditions.
 """
+import copy
 from typing import Literal, Callable
 
 from pydantic import conint
@@ -80,19 +81,19 @@ def periodic_factory(ngh: int, orientation: str):
     # TODO: here we use `.copy()` to make legate happy, see nv-legate/legate.numpy#16
 
     def periodic_west(conserv_q):
-        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, -ngh-ngh:-ngh].copy()
+        conserv_q[ngh:-ngh, :ngh] = copy.deepcopy(conserv_q[ngh:-ngh, -ngh-ngh:-ngh])
         return conserv_q
 
     def periodic_east(conserv_q):
-        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, ngh:ngh+ngh].copy()
+        conserv_q[ngh:-ngh, -ngh:] = copy.deepcopy(conserv_q[ngh:-ngh, ngh:ngh+ngh])
         return conserv_q
 
     def periodic_south(conserv_q):
-        conserv_q[:ngh, ngh:-ngh] = conserv_q[-ngh-ngh:-ngh, ngh:-ngh].copy()
+        conserv_q[:ngh, ngh:-ngh] = copy.deepcopy(conserv_q[-ngh-ngh:-ngh, ngh:-ngh])
         return conserv_q
 
     def periodic_north(conserv_q):
-        conserv_q[-ngh:, ngh:-ngh] = conserv_q[ngh:ngh+ngh, ngh:-ngh].copy()
+        conserv_q[-ngh:, ngh:-ngh] = copy.deepcopy(conserv_q[ngh:ngh+ngh, ngh:-ngh])
         return conserv_q
 
     candidates = {
@@ -122,22 +123,22 @@ def outflow_factory(ngh: int, orientation: str):
 
     def outflow_west(conserv_q):
         for i in range(ngh):
-            conserv_q[ngh:-ngh, i] = conserv_q[ngh:-ngh, ngh].copy()
+            conserv_q[ngh:-ngh, i] = copy.deepcopy(conserv_q[ngh:-ngh, ngh])
         return conserv_q
 
     def outflow_east(conserv_q):
         for i in range(1, ngh+1):
-            conserv_q[ngh:-ngh, -i] = conserv_q[ngh:-ngh, -ngh-1].copy()
+            conserv_q[ngh:-ngh, -i] = copy.deepcopy(conserv_q[ngh:-ngh, -ngh-1])
         return conserv_q
 
     def outflow_south(conserv_q):
         for i in range(ngh):
-            conserv_q[i, ngh:-ngh] = conserv_q[ngh, ngh:-ngh].copy()
+            conserv_q[i, ngh:-ngh] = copy.deepcopy(conserv_q[ngh, ngh:-ngh])
         return conserv_q
 
     def outflow_north(conserv_q):
         for i in range(1, ngh+1):
-            conserv_q[-i, ngh:-ngh] = conserv_q[-ngh-1, ngh:-ngh].copy()
+            conserv_q[-i, ngh:-ngh] = copy.deepcopy(conserv_q[-ngh-1, ngh:-ngh])
         return conserv_q
 
     candidates = {

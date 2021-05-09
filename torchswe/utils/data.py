@@ -10,6 +10,7 @@
 """
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 import warnings  # TODO: should be removed once legate works as expected
+import copy
 from typing import Literal, Tuple, List, Union
 
 import numpy as truenumpy  # TODO: should be removed once legate works as expected
@@ -19,6 +20,7 @@ from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.config import BaseConfig, TemporalConfig, SpatialConfig, TopoConfig
 from torchswe.utils.netcdf import read_cf
+from torchswe.utils.dummy import DummyDtype
 
 
 def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:
@@ -79,7 +81,7 @@ class Gridline(BaseConfig):
     start: lower bound
     end: higher bound
     delta: float; cell size in the corresponding direction.
-    dtype: either "float32" or "float64"
+    dtype: "float32", "float64", nplike.float32, nplike64.
     vert: 1D array of length n+1; coordinates at vertices.
     cntr: 1D array of length n; coordinates at cell centers.
     xface: 1D array of langth n+1 or n; coordinates at the cell faces normal to x-axis.
@@ -94,7 +96,7 @@ class Gridline(BaseConfig):
     start: float
     end: float
     delta: confloat(gt=0.)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     vert: nplike.ndarray
     cntr: nplike.ndarray
     xface: nplike.ndarray
@@ -107,16 +109,17 @@ class Gridline(BaseConfig):
 
     def __init__(self, direction, n, start, end, dtype):
 
+        dtype = DummyDtype.validator(dtype)
         delta = (end - start) / n
         vert = nplike.linspace(start, end, n+1, dtype=dtype)
         cntr = nplike.linspace(start+delta/2., end-delta/2., n, dtype=dtype)
 
         if direction == "x":
-            xface = vert.copy()
-            yface = cntr.copy()
+            xface = copy.deepcopy(vert)
+            yface = copy.deepcopy(cntr)
         else:  # if this is not "y", pydantic will let me know
-            xface = cntr.copy()
-            yface = vert.copy()
+            xface = copy.deepcopy(cntr)
+            yface = copy.deepcopy(vert)
 
         # pydantic will validate the data here
         super().__init__(
@@ -128,6 +131,9 @@ class Gridline(BaseConfig):
         """A mitigator to the issue nv-legate/legate.numpy#17"""
         # TODO: This is a validator that should be removed once the issue is resolved.
 
+        if nplike.__name__ != "legate.numpy":
+            return values
+
         # these values have nothing to do with Legate, should be safe
         start, end, dtype, n = values["start"], values["end"], values["dtype"], values["n"]
 
@@ -136,11 +142,11 @@ class Gridline(BaseConfig):
         truevals["cntr"] = truenumpy.linspace(start+truedelta/2., end-truedelta/2., n, dtype=dtype)
 
         if values["direction"] == "x":
-            truevals["xface"] = truevals["vert"].copy()
-            truevals["yface"] = truevals["cntr"].copy()
+            truevals["xface"] = copy.deepcopy(truevals["vert"])
+            truevals["yface"] = copy.deepcopy(truevals["cntr"])
         else:  # if this is not "y", pydantic will let me know
-            truevals["xface"] = truevals["cntr"].copy()
-            truevals["yface"] = truevals["vert"].copy()
+            truevals["xface"] = copy.deepcopy(truevals["cntr"])
+            truevals["yface"] = copy.deepcopy(truevals["vert"])
 
         if abs(values["delta"]-truedelta) > 1e-12:
             warnings.warn(
@@ -231,7 +237,7 @@ class Topography(BaseConfig):
     """
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     vert: nplike.ndarray
     cntr: nplike.ndarray
     xface: nplike.ndarray
@@ -249,16 +255,17 @@ class Topography(BaseConfig):
     _val_ny_nx = validator("cntr", "xgrad", "ygrad", allow_reuse=True)(_shape_val_factory([0, 0]))
 
     def __init__(self, topoconfig: TopoConfig, grid: Gridlines, dtype: str):
+        dtype = DummyDtype.validator(dtype)
         dem, _ = read_cf(topoconfig.file, [topoconfig.key])
 
         # copy to a nplike.ndarray
-        vert = nplike.array(dem[topoconfig.key][:].copy())
+        vert = nplike.array(dem[topoconfig.key][:])
 
         # see if we need to do interpolation
         try:
             interp = not (
-                nplike.allclose(grid.x.vert, dem["x"]) and
-                nplike.allclose(grid.y.vert, dem["y"]))
+                nplike.allclose(grid.x.vert, nplike.array(dem["x"])) and
+                nplike.allclose(grid.y.vert, nplike.array(dem["y"])))
         except ValueError:  # assume thie excpetion means a shape mismatch
             interp = True
 
@@ -302,7 +309,7 @@ class WHUHVModel(BaseConfig, DummyDataModel):
     """Data model with keys w, hu, and v."""
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     w: nplike.ndarray
     hu: nplike.ndarray
     hv: nplike.ndarray
@@ -313,6 +320,7 @@ class WHUHVModel(BaseConfig, DummyDataModel):
 
     def __init__(self, nx, ny, dtype, w=None, hu=None, hv=None):
 
+        dtype = DummyDtype.validator(dtype)
         kwargs = {"w": w, "hu": hu, "hv": hv}
         for key, val in kwargs.items():
             if val is None:
@@ -326,7 +334,7 @@ class HUVModel(BaseConfig, DummyDataModel):
     """Data model with keys h, u, and v."""
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     h: nplike.ndarray
     u: nplike.ndarray
     v: nplike.ndarray
@@ -336,6 +344,7 @@ class HUVModel(BaseConfig, DummyDataModel):
     _val_valid_numbers = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_nan_inf)
 
     def __init__(self, nx, ny, dtype):
+        dtype = DummyDtype.validator(dtype)
         super().__init__(  # trigger pydantic validation
             nx=nx, ny=ny, dtype=dtype, h=nplike.zeros((ny, nx), dtype=dtype),
             u=nplike.zeros((ny, nx), dtype=dtype), v=nplike.zeros((ny, nx), dtype=dtype))
@@ -345,7 +354,7 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
     """Data model holding quantities on one side of cell faces normal to one direction."""
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     w: nplike.ndarray
     hu: nplike.ndarray
     hv: nplike.ndarray
@@ -360,6 +369,7 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
         "w", "hu", "hv", "h", "u", "v", "a", "flux", allow_reuse=True)(_pydantic_val_arrays)
 
     def __init__(self, nx, ny, dtype):
+        dtype = DummyDtype.validator(dtype)
         super().__init__(  # trigger pydantic validation
             nx=nx, ny=ny, dtype=dtype, w=nplike.zeros((ny, nx), dtype=dtype),
             hu=nplike.zeros((ny, nx), dtype=dtype), hv=nplike.zeros((ny, nx), dtype=dtype),
@@ -373,7 +383,7 @@ class FaceTwoSideModel(BaseConfig, DummyDataModel):
     """Date model holding quantities on both sides of cell faces normal to one direction."""
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     plus: FaceOneSideModel
     minus: FaceOneSideModel
     num_flux: WHUHVModel
@@ -392,7 +402,7 @@ class FaceQuantityModel(BaseConfig):
     """Data model holding quantities on both sides of cell faces in both x and y directions."""
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     x: FaceTwoSideModel
     y: FaceTwoSideModel
 
@@ -422,7 +432,7 @@ class Slopes(BaseConfig):
     """Data model for slopes at cell centers."""
     nx: conint(gt=0)
     ny: conint(gt=0)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
     x: WHUHVModel
     y: WHUHVModel
 
@@ -495,7 +505,7 @@ class States(BaseConfig, DummyDataModel):
     nx: conint(gt=0)
     ny: conint(gt=0)
     ngh: conint(ge=2)
-    dtype: Literal["float32", "float64"]
+    dtype: DummyDtype
 
     # quantities defined at cell centers
     q: WHUHVModel
