@@ -129,7 +129,7 @@ class Gridline(BaseConfig):
     @root_validator(pre=True)
     def _legate_mitigator(cls, values):
         """A mitigator to the issue nv-legate/legate.numpy#17"""
-        # TODO: This is a validator that should be removed once the issue is resolved.
+        # TODO: This is a validator that should be removed once nv-legate/legate.numpy#17 is fixed.
 
         if nplike.__name__ != "legate.numpy":
             return values
@@ -204,10 +204,9 @@ class Gridlines(BaseConfig):
             t = []
         elif temporal.output[0] == "every":  # output every dt
             dt = temporal.output[1]  # alias # pylint: disable=invalid-name
-            if (temporal.start + dt) >= temporal.end:  # TODO: mitigator nv-legate/legate.numpy#23
-                t = [temporal.start, temporal.end]
-            else:
-                t = nplike.arange(temporal.start, temporal.end+dt/2., dt).tolist()
+            t = nplike.arange(temporal.start, temporal.end+dt/2., dt).tolist()
+            if temporal.end not in t:
+                t.append(temporal.end)
         elif temporal.output[0] == "at":  # output at the given times
             t = temporal.output[1]
             if temporal.start not in t:
