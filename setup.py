@@ -34,8 +34,14 @@ meta = dict(
     ],
     license_files=["LICENSE"],
     packages=setuptools.find_packages(),
-    entry_points={"console_scripts": ["TorchSWE = torchswe.__main__:main"]}
+    entry_points={"console_scripts": ["TorchSWE.py = torchswe.__main__:main"]}
 )
+
+meta["extras_require"] = {
+    "cupy": ["cupy>=9.0"],
+    "pytorch": ["torch>=1.8.1"],
+    "legate": ["legate.numpy>=0.1"],
+}
 
 # version and short sescription (read from __init__.py)
 with open(rootdir.joinpath("torchswe", "__init__.py"), 'r') as fileobj:

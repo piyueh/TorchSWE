@@ -6,7 +6,7 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""A shallow-water equation solver implemented with PyTorch.
+"""A GPU shallow-water equation solver.
 """
 import os
 import logging
@@ -41,5 +41,5 @@ else:
     import numpy as nplike
 
 
-__version__ = "0.1.dev1"
+__version__ = "0.1.dev2"
 logger = logging.getLogger("torchswe")
