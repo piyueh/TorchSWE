@@ -254,7 +254,9 @@ def append_time_data(fpath, time, data, options=None, **kwargs):
                 dset[key][tidx, :, :] = numpy.array(array)
             except TypeError as err:
                 if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
-                    dset[key][tidx, :, :] = array.get()
+                    dset[key][tidx, :, :] = array.get()  # cupy
+                elif str(err).startswith("can't convert cuda:"):
+                    dset[key][tidx, :, :] = array.cpu().numpy()
                 else:
                     raise
 
@@ -281,6 +283,7 @@ def add_time_axis(dset, values=None, timestamp=None, options=None):
     dset : netCDF4.Dataset
         The same input dataset but with a new spatial axis.
     """
+    # TODO: `values` currently has to be a list or true numpy.ndarray, fix it for CuPy and PyTorch
 
     if timestamp is None:
         timestamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
@@ -333,7 +336,9 @@ def add_spatial_axis(dset, coords, options=None):
             axes[key][:] = numpy.array(coords[key])
         except TypeError as err:
             if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
-                axes[key][:] = coords[key].get()
+                axes[key][:] = coords[key].get()  # cupy
+            elif str(err).startswith("can't convert cuda:"):
+                dset[key][:] = coords[key].cpu().numpy()  # pytorch
             else:
                 raise
 
