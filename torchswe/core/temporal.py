@@ -30,7 +30,7 @@ def euler(
     soil_vol = topo.cntr.sum() * cell_area
 
     # information string formatter
-    info_str = "Step %s: step size = %s sec, time = %s sec, total volume = %s"
+    info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
     # an initial updating, just in case
     states = runtime.ghost_updater.update_all(states)
@@ -170,7 +170,7 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
     max_dt = [None, None, None, None]
 
     # information string formatter
-    info_str = "Step {}: step size = {} sec, time = {} sec, total volume = {}"
+    info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
     cfl_str1 = "Current dt (= {} sec)s is not safe, "
     cfl_str2 = "lower down to {} sec"
     cfl_str3 = "lower down to {} sec and restart the iteration {}"
@@ -274,7 +274,7 @@ def RK4(  # pylint: disable=invalid-name, too-many-locals, too-many-statements
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
-            print(info_str.format(runtime.counter, runtime.dt, runtime.cur_t, fluid_vol))
+            logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
         if abs(runtime.cur_t-t_end) < runtime.tol:
