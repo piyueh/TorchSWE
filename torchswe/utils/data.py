@@ -9,12 +9,9 @@
 """Data models.
 """
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
-import warnings  # TODO: should be removed once legate works as expected
 import copy
 from typing import Literal, Tuple, List, Union
 
-import numpy as truenumpy  # TODO: should be removed once legate works as expected
-from pydantic import root_validator  # TODO: should be removed once legate works as expected
 from pydantic import validator, conint, confloat
 from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
@@ -126,47 +123,13 @@ class Gridline(BaseConfig):
             direction=direction, n=n, start=start, end=end, delta=delta, dtype=dtype,
             vert=vert, cntr=cntr, xface=xface, yface=yface)
 
-    @root_validator(pre=True)
-    def _legate_mitigator(cls, values):
-        """A mitigator to the issue nv-legate/legate.numpy#17"""
-        # TODO: This is a validator that should be removed once nv-legate/legate.numpy#17 is fixed.
-
-        if nplike.__name__ != "legate.numpy":
-            return values
-
-        # these values have nothing to do with Legate, should be safe
-        start, end, dtype, n = values["start"], values["end"], values["dtype"], values["n"]
-
-        truevals = {}
-        truevals["vert"], truedelta = truenumpy.linspace(start, end, n+1, dtype=dtype, retstep=True)
-        truevals["cntr"] = truenumpy.linspace(start+truedelta/2., end-truedelta/2., n, dtype=dtype)
-
-        if values["direction"] == "x":
-            truevals["xface"] = copy.deepcopy(truevals["vert"])
-            truevals["yface"] = copy.deepcopy(truevals["cntr"])
-        else:  # if this is not "y", pydantic will let me know
-            truevals["xface"] = copy.deepcopy(truevals["cntr"])
-            truevals["yface"] = copy.deepcopy(truevals["vert"])
-
-        if abs(values["delta"]-truedelta) > 1e-12:
-            warnings.warn(
-                "Delta should be {}; Legate returns {}".format(truedelta, values["delta"]),
-                category=UserWarning,
-                stacklevel=3)
-
-            # using true data from true NumPy
-            values["delta"] = float(truedelta)
-
-        for key, val in truevals.items():
-            if not truenumpy.allclose(val, values[key]):
-                warnings.warn(
-                    "Legate NumPy created wrong {}. ".format(key) +
-                        "Replacing it with true values from vanilla NumPy.",
-                    category=UserWarning,
-                    stacklevel=3)
-                values[key] = nplike.array(val)
-
-        return values
+    @validator("vert", "cntr", "xface", "yface")
+    def _val_linspace(cls, v, values):
+        """Make sure the linspace is working correctly."""
+        diff = v[1:] - v[:-1]
+        assert nplike.all(diff > 0), "Not in monotonically increasing order."
+        assert nplike.allclose(diff, values["delta"], atol=1e-10), "Delta not matched."
+        return v
 
     @validator("xface")
     def _val_xface(cls, v, values):

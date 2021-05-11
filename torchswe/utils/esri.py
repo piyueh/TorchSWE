@@ -9,7 +9,6 @@
 """Functions related Esri ASCII format.
 """
 import os
-import numpy as truenumpy  # TODO: remove once nv-legate/legate.numpy#17 gets resolved
 from torchswe import nplike
 
 def read_esri_ascii(filepath):
@@ -37,12 +36,12 @@ def read_esri_ascii(filepath):
 
     filepath = os.path.abspath(filepath)
 
-    with open(filepath, "r") as f:
-        raw = f.read()
+    with open(filepath, "r") as fobj:
+        raw = fobj.read()
 
     raw = raw.splitlines()
 
-    H = {
+    header = {
         "ncols": None, "nrows": None, "xllcenter": None, "xllcorner": None,
         "yllcenter": None, "yllcorner": None, "cellsize": None, "nodata_value": None
     }
@@ -51,45 +50,50 @@ def read_esri_ascii(filepath):
     for line in raw[:6]:
         line = line.split()
         assert len(line)==2
-        if line[0].lower() not in H.keys():
+        if line[0].lower() not in header.keys():
             raise KeyError("{} is an illegal header key.".format(line[0]))
-        H[line[0].lower()] = line[1]
+        header[line[0].lower()] = line[1]
 
-    assert H["ncols"] is not None, "NCOLS or ncols does not exist in the header"
-    assert H["nrows"] is not None, "NROWS or nrows does not exist in the header"
-    assert H["cellsize"] is not None, "CELLSIZE or cellsize does not exist in the header"
+    assert header["ncols"] is not None, "NCOLS or ncols does not exist in the header"
+    assert header["nrows"] is not None, "NROWS or nrows does not exist in the header"
+    assert header["cellsize"] is not None, "CELLSIZE or cellsize does not exist in the header"
 
-    H["ncols"] = int(H["ncols"])
-    H["nrows"] = int(H["ncols"])
-    H["cellsize"] = float(H["cellsize"])
+    header["ncols"] = int(header["ncols"])
+    header["nrows"] = int(header["ncols"])
+    header["cellsize"] = float(header["cellsize"])
 
     try:
-        H["nodata_value"] = float(H["nodata_value"])
+        header["nodata_value"] = float(header["nodata_value"])
     except TypeError:
-        H["nodata_value"] = -9999.
+        header["nodata_value"] = -9999.
 
-    if (H["xllcenter"] is not None) and (H["yllcenter"] is not None):
-        H["xll"] = float(H["xllcenter"])
-        H["yll"] = float(H["yllcenter"])
-    elif (H["xllcorner"] is not None) and (H["xllcorner"] is not None):
-        H["xll"] = float(H["xllcorner"])
-        H["yll"] = float(H["yllcorner"])
+    if (header["xllcenter"] is not None) and (header["yllcenter"] is not None):
+        header["xll"] = float(header["xllcenter"])
+        header["yll"] = float(header["yllcenter"])
+    elif (header["xllcorner"] is not None) and (header["xllcorner"] is not None):
+        header["xll"] = float(header["xllcorner"])
+        header["yll"] = float(header["yllcorner"])
     else:
         raise KeyError("Missing xllcenter/xllcorner/yllcenter/yllcorner.")
 
-    del H["xllcenter"], H["yllcenter"], H["xllcorner"], H["yllcorner"]
+    del header["xllcenter"], header["yllcenter"], header["xllcorner"], header["yllcorner"]
 
-    x = nplike.array(truenumpy.linspace(  # TODO: remove truenumpy after nv-legate/legate.numpy#17
-        H["xll"], H["xll"]+H["cellsize"]*(H["ncols"]-1), H["ncols"], dtype=truenumpy.float64))
-    y = nplike.array(truenumpy.linspace(  # TODO: remove truenumpy after nv-legate/legate.numpy#17
-        H["yll"], H["yll"]+H["cellsize"]*(H["nrows"]-1), H["nrows"], dtype=truenumpy.float64))
+    x = nplike.linspace(
+        header["xll"], header["xll"]+header["cellsize"]*(header["ncols"]-1), header["ncols"],
+        dtype=nplike.float64)
+    y = nplike.linspace(
+        header["yll"], header["yll"]+header["cellsize"]*(header["nrows"]-1), header["nrows"],
+        dtype=nplike.float64)
 
-    data = nplike.zeros((H["nrows"], H["ncols"]), dtype=nplike.float64)
+    assert nplike.all((x[1:]-x[:-1]) > 0.)
+    assert nplike.all((y[1:]-y[:-1]) > 0.)
 
-    for i, line in zip(range(H["nrows"]-1, -1, -1), raw[6:]):
+    data = nplike.zeros((header["nrows"], header["ncols"]), dtype=nplike.float64)
+
+    for i, line in zip(range(header["nrows"]-1, -1, -1), raw[6:]):
         data[i, :] = nplike.fromstring(line, nplike.float64, -1, " ")
 
-    return {"x": x, "y": y, "data": data}, {"data": {"_fill_value": H["nodata_value"]}}
+    return {"x": x, "y": y, "data": data}, {"data": {"_fill_value": header["nodata_value"]}}
 
 def write_esri_ascii(filepath, x, y, data, loc):
     """Write data to a file with Esri ASCII format.
@@ -117,8 +121,8 @@ def write_esri_ascii(filepath, x, y, data, loc):
 
     filepath = os.path.abspath(filepath)
 
-    with open(filepath, "w") as f:
-        write_esri_ascii_stream(f, x, y, data, loc)
+    with open(filepath, "w") as fobj:
+        write_esri_ascii_stream(fobj, x, y, data, loc)
 
 def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
     """Write data to a stream with Esri ASCII format.
@@ -144,11 +148,6 @@ def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
         N/A.
     """
 
-    H = {
-        "ncols": None, "nrows": None, "xllcenter": None, "xllcorner": None,
-        "yllcenter": None, "yllcorner": None, "cellsize": None, "nodata_value": None
-    }
-
     loc = loc.upper()
     stream.write("{:15s} {}\n".format("NCOLS", x.shape[0]))
     stream.write("{:15s} {}\n".format("NROWS", y.shape[0]))
@@ -158,6 +157,6 @@ def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
     stream.write("{:15s} {}\n".format("NODATA_VALUE", nodata_value))
 
     for row in data[::-1, :]:
-        s = nplike.array2string(row, precision=16, separator=' ', threshold=x.shape[0]+1)
-        s = s.lstrip("[ \t").rstrip("] \t").replace("\n", "")
-        stream.write(s+"\n")
+        string = nplike.array2string(row, precision=16, separator=' ', threshold=x.shape[0]+1)
+        string = string.lstrip("[ \t").rstrip("] \t").replace("\n", "")
+        stream.write(string+"\n")
