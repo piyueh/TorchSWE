@@ -208,13 +208,16 @@ class Gridlines(BaseConfig):
             if temporal.end not in t:
                 t.append(temporal.end)
         elif temporal.output[0] == "at":  # output at the given times
-            t = temporal.output[1]
+            t = list(temporal.output[1])
             if temporal.start not in t:
                 t.append(temporal.start)
             if temporal.end not in t:
                 t.append(temporal.end)
             t.sort()
-        # pydantic should detect invalid type of output; no need for else
+        elif temporal.output[0] == "divided by":
+            t = nplike.linspace(temporal.start, temporal.end, temporal.output[1]+1).tolist()
+        else:
+            raise ValueError("{} is not an allowed output method.".format(temporal.output[0]))
 
         super().__init__(
             x=Gridline("x", spatial.discretization[0], spatial.domain[0], spatial.domain[1], dtype),

@@ -17,7 +17,14 @@ from pydantic import BaseModel, Field, validator, root_validator, conint, conflo
 
 # alias to type hints
 BCTypeHint = Literal["periodic", "extrap", "const", "inflow", "outflow"]
-OPTypeHint = Literal["at", "every"]
+
+OutputType = Union[
+    Union[
+        Tuple[Literal["at"], Tuple[confloat(ge=0), ...]],
+        Tuple[Literal["every"], confloat(ge=0)]
+    ],
+    Tuple[Literal["divided by"], conint(ge=1)]
+]
 
 
 class BaseConfig(BaseModel):
@@ -92,7 +99,7 @@ class TemporalConfig(BaseConfig):
 
     start: confloat(ge=0.)
     end: confloat(ge=0.)
-    output: Optional[Tuple[OPTypeHint, Union[confloat(ge=0), Tuple[confloat(ge=0), ...]]]] = None
+    output: Optional[OutputType] = None
     scheme: Literal["Euler", "RK2", "RK4"] = "RK2"
 
     @validator("end")
@@ -100,21 +107,6 @@ class TemporalConfig(BaseConfig):
         """Validate that end time > start time.
         """
         assert v > values["start"], "The end time should greater than the start time."
-        return v
-
-    @validator("output", always=True)
-    def output_method_pair_check(cls, v):
-        """Validate the content in output makes sense.
-        """
-        if v is None:
-            return v
-
-        if v[0] == "at":
-            assert isinstance(v[1], (tuple, list)), \
-                "When using \"at\", the second element should be a tuple/list."
-        elif v[0] == "every":
-            assert isinstance(v[1], float), \
-                "When using \"every\", the second element should be a float."
         return v
 
 
