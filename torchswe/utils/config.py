@@ -99,11 +99,11 @@ class TemporalConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    output: OutputTypeHint
-    scheme: TemporalTypeHint = "SSP-RK2"
     dt: confloat(gt=0.) = 1e-3
     adaptive: bool = True
+    output: OutputTypeHint
     max_iters: conint(gt=0) = 1000000
+    scheme: TemporalTypeHint = "SSP-RK2"
 
     @validator("output")
     def _val_output_method(cls, v, values):
