@@ -340,6 +340,8 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
     # validator
     _val_arrays = validator(
         "w", "hu", "hv", "h", "u", "v", "a", "flux", allow_reuse=True)(_pydantic_val_arrays)
+    _val_valid_numbers = validator(
+        "w", "hu", "hv", "h", "u", "v", "a", allow_reuse=True)(_pydantic_val_nan_inf)
 
     def __init__(self, nx, ny, dtype):
         dtype = DummyDtype.validator(dtype)

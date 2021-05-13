@@ -41,7 +41,7 @@ def correct_negative_depth(states: States, topo: Topography) -> States:
     x, y = states.face.x, states.face.y
 
     # fix the case when the left depth of an interface is negative
-    neg = (states.face.x.minus.w < topo.xface)
+    neg = (x.minus.w < topo.xface)
     x.minus.w = nplike.where(neg, topo.xface, x.minus.w)
     x.plus.w[:, :-1] = nplike.where(neg[:, 1:], 2*qwslc-topo.xface[:, 1:], x.plus.w[:, :-1])
 
@@ -49,6 +49,9 @@ def correct_negative_depth(states: States, topo: Topography) -> States:
     neg = (x.plus.w < topo.xface)
     x.plus.w = nplike.where(neg, topo.xface, x.plus.w)
     x.minus.w[:, 1:] = nplike.where(neg[:, :-1], 2*qwslc-topo.xface[:, :-1], x.minus.w[:, 1:])
+
+    # fix rounding errors in x.minus.w caused by the last calculation above
+    x.minus.w = nplike.where(x.minus.w < topo.xface, topo.xface, x.minus.w)
 
     # fix the case when the bottom depth of an interface is negative
     neg = (y.minus.w < topo.yface)
@@ -60,5 +63,7 @@ def correct_negative_depth(states: States, topo: Topography) -> States:
     y.plus.w = nplike.where(neg, topo.yface, y.plus.w)
     y.minus.w[1:, :] = nplike.where(neg[:-1, :], 2*qwslc-topo.yface[:-1, :], y.minus.w[1:, :])
 
-    # ignoring rounding error for now
+    # fix rounding errors in y.minus.w caused by the last calculation above
+    y.minus.w = nplike.where(y.minus.w < topo.yface, topo.yface, y.minus.w)
+
     return states

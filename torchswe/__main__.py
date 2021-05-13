@@ -58,6 +58,11 @@ def main():
     logger.info("Done parsing CMD arguments and setting up the logging system.")
     logger.info("The np-like backend is: %s", nplike.__name__)
 
+    if nplike.__name__ == "legate.numpy":
+        logger.info("Using nplike.where code path")
+    else:
+        logger.info("Using advanced-indexing code path")
+
     # configuration and required data
     config, grid, topo, ic_data = init(args)
     logger.info("Done initializing.")
