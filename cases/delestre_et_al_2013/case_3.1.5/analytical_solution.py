@@ -89,7 +89,7 @@ def solve_shock_loc(bM, hM, q0, hL, g):
         X = X - dX
         norm = numpy.linalg.norm(dX)
 
-    return inverse_bump_topo(X[-1])
+    return inverse_bump_topo(X[-1, 0])  # x is a 3 x 1 array, i.e., column vector
 
 
 def solve_hcr(q0, g):

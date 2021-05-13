@@ -8,10 +8,8 @@ spatial:
 
 # temporal control, including writting result during a simulation
 temporal:
-  start: 0.0
-  end: 500.0
-  output: ["every", 10.0]  # null, ["at", [T1, T2, ...]], or ["every", delta T]
-  scheme: "Euler"           # RK2, RK4, or Euler
+  output: ["t_start every_seconds multiple", 0., 10., 30]
+  scheme: "Euler"
 
 # boundary conditions
 boundary:

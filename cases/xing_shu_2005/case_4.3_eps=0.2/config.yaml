@@ -8,10 +8,8 @@ spatial:
 
 # temporal control, including writting result during a simulation
 temporal:
-  start: 0.0
-  end: 0.2
-  output: ["every", 0.01]
-  scheme: "RK2"
+  output: ["t_start every_seconds multiple", 0., 0.01, 20]
+  scheme: "SSP-RK2"
 
 # boundary conditions
 boundary:
