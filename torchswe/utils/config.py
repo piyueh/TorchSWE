@@ -18,13 +18,15 @@ from pydantic import BaseModel, Field, validator, root_validator, conint, conflo
 # alias to type hints
 BCTypeHint = Literal["periodic", "extrap", "const", "inflow", "outflow"]
 
-OutputType = Union[
-    Union[
-        Tuple[Literal["at"], Tuple[confloat(ge=0), ...]],
-        Tuple[Literal["every"], confloat(ge=0)]
-    ],
-    Tuple[Literal["divided by"], conint(ge=1)]
+OutputTypeHint = Union[
+    Tuple[Literal["at"], Tuple[confloat(ge=0), ...]],
+    Tuple[Literal["t_start every_seconds multiple"], confloat(ge=0), confloat(gt=0), conint(ge=1)],
+    Tuple[Literal["t_start every_steps multiple"], confloat(ge=0), conint(ge=1), conint(ge=1)],
+    Tuple[Literal["t_start t_end n_saves"], confloat(ge=0), confloat(gt=0), conint(ge=1)],
+    Tuple[Literal["t_start t_end no save"], confloat(ge=0), confloat(gt=0)],
 ]
+
+TemporalTypeHint = Literal["Euler", "SSP-RK2", "SSP-RK3"]
 
 
 class BaseConfig(BaseModel):
@@ -97,16 +99,31 @@ class TemporalConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    start: confloat(ge=0.)
-    end: confloat(ge=0.)
-    output: Optional[OutputType] = None
-    scheme: Literal["Euler", "RK2", "RK4"] = "RK2"
+    output: OutputTypeHint
+    scheme: TemporalTypeHint = "SSP-RK2"
+    dt: confloat(gt=0.) = 1e-3
+    adaptive: bool = True
+    max_iters: conint(gt=0) = 1000000
 
-    @validator("end")
-    def end_greater_than_start(cls, v, values):
-        """Validate that end time > start time.
-        """
-        assert v > values["start"], "The end time should greater than the start time."
+    @validator("output")
+    def _val_output_method(cls, v, values):
+        """Validate that end time > start time."""
+
+        if v[0] == "at":
+            msg = "Times are not monotonically increasing"
+            assert all(v[1][i]>v[1][i-1] for i in range(1, len(v[1]))), msg
+        elif v[0] == "t_start every_steps multiple":
+            assert not values["adaptive"], "The \"every_steps\" method needs \"adaptive=False\"."
+        elif v[0] == "t_start t_end n_saves" or v[0] == "t_start t_end no save":
+            assert v[2] > v[1], "End time is not greater than start time."
+
+        return v
+
+    @validator("max_iters")
+    def _val_max_iters(cls, v, values):
+        """Validate and modify max_iters."""
+        if values["output"][0] == "t_start every_steps multiple":
+            v = values["output"][2]  # use per_step as max_iters
         return v
 
 

@@ -162,23 +162,31 @@ class Gridlines(BaseConfig):
         spatial.check()
         temporal.check()
 
-        # temporal gridline: not used in computation, so use native list here
-        if temporal.output is None:  # no output
-            t = []
-        elif temporal.output[0] == "every":  # output every dt
-            dt = temporal.output[1]  # alias # pylint: disable=invalid-name
-            t = nplike.arange(temporal.start, temporal.end+dt/2., dt).tolist()
-            if temporal.end not in t:
-                t.append(temporal.end)
-        elif temporal.output[0] == "at":  # output at the given times
+        # write solutions to a file at give times
+        if temporal.output[0] == "at":
             t = list(temporal.output[1])
-            if temporal.start not in t:
-                t.append(temporal.start)
-            if temporal.end not in t:
-                t.append(temporal.end)
-            t.sort()
-        elif temporal.output[0] == "divided by":
-            t = nplike.linspace(temporal.start, temporal.end, temporal.output[1]+1).tolist()
+
+        # output every `every_seconds` seconds `multiple` times from `t_start`
+        elif temporal.output[0] == "t_start every_seconds multiple":
+            bg, dt, n = temporal.output[1:]
+            t = (nplike.arange(0, n+1) * dt + bg).tolist()  # including saving t_start
+
+        # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
+        elif temporal.output[0] == "t_start every_steps multiple":
+            bg, steps, n = temporal.output[1:]
+            dt = temporal.dt
+            t = (nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
+
+        # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
+        elif temporal.output[0] == "t_start t_end n_saves":
+            bg, ed, n = temporal.output[1:]
+            t = nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
+
+        # run simulation from `t_start` to `t_end` but not saving solutions at all
+        elif temporal.output[0] == "t_start t_end no save":
+            t = temporal.output[1:]
+
+        # should never reach this branch because pydantic has detected any invalid arguments
         else:
             raise ValueError("{} is not an allowed output method.".format(temporal.output[0]))
 

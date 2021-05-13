@@ -130,7 +130,7 @@ def get_cmd_arguments(argv: Optional[List[str]] = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--tm", action="store", type=str, choices=["RK2", "RK4", "Euler"], default=None,
+        "--tm", action="store", type=str, choices=["SSP-RK2", "SSP-RK3", "Euler"], default=None,
         help="Overwrite the time-marching scheme. Default is to respect the setting in config.yaml."
     )
 
