@@ -276,7 +276,7 @@ def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
     slc = _extrap_slc[orientation](n_ghost)
     topo_cache = topo[_inflow_topo_key[orientation]]
     bcslc = _inflow_topo_slc[orientation]
-    w_idx = _extrap_anchor[orientation](n_ghost, 0)
+    w_idx = _extrap_anchor[orientation](n_ghost)
 
     def inflow_bc_depth(conserv_q):
         delta = (const + topo_cache[bcslc] - conserv_q[anchor]) * 2
