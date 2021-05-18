@@ -89,7 +89,7 @@ class Gridline(BaseConfig):
     The lengths of xface and yface depend on the direction.
     """
     direction: Literal["x", "y"]
-    n: conint(gt=0)
+    n: conint(strict=True, gt=0)
     start: float
     end: float
     delta: confloat(gt=0.)
@@ -150,8 +150,8 @@ class Topography(BaseConfig):
     xgrad : (Ny, Nx) array; derivatives w.r.t. x at cell centers.
     ygrad : (Ny, Nx) array; derivatives w.r.t. y at cell centers.
     """
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     vert: nplike.ndarray
     cntr: nplike.ndarray
@@ -180,8 +180,8 @@ class DummyDataModel:
 
 class WHUHVModel(BaseConfig, DummyDataModel):
     """Data model with keys w, hu, and v."""
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     w: nplike.ndarray
     hu: nplike.ndarray
@@ -194,8 +194,8 @@ class WHUHVModel(BaseConfig, DummyDataModel):
 
 class HUVModel(BaseConfig, DummyDataModel):
     """Data model with keys h, u, and v."""
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     h: nplike.ndarray
     u: nplike.ndarray
@@ -208,8 +208,8 @@ class HUVModel(BaseConfig, DummyDataModel):
 
 class FaceOneSideModel(BaseConfig, DummyDataModel):
     """Data model holding quantities on one side of cell faces normal to one direction."""
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     w: nplike.ndarray
     hu: nplike.ndarray
@@ -229,8 +229,8 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
 
 class FaceTwoSideModel(BaseConfig, DummyDataModel):
     """Date model holding quantities on both sides of cell faces normal to one direction."""
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     plus: FaceOneSideModel
     minus: FaceOneSideModel
@@ -242,8 +242,8 @@ class FaceTwoSideModel(BaseConfig, DummyDataModel):
 
 class FaceQuantityModel(BaseConfig):
     """Data model holding quantities on both sides of cell faces in both x and y directions."""
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     x: FaceTwoSideModel
     y: FaceTwoSideModel
@@ -266,8 +266,8 @@ class FaceQuantityModel(BaseConfig):
 
 class Slopes(BaseConfig):
     """Data model for slopes at cell centers."""
-    nx: conint(gt=0)
-    ny: conint(gt=0)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
     dtype: DummyDtype
     x: WHUHVModel
     y: WHUHVModel
@@ -332,9 +332,9 @@ class States(BaseConfig, DummyDataModel):
     """
 
     # parameters
-    nx: conint(gt=0)
-    ny: conint(gt=0)
-    ngh: conint(ge=2)
+    nx: conint(strict=True, gt=0)
+    ny: conint(strict=True, gt=0)
+    ngh: conint(strict=True, ge=2)
     dtype: DummyDtype
 
     # quantities defined at cell centers
