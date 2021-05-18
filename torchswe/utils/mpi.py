@@ -14,105 +14,10 @@ from typing import Optional, Tuple
 from mpi4py import MPI
 from pydantic import root_validator, validator, conint
 from torchswe.utils.config import BaseConfig
+from torchswe.utils.data import States, DummyDataModel, get_empty_states
 
 
-def cal_num_procs(world_size: int, n_cell_x: int, n_cell_y: int):
-    """Calculate the number of MPI processes in x and y directions based on the number of cells.
-
-    Arguments
-    ---------
-    world_size : int
-        Total number of MPI processes.
-    n_cell_x, n_cell_y : int
-        Number of cells globally.
-
-    Retunrs
-    -------
-    n_proc_x, n_proc_y : int
-        Number of MPI processes in x and y directions.
-
-    Notes
-    -----
-    Based on the following desired conditions (for perfect situation):
-
-    (1) n_proc_x * n_proc_y = world_size
-    (2) n_proc_x / n_cell_x = n_proc_y / n_cell_y
-
-    From (2), we get n_proc_y = n_proc_x * n_cell_y / n_cell_x. Substitute it into (1), we get
-    n_proc_x * n_proc_x * n_cell_y / n_cell_x = world_size. Then, finally, we have n_proc_x = sqrt(
-    world_size * n_cell_x / n_cell_y). Round n_proc_x to get an integer.
-
-    If the rounded n_proc_x is 0, then we set it to 1.
-
-    Finally, when determining n_proc_y, we decrease n_proc_x until we find a n_proc_x that can
-    exactly divide world_size.
-    """
-
-    # start with this number for n_proc_x
-    n_proc_x = max(int(0.5+(n_cell_x*world_size/n_cell_y)**0.5), 1)
-
-    # decrease n_proc_x until it can exactly divide world_size
-    while world_size % n_proc_x != 0:
-        n_proc_x -= 1
-
-    # calculate n_proc_y
-    n_proc_y = world_size // n_proc_x
-    assert world_size == n_proc_x * n_proc_y  # sanity check
-
-    if n_cell_x > n_cell_y and n_proc_x < n_proc_y:
-        n_proc_x, n_proc_y = n_proc_y, n_proc_x  # swap
-
-    return n_proc_x, n_proc_y
-
-
-def cal_local_cell_range(n_proc_x: int, n_proc_y: int, n_cell_x: int, n_cell_y: int, rank: int):
-    """Calculate the range of local cells on a target MPI process.
-
-    Arguments
-    ---------
-    n_proc_x, n_proc_y : int
-        Number of MPI processes in x and y directions.
-    n_cell_x, n_cell_y : int
-        Number of global cells in x and y directions.
-    rank : int
-        The rank of the process of which we want to calculate local cell numbers.
-
-    Returns
-    -------
-    local_ibg, local_ied : int
-        The global indices of the first and the last cells in x directions.
-    local_jbg, local_jed : int
-        The global indices of the first and the last cells in y directions.
-
-    Notes
-    -----
-    Though we say ied and jed are the indices of the last cells, they are actually the indices of
-    the last cells plus 1, so that we can directly use them in slicing, range, iterations, etc.
-    without manually adding one in these use case.
-    """
-
-    assert rank < (n_proc_x * n_proc_y)
-
-    # identify the location of this rank in the Cartesian topology
-    rank_x = rank % n_proc_x
-    rank_y = rank // n_proc_x
-
-    # x direction
-    base = n_cell_x // n_proc_x
-    remainder = n_cell_x % n_proc_x
-    local_ibg = base * rank_x + min(rank_x, remainder)
-    local_ied = base * (rank_x+1) + min(rank_x+1, remainder)
-
-    # x direction
-    base = n_cell_y // n_proc_y
-    remainder = n_cell_y % n_proc_y
-    local_jbg = base * rank_y + min(rank_y, remainder)
-    local_jed = base * (rank_y+1) + min(rank_y+1, remainder)
-
-    return local_ibg, local_ied, local_jbg, local_jed
-
-
-class BlockMPI(BaseConfig):
+class BlockMPI(BaseConfig, DummyDataModel):
     """A base class containing the info of a process in a 2D Cartesian topology.
 
     Attributes
@@ -160,7 +65,7 @@ class BlockMPI(BaseConfig):
     jed: conint(strict=True, gt=0)
 
     # ghost cells (the same for internal boundaries and domain boundaries)
-    ngh: conint(strict=True, gt=0)
+    ngh: conint(strict=True, ge=2)
 
     @validator("comm")
     def _val_comm(cls, val):
@@ -261,3 +166,237 @@ class BlockMPI(BaseConfig):
                 raise ValueError("Unrecoganized key: {}".format(key))
 
         return values
+
+
+class StatesMPI(States, BlockMPI):
+    """MPI version of the States data model.
+
+    Attributes
+    ----------
+    The following attributes are inherented from torchswe.utils.mpi.BlockMPI:
+
+    comm : MPI.Comm
+    proc_shape : (int, int)
+    proc_loc : (int, int)
+    west, east, south, north : int or None
+    gnx, gny : int
+    nx, ny : int
+    ibg, ied : int
+    jbg, jed : int
+    ngh : int
+
+    The following attributes are inherented from torchswe.utils.data.States:
+
+    dtype: torchswe.utils.dummy.DummyDtype
+    q: torchswe.utils.data.WHUHVModel
+    src: torchswe.utils.data.WHUHVModel
+    slp: torchswe.utils.data.Slopes
+    rhs: torchswe.utils.data.WHUHVModel
+    face: torchswe.utils.data.FaceQuantityModel
+    """
+    pass
+
+
+def cal_num_procs(world_size: int, gnx: int, gny: int):
+    """Calculate the number of MPI processes in x and y directions based on the number of cells.
+
+    Arguments
+    ---------
+    world_size : int
+        Total number of MPI processes.
+    gnx, gny : int
+        Number of cells globally.
+
+    Retunrs
+    -------
+    pnx, pny : int
+        Number of MPI processes in x and y directions. Note the order of x and y processes in the
+        return.
+
+    Notes
+    -----
+    Based on the following desired conditions (for perfect situation):
+
+    (1) pnx * pny = world_size
+    (2) pnx / gnx = pny / gny
+
+    From (2), we get pny = pnx * gny / gnx. Substitute it into (1), we get
+    pnx * pnx * gny / gnx = world_size. Then, finally, we have pnx = sqrt(
+    world_size * gnx / gny). Round pnx to get an integer.
+
+    If the rounded pnx is 0, then we set it to 1.
+
+    Finally, when determining pny, we decrease pnx until we find a pnx that can
+    exactly divide world_size.
+    """
+
+    # start with this number for pnx
+    pnx = max(int(0.5+(gnx*world_size/gny)**0.5), 1)
+
+    # decrease pnx until it can exactly divide world_size
+    while world_size % pnx != 0:
+        pnx -= 1
+
+    # calculate pny
+    pny = world_size // pnx
+    assert world_size == pnx * pny  # sanity check
+
+    if gnx > gny and pnx < pny:
+        pnx, pny = pny, pnx  # swap
+
+    return pnx, pny
+
+
+def cal_proc_loc(pnx: int, rank: int):
+    """Calculate the location of a rank in a 2D Cartesian topology.
+
+    A very simple assignment method. Using this function to unify the way of assignment throughout
+    an application.
+
+    Arguments
+    ---------
+    pnx : int
+        Number of MPI processes in x directions.
+    rank : int
+        The rank of the process of which we want to calculate local cell numbers.
+
+    Returns
+    -------
+    pi, pj : int
+        The indices of the rank in the 2D MPI topology in x and y directions.
+    """
+    return rank % pnx, rank // pnx
+
+
+def cal_local_cell_range(pnx: int, pny: int, pi: int, pj: int, gnx: int, gny: int):
+    """Calculate the range of local cells on a target MPI process.
+
+    Arguments
+    ---------
+    pnx, pny : int
+        Number of MPI processes in x and y directions.
+    pi, pj : int
+        The indices of a rank in the 2D MPI topology in x and y directions.
+    gnx, gny : int
+        Number of global cells in x and y directions.
+
+    Returns
+    -------
+    local_ibg, local_ied : int
+        The global indices of the first and the last cells in x directions.
+    local_jbg, local_jed : int
+        The global indices of the first and the last cells in y directions.
+
+    Notes
+    -----
+    Though we say ied and jed are the indices of the last cells, they are actually the indices of
+    the last cells plus 1, so that we can directly use them in slicing, range, iterations, etc.
+    without manually adding one in these use case.
+    """
+    # pylint: disable=invalid-name
+
+    assert pi < pnx
+    assert pj < pny
+
+    # x direction
+    base = gnx // pnx
+    remainder = gnx % pnx
+    local_ibg = base * pi + min(pi, remainder)
+    local_ied = base * (pi+1) + min(pi+1, remainder)
+
+    # x direction
+    base = gny // pny
+    remainder = gny % pny
+    local_jbg = base * pj + min(pj, remainder)
+    local_jed = base * (pj+1) + min(pj+1, remainder)
+
+    return local_ibg, local_ied, local_jbg, local_jed
+
+
+def cal_neighbors(pnx: int, pny: int, pi: int, pj: int, rank: int):
+    """Calculate neighbors' rank.
+
+    Arguments
+    ---------
+    pnx, pny : int
+        Number of MPI processes in x and y directions.
+    pi, pj : int
+        The indices of a rank in the 2D MPI topology in x and y directions.
+    rank : int
+        The rank of the process of which we want to calculate local cell numbers.
+
+    Returns
+    -------
+    west, east, south, north : int or None
+        The ranks of neighbors in these direction. If None, it means the current rank is on the
+        domain boundary.
+    """
+    # pylint: disable=invalid-name
+    west = rank - 1 if pi != 0 else None
+    east = rank + 1 if pi != pnx-1 else None
+    south = rank - pnx if pj != 0 else None
+    north = rank + pnx if pj != pny-1 else None
+    return west, east, south, north
+
+
+def get_blockmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int):
+    """Get an instance of BloclMPI for the current MPI process.
+
+    Arguments
+    ---------
+    comm : MPI.Comm
+        The communicator.
+    gnx, gny : int
+        The global numbers of cells.
+    ngh : int
+        The number of ghost cells outside boundary. The "boundary" also includes the internal
+        boundaries between two blocks. Required when exchanging data between blocks.
+
+    Returns
+    -------
+    An instance of BlockMPI.
+    """
+    # pylint: disable=invalid-name
+
+    data = {"ngh": ngh, "gnx": gnx, "gny": gny, "comm": comm}
+
+    pnx, pny = cal_num_procs(comm.Get_size(), gnx, gny)
+
+    pi, pj = cal_proc_loc(pnx, comm.Get_rank())
+
+    data["west"], data["east"], data["south"], data["north"] = \
+        cal_neighbors(pnx, pny, pi, pj, comm.Get_rank())
+
+    data["ibg"], data["ied"], data["jbg"], data["jed"] = \
+        cal_local_cell_range(pnx, pny, pi, pj, gnx, gny)
+
+    data["nx"], data["ny"] = data["ied"] - data["ibg"], data["jed"] - data["jbg"]
+
+    data["proc_shape"] = (pny, pnx)
+    data["proc_loc"] = (pj, pi)
+
+    return BlockMPI(**data)
+
+
+def get_empty_statesmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int, dtype: str):
+    """Get an instance of StatesMPI for the current process with all-zero data arrays.
+
+    Arguments
+    ---------
+    comm : MPI.Comm
+        The communicator.
+    gnx, gny : int
+        The global numbers of cells.
+    ngh : int
+        The number of ghost cells outside boundary. The "boundary" also includes the internal
+        boundaries between two blocks. Required when exchanging data between blocks.
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    An instance of StatesMPI.
+    """
+    block = get_blockmpi(comm, gnx, gny, ngh)
+    states = get_empty_states(block.nx, block.ny, block.ngh, dtype)
+    kwargs = {**states.__dict__, **block.__dict__}  # to resolve duplicated attrs, e.g., nx, ny, etc
+    return StatesMPI(**kwargs)
