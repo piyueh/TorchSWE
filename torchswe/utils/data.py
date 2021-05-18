@@ -104,25 +104,6 @@ class Gridline(BaseConfig):
     _val_cntr = validator('cntr', allow_reuse=True)(_shape_val_factory(0))
     _val_dtypes = validator("vert", "cntr", "xface", "yface", allow_reuse=True)(_pydantic_val_dtype)
 
-    def __init__(self, direction, n, start, end, dtype):
-
-        dtype = DummyDtype.validator(dtype)
-        delta = (end - start) / n
-        vert = nplike.linspace(start, end, n+1, dtype=dtype)
-        cntr = nplike.linspace(start+delta/2., end-delta/2., n, dtype=dtype)
-
-        if direction == "x":
-            xface = copy.deepcopy(vert)
-            yface = copy.deepcopy(cntr)
-        else:  # if this is not "y", pydantic will let me know
-            xface = copy.deepcopy(cntr)
-            yface = copy.deepcopy(vert)
-
-        # pydantic will validate the data here
-        super().__init__(
-            direction=direction, n=n, start=start, end=end, delta=delta, dtype=dtype,
-            vert=vert, cntr=cntr, xface=xface, yface=yface)
-
     @validator("vert", "cntr", "xface", "yface")
     def _val_linspace(cls, v, values):
         """Make sure the linspace is working correctly."""
@@ -156,45 +137,6 @@ class Gridlines(BaseConfig):
     y: Gridline
     t: List[float]
 
-    def __init__(self, spatial: SpatialConfig, temporal: TemporalConfig, dtype: str):
-
-        # manually launch validation
-        spatial.check()
-        temporal.check()
-
-        # write solutions to a file at give times
-        if temporal.output[0] == "at":
-            t = list(temporal.output[1])
-
-        # output every `every_seconds` seconds `multiple` times from `t_start`
-        elif temporal.output[0] == "t_start every_seconds multiple":
-            bg, dt, n = temporal.output[1:]
-            t = (nplike.arange(0, n+1) * dt + bg).tolist()  # including saving t_start
-
-        # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
-        elif temporal.output[0] == "t_start every_steps multiple":
-            bg, steps, n = temporal.output[1:]
-            dt = temporal.dt
-            t = (nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
-
-        # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
-        elif temporal.output[0] == "t_start t_end n_saves":
-            bg, ed, n = temporal.output[1:]
-            t = nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
-
-        # run simulation from `t_start` to `t_end` but not saving solutions at all
-        elif temporal.output[0] == "t_start t_end no save":
-            t = temporal.output[1:]
-
-        # should never reach this branch because pydantic has detected any invalid arguments
-        else:
-            raise ValueError("{} is not an allowed output method.".format(temporal.output[0]))
-
-        super().__init__(
-            x=Gridline("x", spatial.discretization[0], spatial.domain[0], spatial.domain[1], dtype),
-            y=Gridline("y", spatial.discretization[1], spatial.domain[2], spatial.domain[3], dtype),
-            t=t)
-
 
 class Topography(BaseConfig):
     """Data model for topography elevation.
@@ -227,48 +169,6 @@ class Topography(BaseConfig):
     _val_ny_1_nx = validator("yface", allow_reuse=True)(_shape_val_factory([1, 0]))
     _val_ny_nx = validator("cntr", "xgrad", "ygrad", allow_reuse=True)(_shape_val_factory([0, 0]))
 
-    def __init__(self, topoconfig: TopoConfig, grid: Gridlines, dtype: str):
-        dtype = DummyDtype.validator(dtype)
-        dem, _ = read_cf(topoconfig.file, [topoconfig.key])
-
-        # copy to a nplike.ndarray
-        vert = nplike.array(dem[topoconfig.key][:])
-
-        # see if we need to do interpolation
-        try:
-            interp = not (
-                nplike.allclose(grid.x.vert, nplike.array(dem["x"])) and
-                nplike.allclose(grid.y.vert, nplike.array(dem["y"])))
-        except ValueError:  # assume thie excpetion means a shape mismatch
-            interp = True
-
-        # unfortunately, we need to do interpolation in such a situation
-        if interp:
-            interpolator = RectBivariateSpline(dem["x"], dem["y"], vert.T)
-            vert = nplike.array(interpolator(grid.x.vert, grid.y.vert).T)  # it uses vanilla numpy
-
-        # cast to desired float type
-        vert = vert.astype(dtype)
-
-        # topography elevation at cell centers through linear interpolation
-        cntr = vert[:-1, :-1] + vert[:-1, 1:] + vert[1:, :-1] + vert[1:, 1:]
-        cntr /= 4
-
-        # topography elevation at cell faces' midpoints through linear interpolation
-        xface = (vert[:-1, :] + vert[1:, :]) / 2.
-        yface = (vert[:, :-1] + vert[:, 1:]) / 2.
-
-        # gradient at cell centers through central difference; here allows nonuniform grids
-        # this function does not assume constant cell sizes, so we re-calculate dx, dy
-        # the `delta`s in grid.x and y are constants (current solver only supports uniform grid)
-        xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid.x.vert[1:] - grid.x.vert[:-1])[None, :]
-        ygrad = (yface[1:, :] - yface[:-1, :]) / (grid.y.vert[1:] - grid.y.vert[:-1])[:, None]
-
-        # initialize DataModel and let pydantic validates data
-        super().__init__(
-            nx=grid.x.n, ny=grid.y.n, dtype=dtype, vert=vert, cntr=cntr, xface=xface,
-            yface=yface, xgrad=xgrad, ygrad=ygrad)
-
 
 class DummyDataModel:
     """A dummy class as a base for those needs the property `shape`."""
@@ -291,17 +191,6 @@ class WHUHVModel(BaseConfig, DummyDataModel):
     _val_arrays = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_arrays)
     _val_valid_numbers = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_nan_inf)
 
-    def __init__(self, nx, ny, dtype, w=None, hu=None, hv=None):
-
-        dtype = DummyDtype.validator(dtype)
-        kwargs = {"w": w, "hu": hu, "hv": hv}
-        for key, val in kwargs.items():
-            if val is None:
-                kwargs[key] = nplike.zeros((ny, nx), dtype=dtype)
-
-        # trigger pydantic validation
-        super().__init__(nx=nx, ny=ny, dtype=dtype, **kwargs)
-
 
 class HUVModel(BaseConfig, DummyDataModel):
     """Data model with keys h, u, and v."""
@@ -315,12 +204,6 @@ class HUVModel(BaseConfig, DummyDataModel):
     # validators
     _val_arrays = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_arrays)
     _val_valid_numbers = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_nan_inf)
-
-    def __init__(self, nx, ny, dtype):
-        dtype = DummyDtype.validator(dtype)
-        super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype, h=nplike.zeros((ny, nx), dtype=dtype),
-            u=nplike.zeros((ny, nx), dtype=dtype), v=nplike.zeros((ny, nx), dtype=dtype))
 
 
 class FaceOneSideModel(BaseConfig, DummyDataModel):
@@ -343,16 +226,6 @@ class FaceOneSideModel(BaseConfig, DummyDataModel):
     _val_valid_numbers = validator(
         "w", "hu", "hv", "h", "u", "v", "a", allow_reuse=True)(_pydantic_val_nan_inf)
 
-    def __init__(self, nx, ny, dtype):
-        dtype = DummyDtype.validator(dtype)
-        super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype, w=nplike.zeros((ny, nx), dtype=dtype),
-            hu=nplike.zeros((ny, nx), dtype=dtype), hv=nplike.zeros((ny, nx), dtype=dtype),
-            h=nplike.zeros((ny, nx), dtype=dtype), u=nplike.zeros((ny, nx), dtype=dtype),
-            v=nplike.zeros((ny, nx), dtype=dtype), a=nplike.zeros((ny, nx), dtype=dtype),
-            flux=WHUHVModel(nx, ny, dtype)
-        )
-
 
 class FaceTwoSideModel(BaseConfig, DummyDataModel):
     """Date model holding quantities on both sides of cell faces normal to one direction."""
@@ -366,12 +239,6 @@ class FaceTwoSideModel(BaseConfig, DummyDataModel):
     # validator
     _val_arrays = validator("plus", "minus", "num_flux", allow_reuse=True)(_pydantic_val_arrays)
 
-    def __init__(self, nx, ny, dtype):
-        super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype, plus=FaceOneSideModel(nx, ny, dtype),
-            minus=FaceOneSideModel(nx, ny, dtype), num_flux=WHUHVModel(nx, ny, dtype)
-        )
-
 
 class FaceQuantityModel(BaseConfig):
     """Data model holding quantities on both sides of cell faces in both x and y directions."""
@@ -380,12 +247,6 @@ class FaceQuantityModel(BaseConfig):
     dtype: DummyDtype
     x: FaceTwoSideModel
     y: FaceTwoSideModel
-
-    def __init__(self, nx, ny, dtype):
-        super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype,
-            x=FaceTwoSideModel(nx+1, ny, dtype), y=FaceTwoSideModel(nx, ny+1, dtype),
-        )
 
     @validator("x", "y")
     def _val_arrays(cls, v, values, field):
@@ -410,12 +271,6 @@ class Slopes(BaseConfig):
     dtype: DummyDtype
     x: WHUHVModel
     y: WHUHVModel
-
-    def __init__(self, nx, ny, dtype):
-        super().__init__(  # trigger pydantic validation
-            nx=nx, ny=ny, dtype=dtype,
-            x=WHUHVModel(nx+2, ny, dtype), y=WHUHVModel(nx, ny+2, dtype),
-        )
 
     @validator("x", "y")
     def _val_arrays(cls, v, values, field):
@@ -489,13 +344,6 @@ class States(BaseConfig, DummyDataModel):
     rhs: WHUHVModel
     face: FaceQuantityModel
 
-    def __init__(self, nx, ny, ngh, dtype):
-        super().__init__(
-            nx=nx, ny=ny, ngh=ngh, dtype=dtype, q=WHUHVModel(nx+2*ngh, ny+2*ngh, dtype),
-            src=WHUHVModel(nx, ny, dtype), slp=Slopes(nx, ny, dtype), rhs=WHUHVModel(nx, ny, dtype),
-            face=FaceQuantityModel(nx, ny, dtype)
-        )
-
     @validator("q", "src", "rhs")
     def _val_1(cls, v, values, field):
         try:
@@ -524,3 +372,293 @@ class States(BaseConfig, DummyDataModel):
         assert v.nx == nx, "Nx mismatch. Should be {}, got {}".format(nx, v.nx)
         assert v.ny == ny, "Ny mismatch. Should be {}, got {}".format(ny, v.ny)
         return v
+
+
+def get_gridline(direction: str, n: int, start: float, end: float, dtype: str):
+    """Get a Gridline object.
+
+    Arguments
+    ---------
+    direction : str
+        Either "x" or "y".
+    n : int
+        Number of cells.
+    start, end : float
+        Lower and upper bound of this axis.
+    dtype : str, nplike.float32, or nplike.float64
+
+    Returns
+    -------
+    gridline : Gridline
+    """
+
+    dtype = DummyDtype.validator(dtype)
+    delta = (end - start) / n
+    vert = nplike.linspace(start, end, n+1, dtype=dtype)
+    cntr = nplike.linspace(start+delta/2., end-delta/2., n, dtype=dtype)
+
+    if direction == "x":
+        xface = copy.deepcopy(vert)
+        yface = copy.deepcopy(cntr)
+    else:  # if this is not "y", pydantic will let me know
+        xface = copy.deepcopy(cntr)
+        yface = copy.deepcopy(vert)
+
+    # pydantic will validate the data here
+    return Gridline(
+        direction=direction, n=n, start=start, end=end, delta=delta, dtype=dtype,
+        vert=vert, cntr=cntr, xface=xface, yface=yface)
+
+
+def get_gridlines(spatial: SpatialConfig, temporal: TemporalConfig, dtype: str):
+    """Get a Gridlines object using config object.
+
+    Arguments
+    ---------
+    spatial : SpatialConfig
+    temporal : TemporalConfig
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    gridlines : Gridlines
+    """
+
+    # manually launch validation
+    spatial.check()
+    temporal.check()
+
+    # write solutions to a file at give times
+    if temporal.output[0] == "at":
+        t = list(temporal.output[1])
+
+    # output every `every_seconds` seconds `multiple` times from `t_start`
+    elif temporal.output[0] == "t_start every_seconds multiple":
+        bg, dt, n = temporal.output[1:]
+        t = (nplike.arange(0, n+1) * dt + bg).tolist()  # including saving t_start
+
+    # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
+    elif temporal.output[0] == "t_start every_steps multiple":
+        bg, steps, n = temporal.output[1:]
+        dt = temporal.dt
+        t = (nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
+
+    # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
+    elif temporal.output[0] == "t_start t_end n_saves":
+        bg, ed, n = temporal.output[1:]
+        t = nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
+
+    # run simulation from `t_start` to `t_end` but not saving solutions at all
+    elif temporal.output[0] == "t_start t_end no save":
+        t = temporal.output[1:]
+
+    # should never reach this branch because pydantic has detected any invalid arguments
+    else:
+        raise ValueError("{} is not an allowed output method.".format(temporal.output[0]))
+
+    return Gridlines(
+        x=get_gridline("x", spatial.discretization[0], spatial.domain[0], spatial.domain[1], dtype),
+        y=get_gridline("y", spatial.discretization[1], spatial.domain[2], spatial.domain[3], dtype),
+        t=t)
+
+
+def get_topography(topoconfig: TopoConfig, grid: Gridlines, dtype: str):
+    """Get a Topography object from a config object.
+
+    Arguments
+    ---------
+    topoconfig : TopoConfig
+    grid : Gridlines
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    topo : Topography
+    """
+    dtype = DummyDtype.validator(dtype)
+    assert dtype == grid.x.dtype
+    assert dtype == grid.y.dtype
+
+    dem, _ = read_cf(topoconfig.file, [topoconfig.key])
+
+    # copy to a nplike.ndarray
+    vert = nplike.array(dem[topoconfig.key][:])
+
+    # see if we need to do interpolation
+    try:
+        interp = not (
+            nplike.allclose(grid.x.vert, nplike.array(dem["x"])) and
+            nplike.allclose(grid.y.vert, nplike.array(dem["y"])))
+    except ValueError:  # assume thie excpetion means a shape mismatch
+        interp = True
+
+    # unfortunately, we need to do interpolation in such a situation
+    if interp:
+        interpolator = RectBivariateSpline(dem["x"], dem["y"], vert.T)
+        vert = nplike.array(interpolator(grid.x.vert, grid.y.vert).T)  # it uses vanilla numpy
+
+    # cast to desired float type
+    vert = vert.astype(dtype)
+
+    # topography elevation at cell centers through linear interpolation
+    cntr = vert[:-1, :-1] + vert[:-1, 1:] + vert[1:, :-1] + vert[1:, 1:]
+    cntr /= 4
+
+    # topography elevation at cell faces' midpoints through linear interpolation
+    xface = (vert[:-1, :] + vert[1:, :]) / 2.
+    yface = (vert[:, :-1] + vert[:, 1:]) / 2.
+
+    # gradient at cell centers through central difference; here allows nonuniform grids
+    # this function does not assume constant cell sizes, so we re-calculate dx, dy
+    # the `delta`s in grid.x and y are constants (current solver only supports uniform grid)
+    xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid.x.vert[1:] - grid.x.vert[:-1])[None, :]
+    ygrad = (yface[1:, :] - yface[:-1, :]) / (grid.y.vert[1:] - grid.y.vert[:-1])[:, None]
+
+    # initialize DataModel and let pydantic validates data
+    return Topography(
+        nx=grid.x.n, ny=grid.y.n, dtype=dtype, vert=vert, cntr=cntr, xface=xface,
+        yface=yface, xgrad=xgrad, ygrad=ygrad)
+
+
+def get_empty_whuhvmodel(nx: int, ny: int, dtype: str):
+    """Get an empty (i.e., zero arrays) WHUHVModel.
+
+    Arguments
+    ---------
+    nx, ny : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A WHUHVModel with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    w = nplike.zeros((ny, nx), dtype=dtype)
+    hu = nplike.zeros((ny, nx), dtype=dtype)
+    hv = nplike.zeros((ny, nx), dtype=dtype)
+    return WHUHVModel(nx=nx, ny=ny, dtype=dtype, w=w, hu=hu, hv=hv)
+
+
+def get_empty_huvmodel(nx: int, ny: int, dtype: str):
+    """Get an empty (i.e., zero arrays) HUVModel.
+
+    Arguments
+    ---------
+    nx, ny : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A HUVModel with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    h = nplike.zeros((ny, nx), dtype=dtype)
+    u = nplike.zeros((ny, nx), dtype=dtype)
+    v = nplike.zeros((ny, nx), dtype=dtype)
+    return WHUHVModel(nx=nx, ny=ny, dtype=dtype, h=h, u=u, v=v)
+
+
+def get_empty_faceonesidemodel(nx: int, ny: int, dtype: str):
+    """Get an empty (i.e., zero arrays) FaceOneSideModel.
+
+    Arguments
+    ---------
+    nx, ny : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A FaceOneSideModel with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    return FaceOneSideModel(
+        nx=nx, ny=ny, dtype=dtype, w=nplike.zeros((ny, nx), dtype=dtype),
+        hu=nplike.zeros((ny, nx), dtype=dtype), hv=nplike.zeros((ny, nx), dtype=dtype),
+        h=nplike.zeros((ny, nx), dtype=dtype), u=nplike.zeros((ny, nx), dtype=dtype),
+        v=nplike.zeros((ny, nx), dtype=dtype), a=nplike.zeros((ny, nx), dtype=dtype),
+        flux=get_empty_whuhvmodel(nx, ny, dtype)
+    )
+
+
+def get_empty_facetwosidemodel(nx: int, ny: int, dtype: str):
+    """Get an empty (i.e., zero arrays) FaceTwoSideModel.
+
+    Arguments
+    ---------
+    nx, ny : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A FaceTwoSideModel with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    return FaceTwoSideModel(
+        nx=nx, ny=ny, dtype=dtype,
+        plus=get_empty_faceonesidemodel(nx, ny, dtype),
+        minus=get_empty_faceonesidemodel(nx, ny, dtype),
+        num_flux=get_empty_whuhvmodel(nx, ny, dtype)
+    )
+
+
+def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
+    """Get an empty (i.e., zero arrays) FaceQuantityModel.
+
+    Arguments
+    ---------
+    nx, ny : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A FaceQuantityModel with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    return FaceQuantityModel(
+        nx=nx, ny=ny, dtype=dtype,
+        x=get_empty_facetwosidemodel(nx+1, ny, dtype),
+        y=get_empty_facetwosidemodel(nx, ny+1, dtype),
+    )
+
+
+def get_empty_slopes(nx: int, ny: int, dtype: str):
+    """Get an empty (i.e., zero arrays) Slopes.
+
+    Arguments
+    ---------
+    nx, ny : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A Slopes with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    return Slopes(
+        nx=nx, ny=ny, dtype=dtype,
+        x=get_empty_whuhvmodel(nx+2, ny, dtype), y=get_empty_whuhvmodel(nx, ny+2, dtype),
+    )
+
+
+def get_empty_states(nx: int, ny: int, ngh: int, dtype: str):
+    """Get an empty (i.e., zero arrays) States.
+
+    Arguments
+    ---------
+    nx, ny : int
+    ngh : int
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    A States with zero arrays.
+    """
+    dtype = DummyDtype.validator(dtype)
+    return States(
+        nx=nx, ny=ny, ngh=ngh, dtype=dtype,
+        q=get_empty_whuhvmodel(nx+2*ngh, ny+2*ngh, dtype),
+        src=get_empty_whuhvmodel(nx, ny, dtype),
+        slp=get_empty_slopes(nx, ny, dtype),
+        rhs=get_empty_whuhvmodel(nx, ny, dtype),
+        face=get_empty_facequantitymodel(nx, ny, dtype)
+    )

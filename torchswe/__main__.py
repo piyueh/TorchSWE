@@ -13,7 +13,7 @@ import time
 import logging
 from torchswe import nplike
 from torchswe.utils.dummy import DummyDict
-from torchswe.utils.data import States
+from torchswe.utils.data import get_empty_states
 from torchswe.utils.netcdf import write_cf, append_time_data
 from torchswe.core.initializer import init, get_cmd_arguments
 from torchswe.core.fvm import fvm
@@ -87,7 +87,7 @@ def main():
 
     # initialize an empty solution/states object
     slc = slice(config.params.ngh, -config.params.ngh)  # slice indicating the non-ghost cells
-    soln = States(
+    soln = get_empty_states(
         config.spatial.discretization[0], config.spatial.discretization[1],
         config.params.ngh, config.dtype)
     soln.q.w[slc, slc], soln.q.hu[slc, slc], soln.q.hv[slc, slc] = ic_data.w, ic_data.hu, ic_data.hv

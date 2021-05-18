@@ -10,18 +10,17 @@
 """
 import pathlib
 import argparse
-from typing import Tuple, List, Optional
+from typing import Optional, List
 
 import yaml
 from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.netcdf import read_cf
 from torchswe.utils.config import Config
-from torchswe.utils.data import Gridlines, Topography, WHUHVModel
+from torchswe.utils.data import get_gridlines, get_topography, WHUHVModel
 
 
-def init(args: Optional[argparse.Namespace] = None) -> \
-        Tuple[Config, Gridlines, Topography, WHUHVModel]:
+def init(args: Optional[argparse.Namespace] = None):
     """Initialize a simulation and read configuration.
 
     Attributes
@@ -85,10 +84,10 @@ def init(args: Optional[argparse.Namespace] = None) -> \
             config.prehook = config.case.joinpath(config.prehook).resolve()
 
     # spatial discretization + output time values
-    grid = Gridlines(config.spatial, config.temporal, config.dtype)
+    grid = get_gridlines(config.spatial, config.temporal, config.dtype)
 
     # topography
-    topo = Topography(config.topo, grid, config.dtype)
+    topo = get_topography(config.topo, grid, config.dtype)
 
     # initial conditions
     state_ic = create_ic(config.ic, grid, topo, config.dtype)
@@ -175,7 +174,7 @@ def create_ic(ic_config, gridlines, topo, dtype):
     # special case: constant I.C.
     if ic_config.values is not None:
         return WHUHVModel(
-            gridlines.x.n, gridlines.y.n, dtype,
+            nx=gridlines.x.n, ny=gridlines.y.n, dtype=dtype,
             w=nplike.maximum(topo.cntr, nplike.array(ic_config.values[0])),
             hu=nplike.full(topo.cntr.shape, ic_config.values[1], dtype=topo.dtype),
             hv=nplike.full(topo.cntr.shape, ic_config.values[2], dtype=topo.dtype))
@@ -211,4 +210,4 @@ def create_ic(ic_config, gridlines, topo, dtype):
     # make sure the w can not be smaller than topopgraphy elevation
     w = nplike.maximum(w, topo.cntr)
 
-    return WHUHVModel(gridlines.x.n, gridlines.y.n, dtype, w=w, hu=hu, hv=hv)
+    return WHUHVModel(nx=gridlines.x.n, ny=gridlines.y.n, dtype=dtype, w=w, hu=hu, hv=hv)
