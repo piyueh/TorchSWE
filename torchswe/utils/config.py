@@ -36,6 +36,7 @@ class BaseConfig(BaseModel):
         """pydantic configuration of this model."""
         allow_population_by_field_name = True
         arbitrary_types_allowed = True
+        extra = "forbid"
 
     def __getitem__(self, key):
         return super().__getattribute__(key)

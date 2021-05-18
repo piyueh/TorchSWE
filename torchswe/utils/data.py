@@ -109,7 +109,7 @@ class Gridline(BaseConfig):
         """Make sure the linspace is working correctly."""
         diff = v[1:] - v[:-1]
         assert nplike.all(diff > 0), "Not in monotonically increasing order."
-        assert nplike.allclose(diff, values["delta"], atol=1e-10), "Delta not matched."
+        assert nplike.allclose(diff, values["delta"], atol=1e-10), "Delta does not match."
         return v
 
     @validator("xface")
