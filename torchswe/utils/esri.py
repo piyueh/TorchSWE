@@ -11,7 +11,7 @@
 import os
 from torchswe import nplike
 
-def read_esri_ascii(filepath):
+def read(filepath):
     """Read an Esri ASCII raster file.
 
     Note, the output array, data, is in traditional numerical simulation style.
@@ -30,8 +30,8 @@ def read_esri_ascii(filepath):
             y: a 1D nplike.ndarray; gridline in y direction.
             data: a 2D nplike.ndarray; the data
 
-        attrs: a mimic to the output of read_cf. The only output is a dictionary:
-            {"data": {"_fill_value": nodata_value}}.
+        attrs: a mimic to the output of the read function from netcdf module. The only output is a
+            dictionary: {"data": {"_fill_value": nodata_value}}.
     """
 
     filepath = os.path.abspath(filepath)
@@ -95,7 +95,7 @@ def read_esri_ascii(filepath):
 
     return {"x": x, "y": y, "data": data}, {"data": {"_fill_value": header["nodata_value"]}}
 
-def write_esri_ascii(filepath, x, y, data, loc):
+def write(filepath, x, y, data, loc):
     """Write data to a file with Esri ASCII format.
 
     Note, the input data (with shape (Ny, Nx)) is in the traditional numerical
@@ -122,9 +122,9 @@ def write_esri_ascii(filepath, x, y, data, loc):
     filepath = os.path.abspath(filepath)
 
     with open(filepath, "w") as fobj:
-        write_esri_ascii_stream(fobj, x, y, data, loc)
+        write_to_stream(fobj, x, y, data, loc)
 
-def write_esri_ascii_stream(stream, x, y, data, loc, nodata_value=-9999):
+def write_to_stream(stream, x, y, data, loc, nodata_value=-9999):
     """Write data to a stream with Esri ASCII format.
 
     Note, the input data (with shape (Ny, Nx)) is in the traditional numerical

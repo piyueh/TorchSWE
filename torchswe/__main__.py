@@ -14,7 +14,7 @@ import logging
 from torchswe import nplike
 from torchswe.utils.dummy import DummyDict
 from torchswe.utils.data import get_empty_states
-from torchswe.utils.netcdf import write_cf, append_time_data
+from torchswe.utils.netcdf import create_empty_soln_file, write_soln_to_file
 from torchswe.core.initializer import init, get_cmd_arguments
 from torchswe.core.fvm import fvm
 from torchswe.core.boundary_conditions import BoundaryGhostUpdater
@@ -101,12 +101,8 @@ def main():
     # create an NetCDF file and append I.C.
     if config.temporal.output[0] != "t_start t_end no save":
         outfile = config.case.joinpath("solutions.nc")  # initialize an empty solution file
-        write_cf(outfile, {"x": grid.x.cntr, "y": grid.y.cntr}, {})  # empty file
-        logger.info("Done creating an empty NetCDF file for solutions.")
-
-        append_time_data(  # the first t index is supposed to be grid.t[0]
-            outfile, grid.t[0], {"w": ic_data.w, "hu": ic_data.hu, "hv": ic_data.hv},
-            {"w": {"units": "m"}, "hu": {"units": "m2 s-1"}, "hv": {"units": "m2 s-1"}})
+        create_empty_soln_file(outfile, grid)
+        write_soln_to_file(outfile, soln.q, grid.t[0], 0, soln.ngh)
         logger.info("Done writing the initial solution to the NetCDF file.")
     else:
         logger.info("No need to save data for \"no save\" method.")
@@ -116,7 +112,7 @@ def main():
     logger.info("Time marching starts at %s", time.ctime(perf_t0))
 
     # start running time-march until each output time
-    for runtime.next_t in grid.t[1:]:
+    for tidx, runtime.next_t in enumerate(grid.t[1:]):
         logger.info("Marching from T=%s to T=%s", runtime.cur_t, runtime.next_t)
         soln = marching(soln, grid, topo, config, runtime)
 
@@ -125,9 +121,7 @@ def main():
 
         # append to the NetCDF file
         if config.temporal.output[0] != "t_start t_end no save":
-            append_time_data(
-                outfile, runtime.next_t,
-                {"w": soln.q.w[slc, slc], "hu": soln.q.hu[slc, slc], "hv": soln.q.hv[slc, slc]})
+            write_soln_to_file(outfile, soln.q, runtime.next_t, tidx+1, soln.ngh)
             logger.info("Done writing the solution at T=%s to the NetCDF file.", runtime.next_t)
 
     logger.info("Done time marching.")

@@ -17,7 +17,7 @@ from pydantic import validator, conint, confloat
 from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.config import BaseConfig
-from torchswe.utils.netcdf import read_cf
+from torchswe.utils.netcdf import read as ncread
 from torchswe.utils.dummy import DummyDtype
 
 
@@ -513,7 +513,7 @@ def get_topography(
     assert dtype == grid_xv.dtype
     assert dtype == grid_yv.dtype
 
-    dem, _ = read_cf(topofile, [key])
+    dem, _ = ncread(topofile, [key])
 
     # the NetCDF4 uses vanilla NumPy ndarray; copy it to a nplike.ndarray
     vert = nplike.array(dem[key][:])

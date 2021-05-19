@@ -15,7 +15,7 @@ from typing import Optional, List
 import yaml
 from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
-from torchswe.utils.netcdf import read_cf
+from torchswe.utils.netcdf import read as ncread
 from torchswe.utils.config import Config
 from torchswe.utils.data import get_snapshot_times, get_gridlines, get_topography, WHUHVModel
 
@@ -188,7 +188,7 @@ def create_ic(ic_config, gridlines, topo, dtype):
             hv=nplike.full(topo.cntr.shape, ic_config.values[2], dtype=topo.dtype))
 
     # otherwise, read data from a NetCDF file
-    icdata, _ = read_cf(ic_config.file, ic_config.keys)
+    icdata, _ = ncread(ic_config.file, ic_config.keys)
 
     # see if we need to do interpolation
     try:
