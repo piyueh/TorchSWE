@@ -17,7 +17,7 @@ from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.netcdf import read_cf
 from torchswe.utils.config import Config
-from torchswe.utils.data import get_gridlines, get_topography, WHUHVModel
+from torchswe.utils.data import get_snapshot_times, get_gridlines, get_topography, WHUHVModel
 
 
 def init(args: Optional[argparse.Namespace] = None):
@@ -84,10 +84,18 @@ def init(args: Optional[argparse.Namespace] = None):
             config.prehook = config.case.joinpath(config.prehook).resolve()
 
     # spatial discretization + output time values
-    grid = get_gridlines(config.spatial, config.temporal, config.dtype)
+    grid = get_gridlines(
+        *config.spatial.discretization,
+        *config.spatial.domain,
+        get_snapshot_times(
+            config.temporal.output[0], config.temporal.output[1:],
+            config.temporal.dt
+        ),
+        config.dtype
+    )
 
     # topography
-    topo = get_topography(config.topo, grid, config.dtype)
+    topo = get_topography(config.topo.file, config.topo.key, grid.x.vert, grid.y.vert, config.dtype)
 
     # initial conditions
     state_ic = create_ic(config.ic, grid, topo, config.dtype)

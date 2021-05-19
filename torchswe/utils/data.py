@@ -9,13 +9,14 @@
 """Data models.
 """
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
+import os
 import copy
 from typing import Literal, Tuple, List, Union
 
 from pydantic import validator, conint, confloat
 from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
-from torchswe.utils.config import BaseConfig, TemporalConfig, SpatialConfig, TopoConfig
+from torchswe.utils.config import BaseConfig
 from torchswe.utils.netcdf import read_cf
 from torchswe.utils.dummy import DummyDtype
 
@@ -410,65 +411,98 @@ def get_gridline(direction: str, n: int, start: float, end: float, dtype: str):
         vert=vert, cntr=cntr, xface=xface, yface=yface)
 
 
-def get_gridlines(spatial: SpatialConfig, temporal: TemporalConfig, dtype: str):
+def get_snapshot_times(output_type: str, params: List[Union[int, float]], dt: float):
+    """Generate a list of time when the solver should output solution snapshots.
+
+    Arguments
+    ---------
+    output_type : str
+    params : a list/tuple
+    dt : float
+
+    Returns
+    -------
+    t : a list/tuple of snapshot times.
+
+    Notes
+    -----
+    See the data model TemporalConfig for the allowed output_type and params. The `output_type` is
+    the first element in TemporalConfig.output, and `params` are the remaining elements in that
+    list.
+
+    dt is only used when output_type is "t_start every_steps multiple".
+    """
+
+    # write solutions to a file at give times
+    if output_type == "at":
+        t = list(params)
+
+    # output every `every_seconds` seconds `multiple` times from `t_start`
+    elif output_type == "t_start every_seconds multiple":
+        bg, dt, n = params
+        t = (nplike.arange(0, n+1) * dt + bg).tolist()  # including saving t_start
+
+    # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
+    elif output_type == "t_start every_steps multiple":
+        bg, steps, n = params
+        t = (nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
+
+    # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
+    elif output_type == "t_start t_end n_saves":
+        bg, ed, n = params
+        t = nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
+
+    # run simulation from `t_start` to `t_end` but not saving solutions at all
+    elif output_type == "t_start t_end no save":
+        t = params
+
+    # should never reach this branch because pydantic has detected any invalid arguments
+    else:
+        raise ValueError("{} is not an allowed output method.".format(output_type))
+
+    return t
+
+
+def get_gridlines(
+    nx: int, ny: int, xbg: int, xed: int, ybg: int, yed: int, t: Tuple[float], dtype: str
+):
     """Get a Gridlines object using config object.
 
     Arguments
     ---------
-    spatial : SpatialConfig
-    temporal : TemporalConfig
-    dtype : str, nplike.float32, nplike.float64
+    nx, ny : int
+    xbg, xed : float
+    ybg, yed : float
+    t : list/tuple of floats
+    dtype : str, nplike.float32, or nplike.float64
 
     Returns
     -------
     gridlines : Gridlines
     """
+    # pylint: disable=too-many-arguments
 
-    # manually launch validation
-    spatial.check()
-    temporal.check()
+    data = {
+        "x": get_gridline("x", nx, xbg, xed, dtype),
+        "y": get_gridline("y", ny, ybg, yed, dtype),
+        "t": t
+    }
 
-    # write solutions to a file at give times
-    if temporal.output[0] == "at":
-        t = list(temporal.output[1])
-
-    # output every `every_seconds` seconds `multiple` times from `t_start`
-    elif temporal.output[0] == "t_start every_seconds multiple":
-        bg, dt, n = temporal.output[1:]
-        t = (nplike.arange(0, n+1) * dt + bg).tolist()  # including saving t_start
-
-    # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
-    elif temporal.output[0] == "t_start every_steps multiple":
-        bg, steps, n = temporal.output[1:]
-        dt = temporal.dt
-        t = (nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
-
-    # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
-    elif temporal.output[0] == "t_start t_end n_saves":
-        bg, ed, n = temporal.output[1:]
-        t = nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
-
-    # run simulation from `t_start` to `t_end` but not saving solutions at all
-    elif temporal.output[0] == "t_start t_end no save":
-        t = temporal.output[1:]
-
-    # should never reach this branch because pydantic has detected any invalid arguments
-    else:
-        raise ValueError("{} is not an allowed output method.".format(temporal.output[0]))
-
-    return Gridlines(
-        x=get_gridline("x", spatial.discretization[0], spatial.domain[0], spatial.domain[1], dtype),
-        y=get_gridline("y", spatial.discretization[1], spatial.domain[2], spatial.domain[3], dtype),
-        t=t)
+    return Gridlines(**data)
 
 
-def get_topography(topoconfig: TopoConfig, grid: Gridlines, dtype: str):
+def get_topography(
+    topofile: Union[str, os.PathLike], key: str,
+    grid_xv: nplike.ndarray, grid_yv: nplike.ndarray,
+    dtype: str
+):
     """Get a Topography object from a config object.
 
     Arguments
     ---------
-    topoconfig : TopoConfig
-    grid : Gridlines
+    topofile : str or PathLike
+    key : str
+    grid_xv, grid_yv : nplike.ndarray
     dtype : str, nplike.float32, nplike.float64
 
     Returns
@@ -476,26 +510,26 @@ def get_topography(topoconfig: TopoConfig, grid: Gridlines, dtype: str):
     topo : Topography
     """
     dtype = DummyDtype.validator(dtype)
-    assert dtype == grid.x.dtype
-    assert dtype == grid.y.dtype
+    assert dtype == grid_xv.dtype
+    assert dtype == grid_yv.dtype
 
-    dem, _ = read_cf(topoconfig.file, [topoconfig.key])
+    dem, _ = read_cf(topofile, [key])
 
-    # copy to a nplike.ndarray
-    vert = nplike.array(dem[topoconfig.key][:])
+    # the NetCDF4 uses vanilla NumPy ndarray; copy it to a nplike.ndarray
+    vert = nplike.array(dem[key][:])
 
     # see if we need to do interpolation
     try:
         interp = not (
-            nplike.allclose(grid.x.vert, nplike.array(dem["x"])) and
-            nplike.allclose(grid.y.vert, nplike.array(dem["y"])))
+            nplike.allclose(grid_xv, nplike.array(dem["x"])) and
+            nplike.allclose(grid_yv, nplike.array(dem["y"])))
     except ValueError:  # assume thie excpetion means a shape mismatch
         interp = True
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
         interpolator = RectBivariateSpline(dem["x"], dem["y"], vert.T)
-        vert = nplike.array(interpolator(grid.x.vert, grid.y.vert).T)  # it uses vanilla numpy
+        vert = nplike.array(interpolator(grid_xv, grid_yv).T)  # it uses vanilla numpy
 
     # cast to desired float type
     vert = vert.astype(dtype)
@@ -509,15 +543,14 @@ def get_topography(topoconfig: TopoConfig, grid: Gridlines, dtype: str):
     yface = (vert[:, :-1] + vert[:, 1:]) / 2.
 
     # gradient at cell centers through central difference; here allows nonuniform grids
-    # this function does not assume constant cell sizes, so we re-calculate dx, dy
-    # the `delta`s in grid.x and y are constants (current solver only supports uniform grid)
-    xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid.x.vert[1:] - grid.x.vert[:-1])[None, :]
-    ygrad = (yface[1:, :] - yface[:-1, :]) / (grid.y.vert[1:] - grid.y.vert[:-1])[:, None]
+    # this function does not assume constant cell sizes
+    xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid_xv[1:] - grid_xv[:-1])[None, :]
+    ygrad = (yface[1:, :] - yface[:-1, :]) / (grid_yv[1:] - grid_yv[:-1])[:, None]
 
     # initialize DataModel and let pydantic validates data
     return Topography(
-        nx=grid.x.n, ny=grid.y.n, dtype=dtype, vert=vert, cntr=cntr, xface=xface,
-        yface=yface, xgrad=xgrad, ygrad=ygrad)
+        nx=len(grid_xv)-1, ny=len(grid_yv)-1, dtype=dtype, vert=vert, cntr=cntr,
+        xface=xface, yface=yface, xgrad=xgrad, ygrad=ygrad)
 
 
 def get_empty_whuhvmodel(nx: int, ny: int, dtype: str):
