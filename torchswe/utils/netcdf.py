@@ -6,14 +6,14 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""Functions related to NetCDF I/O with the CF convention.
+"""Lower leve functions related to NetCDF I/O with the CF convention.
 """
-import pathlib
-from datetime import datetime, timezone
+from pathlib import Path as _Path
+from datetime import datetime as _datetime, timezone as _timezone
 
-import netCDF4
-import numpy  # real numpy because NetCDF library only works with real numpy ndarray
-from torchswe.utils.dummy import DummyDict
+from numpy import searchsorted as _searchsorted, array as _vanilla_np_array
+from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
+from torchswe.utils.dummy import DummyDict as _DummyDict
 
 
 def default_attrs(corner, delta):
@@ -30,7 +30,7 @@ def default_attrs(corner, delta):
     -------
     A dictionary with keys: title, institution, source, history, refernce, comment, and Conventions.
     """
-    cur_t = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    cur_t = _datetime.now(_timezone.utc).replace(microsecond=0).isoformat()
 
     wkt = \
         "PROJCS[\"WGS_1984_Web_Mercator_Auxiliary_Sphere\"," + \
@@ -88,84 +88,151 @@ def default_attrs(corner, delta):
     return attrs
 
 
-def read(fpath, data_keys, **kwargs):
-    """Read data from a NetCDF file in CF convention.
+def read(fpath, data_keys, domain=None, **kwargs):
+    """Read data from a NetCDF file in CF convention (parallel version).
 
-    The pure spatial array, data is in traditional numerical simulation style.
-    For example, data[0, 0] is the most bottom-left data point in a structured
-    grid. And data[1, :] represents all points in the second row from the bottom
-    of the structured grid.
-
-    For temporal data, the dimension is (time, y, x).
+    The spatial data will have shape (ny, nx) or (ntime, ny, nx). For example, data[0, 0] is the
+    most bottom-left data point in a structured grid. And data[1, :] represents all points in the
+    second row from the bottom of the structured grid.
 
     Arguments
     ---------
     fpath : str or path-like
         Path to the input file.
-    data_keys : a tuple/list of str
-        Variable names in the file that will be read.
+    data_keys : a list/tuple of str
+        The keys of data to read from the dataset
+    domain : a list/tuple of 4 floats, or None
+        Read data within the bounds (west, east, south, north) of the domain. If None, read all.
     **kwargs :
         Arbitrary keyword arguments passed into netCDF4.Dataset.__init__.
 
     Returns
     -------
-    data : a dict
-        This dict has key-value pairs of:
-        - x: a 1D nplike.ndarray; gridline in x direction.
-        - y: a 1D nplike.ndarray; gridline in y direction.
-        - time: (optional) a 1D nplike.ndarray if gridline in time exists.
-        - And all keys specified in data_key argument.
-    attrs : a dict of dicts
-        Attributes for each key in data (exclude root group's).
+    data : dict
+        The (key, array) pairs with the following extra data:
+            - x, y : 1D ndarray of the local gridlines correspond to the returnd data.
+            - time : a list of the snapshot times
+    attrs : dict
+        The attributes to the data in the dictionary `data`.
+
+    Notes
+    -----
+    If domain bounds do not exactly fall on a gridline, the returned data blocks/slices will be
+    a little bit larger than the domain to cover the whole domain. Then, users can do interpolation
+    later by themselves.
     """
 
     # use absolute path
-    fpath = pathlib.Path(fpath).expanduser().resolve()
+    fpath = _Path(fpath).expanduser().resolve()
+
+    with _Dataset(fpath, **kwargs) as dset:
+        data, attrs = read_from_dataset(dset, data_keys, domain)
+    return data, attrs
+
+
+def read_from_dataset(dset, data_keys, domain=None):
+    """Read a block of data from an opened dataset.
+
+    Arguments
+    ---------
+    dset : netCDF4.Dataset
+        The target dataset.
+    data_keys : a list/tuple of str
+        The keys of data to read from the dataset
+    domain : a list/tuple of 4 floats, or None
+        Read data within the bounds (west, east, south, north) of the domain. If None, read all.
+
+    Returns
+    -------
+    data : dict
+        The (key, array) pairs with the following extra data:
+            - x, y : 1D ndarray of the local gridlines correspond to the returnd data.
+            - time : a list of the snapshot times
+    attrs : dict
+        The attributes to the data in the dictionary `data`.
+
+    Notes
+    -----
+    If domain bounds do not exactly fall on a gridline, the returned data blocks/slices will be
+    a little bit larger than the domain to cover the whole domain. Then, users can do interpolation
+    later by themselves.
+    """
 
     # empty dictionary
-    data = DummyDict()
-    attrs = DummyDict()
+    data = _DummyDict()
+    attrs = _DummyDict()
 
-    # create a NetCDF4 file/dataset
-    with netCDF4.Dataset(fpath, "r", **kwargs) as rootgrp:  # pylint: disable=no-member
+    # make a local copy of the global fridline
+    data["x"] = dset["x"][:].data
+    data["y"] = dset["y"][:].data
 
-        # x and y
-        data["x"] = rootgrp["x"][:].data
-        data["y"] = rootgrp["y"][:].data
+    # determine the target domain in the index space
+    if domain is None:
+        ibg, ied, jbg, jed = None, None, None, None  # standard slicing: None:None means all
+    else:
+        assert data["x"][0] <= domain[0], "{}, {}".format(data["x"][0], domain[0])
+        assert data["x"][-1] >= domain[1], "{}, {}".format(data["x"][-1], domain[1])
+        assert data["y"][0] <= domain[2], "{}, {}".format(data["y"][0], domain[2])
+        assert data["y"][-1] >= domain[3], "{}, {}".format(data["y"][-1], domain[3])
 
-        # try to read t if it exists
-        try:
-            data["time"] = rootgrp["time"][:].data
-        except IndexError:
-            pass
+        # find the start and end indices containing the provided domain
+        ibg = _searchsorted(data["x"], domain[0])
+        ied = _searchsorted(data["x"], domain[1])
+        jbg = _searchsorted(data["y"], domain[2])
+        jed = _searchsorted(data["y"], domain[3])
 
-        # read data of each specified key
-        for key in data_keys:
-            data[key] = rootgrp[key][:].data
+        ibg = ibg - 1 if data["x"][ibg] > domain[0] else ibg
+        ied = ied + 1 if data["x"][ied] < domain[1] else ied
+        jbg = jbg - 1 if data["y"][jbg] > domain[2] else jbg
+        jed = jed + 1 if data["y"][jed] < domain[3] else jed
 
-        # other options
-        for key in data.keys():
-            attrs[key] = rootgrp[key].__dict__
+        # the end has to shift one for slicing
+        ied += 1
+        jed += 1
+
+        # save only the local gridlines to the output dictionary
+        data["x"] = data["x"][ibg:ied]
+        data["y"] = data["y"][jbg:jed]
+
+    # try to read temporal axis if it exists
+    try:
+        data["time"] = list(dset["time"][:].data)
+    except IndexError as err:
+        if "time not found" not in str(err):  # only raise if the error is not about `time`
+            raise
+
+    # determine if the data is 2D or 3D
+    if "time" in data:
+        slc = (slice(None), slice(jbg, jed), slice(ibg, ied))
+    else:
+        slc = (slice(jbg, jed), slice(ibg, ied))
+
+    # read data and attributes of each specified key
+    for key in data_keys:
+        data[key] = dset[key][slc].data
+        attrs[key] = dset[key].__dict__
 
     return data, attrs
 
 
-def write(fpath, grid_x, grid_y, grid_t=None, data=None, options=None, **kwargs):
-    """A wrapper to safely write to a NetCDF file.
-
-    In case an I/O error happen, the NetCDF file will still be safely closed.
+def write(fpath, axs, data=None, global_n=None, idx_bounds=None, options=None, **kwargs):
+    """Write to a new NetCDF file with CF convention.
 
     Arguments
     ---------
     fpath : str or path-like
         Path to the target file.
-    grid_x, grid_y : nplike.ndarray
-        The gridlines in x and y directions
-    grid_t : None, list, tuple, or nplike.ndarray
-        The temporal gridlines. Can be length-zero list/array, meaning creating an unlimited axis.
+    xyt : a list/tuple
+        Can be a length-2 or length-3 list/tuple. If length is 2, it's type is [ndarray, ndarray],
+        corresponding to x and y gridlines. If length is 3, the additional one is the temporal axis.
     data : dict
         A dictionary of (variable name, value). If value is None, create all-NaN array for the
         variable. If not None, the shape of value should be either (ny, nx) or (ntime, ny, nx).
+    global_n : a list/tuple of 2 int
+        Only useful for parallel write. The global size of the x, y gridlines. In this case,
+        provided `axs` represent the local gridlines, so their shapes are different from `global_n`.
+    idx_bounds : list/tuple of 4 int (west, east, south, north)
+        Only useful for parallel write. Write data to the slice/block bounded in these indices.
     options: a dict of dict
         The outer dictionary has pairs (variable name, dictionary). The inner dictionaries
         are the attributes of each vriable. A special key is "root", which holds attributes
@@ -175,27 +242,31 @@ def write(fpath, grid_x, grid_y, grid_t=None, data=None, options=None, **kwargs)
         Arbitrary keyword arguments that will be provide to netCDF4.Dataset.__init__.
     """
 
-    fpath = pathlib.Path(fpath).expanduser().resolve()
+    fpath = _Path(fpath).expanduser().resolve()
 
-    with netCDF4.Dataset(fpath, "w", **kwargs) as rootgrp:  # pylint: disable=no-member
-        rootgrp = write_to_dataset(rootgrp, grid_x, grid_y, grid_t, data, options)
+    with _Dataset(fpath, "w", **kwargs) as rootgrp:  # pylint: disable=no-member
+        rootgrp = write_to_dataset(rootgrp, axs, data, global_n, idx_bounds, options)
 
 
-def write_to_dataset(dset, grid_x, grid_y, grid_t=None, data=None, user_options=None):
-    """Create a NetCDF file of CF convention.
+def write_to_dataset(dset, axs, data=None, global_n=None, idx_bounds=None, options=None):
+    """Write gridlines and data to an opened but empty NetCDF dataset using CF convention.
 
     Arguments
     ---------
     dset : netCDF4.Dataset
-        The destination of data output.
-    grid_x, grid_y : nplike.ndarray
-        The gridlines in x and y directions
-    grid_t : None, list, tuple, or nplike.ndarray
-        The temporal gridlines. Can be length-zero list/array, meaning creating an unlimited axis.
+        The destination dataset.
+    xyt : a list/tuple
+        Can be a length-2 or length-3 list/tuple. If length is 2, it's type is [ndarray, ndarray],
+        corresponding to x and y gridlines. If length is 3, the additional one is the temporal axis.
     data : dict
         A dictionary of (variable name, value). If value is None, create all-NaN array for the
         variable. If not None, the shape of value should be either (ny, nx) or (ntime, ny, nx).
-    user_options: a dict of dict
+    global_n : a list/tuple of 2 int
+        Only useful for parallel write. The global size of the x, y gridlines. In this case,
+        provided `axs` represent the local gridlines, so their shapes are different from `global_n`.
+    idx_bounds : list/tuple of 4 int (west, east, south, north)
+        Only useful for parallel write. Write data to the slice/block bounded in these indices.
+    options: a dict of dict
         The outer dictionary has pairs (variable name, dictionary). The inner dictionaries
         are the attributes of each vriable. A special key is "root", which holds attributes
         to the dataset itself. For options of variables, usually users may want to at least
@@ -216,34 +287,39 @@ def write_to_dataset(dset, grid_x, grid_y, grid_t=None, data=None, user_options=
     """
 
     # get default options
-    options = default_attrs((grid_x[0], grid_y[-1]), (grid_x[1]-grid_x[0], grid_y[1]-grid_y[0]))
-    options = {**user_options, **options}
+    options = {} if options is None else options
+    _options = default_attrs((axs[0][0], axs[1][-1]), (axs[0][1]-axs[0][0], axs[1][1]-axs[1][0]))
+    _options = {**options, **_options}
 
     for key in ["root", "x", "y", "time", "mercator"]:
-        options[key].update(user_options[key] if key in user_options else {})
+        _options[key].update(options[key] if key in options else {})
+
+    # other default values
+    global_n = [len(axs[0]), len(axs[1])] if global_n is None else global_n
+    idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
 
     # global attributes
-    dset.setncatts(options["root"])
+    dset.setncatts(_options["root"])
 
-    # create axes
-    dset = add_axis_to_dataset(dset, "x", len(grid_x), grid_x, options["x"])
-    dset = add_axis_to_dataset(dset, "y", len(grid_y), grid_y, options["y"])
+    # create axs
+    add_axis_to_dataset(dset, "x", axs[0], global_n[0], idx_bounds[:2], _options["x"])
+    add_axis_to_dataset(dset, "y", axs[1], global_n[1], idx_bounds[2:], _options["y"])
 
-    # temporal axis is optional
-    if grid_t is not None:
-        dset = add_axis_to_dataset(dset, "time", len(grid_t), grid_t, options["time"])
+    # temporal axis is optional; it is not a decomposed axis
+    if len(axs) == 3:
+        add_axis_to_dataset(dset, "time", axs[2], options=_options["time"])
 
     # create mercator
-    mercator = dset.createVariable("mercator", "S1")
-    mercator.setncatts(options["mercator"])
+    dset.createVariable("mercator", "S1")
+    dset["mercator"].setncatts(_options["mercator"])
 
     # create variables
-    dset = add_variables_to_dataset(dset, data, options)
+    add_variables_to_dataset(dset, data, idx_bounds, _options)
 
     return dset
 
 
-def add_variables_to_dataset(dset, data, options=None):
+def add_variables_to_dataset(dset, data, idx_bounds=None, options=None):
     """Add variables to an existing dataset.
 
     Arguments
@@ -253,6 +329,8 @@ def add_variables_to_dataset(dset, data, options=None):
     data : dict
         A dictionary of (variable name, value). If value is None, create all-NaN array for the
         variable. If not None, the shape of value should be either (ny, nx) or (ntime, ny, nx).
+    idx_bounds : list/tuple of 4 int (west, east, south, north)
+        Only write data to the slice/block bounded in these indices.
     options: a dict of dict
         The outer dictionary has pairs (variable name, dictionary). The inner dictionaries
         are the attributes of each vriable. Usually users may want to at least specify the
@@ -263,7 +341,9 @@ def add_variables_to_dataset(dset, data, options=None):
     The same dataset instance (w/ new variable added).
     """
 
+    # update the default values
     nan = float("NaN")
+    idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
     options = {} if options is None else options
 
     # create variables
@@ -281,27 +361,24 @@ def add_variables_to_dataset(dset, data, options=None):
         if val is None:  # no need to copy data
             continue
 
-        # otherwise, check th shape first
-        if len(val.shape) == 2:
-            assert val.shape[0] == dset.dimensions["ny"].size
-            assert val.shape[1] == dset.dimensions["nx"].size
-        elif len(val.shape) == 3:
-            assert val.shape[0] == dset.dimensions["ntime"].size
-            assert val.shape[1] == dset.dimensions["ny"].size
-            assert val.shape[2] == dset.dimensions["nx"].size
-        else:
-            raise ValueError("{}.shape = {} is not supported.".format(key, val.shape))
+        # spatial slice object
+        slc = (slice(idx_bounds[3], idx_bounds[2]), slice(idx_bounds[1], idx_bounds[0]))
 
-        # otherwise, copy the data
-        if len(val.shape) == 2 and "ntime" in dset.dimensions:  # assume this is the first snapshot
-            _copy_data_to_slice(dset[key], val, 0)
-        else:  # either no time axis or val has all snapshots (i.e., len(val.shape) == 3)
-            _copy_data_to(dset[key], val)
+        # modify slices based on temporal axis
+        if len(val.shape) == 2:
+            if "ntime" in dset.dimensions:  # assume this is the first snapshot
+                slc = (0,) + slc
+        elif len(val.shape) == 3:
+            slc = (slice(None),) + slc
+        else:
+            raise ValueError("\"{}\" should be either 2D or 3D.".format(key))
+
+        _copy_data(dset[key], val, slc)
 
     return dset
 
 
-def add_time_data_to_dataset(dset, data, time, tidx=None):
+def add_time_data_to_dataset(dset, data, time, tidx=None, idx_bounds=None):
     """Write/append new data at a specific time snapshot index to a NetCDF4 variable.
 
     Arguments
@@ -314,6 +391,8 @@ def add_time_data_to_dataset(dset, data, time, tidx=None):
         The value of time.
     tidx : int or None
         The index of the target time to write into. If None, append the data instead.
+    idx_bounds : list/tuple of 4 int (west, east, south, north)
+        Only write data to the slice/block bounded in these indices.
 
     Returns
     -------
@@ -327,6 +406,9 @@ def add_time_data_to_dataset(dset, data, time, tidx=None):
       time index to overwrite the slice instead.
     """
 
+    # update the default values
+    idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
+
     if tidx is None:  # append to the variables
         assert dset.dimensions["ntime"].isunlimited()
         tidx = dset.dimensions["ntime"].size
@@ -336,14 +418,14 @@ def add_time_data_to_dataset(dset, data, time, tidx=None):
 
     for key, val in data.items():
         assert len(val.shape) == 2  # should be a single snapshot
-        assert val.shape == dset[key].shape[1:]
-        _copy_data_to_slice(dset[key], val, tidx)
+        slc = (tidx, slice(idx_bounds[2], idx_bounds[3]), slice(idx_bounds[0], idx_bounds[1]))
+        _copy_data(dset[key], val, slc)
 
     return dset
 
 
-def add_axis_to_dataset(dset, name, n, values, options=None):
-    """Add an axes to a netCDF4.Dataset and handle different underlying np-like libraries.
+def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, options=None):
+    """Add an axes to a netCDF4.Dataset.
 
     Arguments
     ---------
@@ -351,178 +433,54 @@ def add_axis_to_dataset(dset, name, n, values, options=None):
         The target dataset.
     name : str
         The axis name.
-    n : int
-        The number of values in this axis.
-    values: a dict of 1D nplike.ndarray
-        Coordinates in "x" and "y".
+    values: nplike.ndarray or list
+        Coordinate values in this axis.
+    global_n : int
+        The global number of values in this axis. Only used for parallel write when `len(values)`
+        does not equal to `global_n`.
+    idx_bounds : a list/tuple of 2 int
+        During parallel write, write `values` into the global axis using the slice from
+        idx_bounds[0] to idx_bounds[1].
     options: None or a dict
         A dictionary for setting attributes.
 
     Returns
     -------
     dset : netCDF4.Dataset
-        The same input dataset but with a new spatial axis.
+        The same input dataset but with a new axis.
     """
+    # pylint: disable=too-many-arguments
 
-    _ = dset.createDimension("n{}".format(name), n)
-    var = dset.createVariable(name, "f8", ("n{}".format(name),))
-    var.setncatts(options)
-    _copy_data_to(var, values)
+    # update default values
+    global_n = len(values) if global_n is None else global_n
+    collective = (global_n == len(values))
+    idx_bounds = [None, None] if idx_bounds is None else idx_bounds
+    options = {} if options is None else options
+
+    dset.createDimension("n{}".format(name), global_n)
+    dset.createVariable(name, "f8", ("n{}".format(name),))
+    dset[name].setncatts(options)
+
+    try:
+        dset[name].set_collective(collective)
+    except RuntimeError as err:
+        if "Parallel operation" not in str(err):  # only raise error if not complaining serial data
+            raise
+
+    _copy_data(dset[name], values, slice(idx_bounds[0], idx_bounds[1]))
 
     return dset
 
 
-def _copy_data_to(var, array):
+def _copy_data(var, array, slc):
     """Copy a non-completely np-compatible ndarray to a NetCDF4 variable."""
 
     try:
-        var[...] = numpy.array(array)
+        var[slc] = _vanilla_np_array(array)
     except TypeError as err:
         if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
-            var[...] = array.get()  # cupy
+            var[slc] = array.get()  # cupy
         elif str(err).startswith("can't convert cuda:"):
-            var[...] = array.cpu().numpy()
+            var[slc] = array.cpu().numpy()
         else:
             raise
-
-
-def _copy_data_to_slice(var, array, tidx):
-    """Copy a non-completely np-compatible ndarray to a slice in a NetCDF4 variable."""
-
-    try:
-        var[tidx, ...] = numpy.array(array)
-    except TypeError as err:
-        if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
-            var[tidx, ...] = array.get()  # cupy
-        elif str(err).startswith("can't convert cuda:"):
-            var[tidx, ...] = array.cpu().numpy()
-        else:
-            raise
-
-
-def create_soln_snapshot_file(fpath, grid, soln, **kwargs):
-    """Create a NetCDF file with a single snapshot of solutions.
-
-    Arguments
-    ---------
-    fpath : str or PathLike
-        The path to the file.
-    grid : torchswe.utils.data.Gridlines
-        The Gridlines instance corresponds to the solutions.
-    soln : torchswe.utils.data.WHUHVModel or torchswe.utils.data.HUVModel
-        The snapshot of the solution.
-    **kwargs
-        Keyword arguments sent to netCDF4.Dataset.
-    """
-    fpath = pathlib.Path(fpath).expanduser().resolve()
-
-    try:
-        data = {k: soln[k] for k in ["w", "hu", "hv"]}
-        options = {"w": {"units": "m"}, "hu": {"units": "m2 s-1"}, "hv": {"units": "m2 s-1"}}
-    except AttributeError as err:
-        if "has no attribute \'w\'" in str(err):  # a HUVModel
-            data = {k: soln[k] for k in ["h", "u", "v"]}
-            options = {"h": {"units": "m"}, "u": {"units": "m s-1"}, "v": {"units": "m s-1"}}
-        else:
-            raise
-
-    with netCDF4.Dataset(fpath, "w", **kwargs) as dset:  # pylint: disable=no-member
-        write_to_dataset(dset, grid.x.cntr, grid.y.cntr, None, data, options)
-
-
-def create_empty_soln_file(fpath, grid, model="whuhv", **kwargs):
-    """Create an new NetCDF file for solutions using the corresponding grid object.
-
-    Create an empty NetCDF4 file with axes `x`, `y`, and `time`. `x` and `y` are defined at cell
-    centers. The spatial coordinates use EPSG 3856. The temporal axis is limited with dimension
-    `ntime`. Also, it creates empty solution variables called `w`, `hu`, and `hv` to the dataset
-    with `NaN` for all values. The shapes of these variables are `(ntime, ny, nx)`. The units of
-    them are "m", "m2 s-1", and "m2 s-1", respectively.
-
-    Arguments
-    ---------
-    fpath : str or PathLike
-        The path to the file.
-    grid : torchswe.utils.data.Gridlines
-        The Gridlines instance corresponds to the solutions.
-    model : str, either "whuhv" or "huv"
-        The type of solution model: the conservative form (w, hu, hv) or non-conservative form (
-        h, u, v).
-    **kwargs
-        Keyword arguments sent to netCDF4.Dataset.
-    """
-    fpath = pathlib.Path(fpath).expanduser().resolve()
-
-    if model == "whuhv":
-        data = {k: None for k in ["w", "hu", "hv"]}
-        options = {"w": {"units": "m"}, "hu": {"units": "m2 s-1"}, "hv": {"units": "m2 s-1"}}
-    elif model == "huv":
-        data = {k: None for k in ["h", "u", "v"]}
-        options = {"h": {"units": "m"}, "u": {"units": "m s-1"}, "v": {"units": "m s-1"}}
-
-    with netCDF4.Dataset(fpath, "w", **kwargs) as dset:  # pylint: disable=no-member
-        write_to_dataset(dset, grid.x.cntr, grid.y.cntr, grid.t, data, options)
-
-
-def write_soln_to_file(fpath, soln, time, tidx, ngh=0, **kwargs):
-    """Write a solution snapshot to an existing NetCDF file.
-
-    Arguments
-    ---------
-    fpath : str or PathLike
-        The path to the file.
-    soln : torchswe.utils.data.WHUHVModel or torchswe.utils.data.HUVModel
-        The States instance containing solutions.
-    time : float
-        The simulation time of this snapshot.
-    tidx : int
-        The index of the snapshot time in the temporal axis.
-    ngh : int
-        The number of ghost-cell layers out side each boundary.
-    **kwargs
-        Keyword arguments sent to netCDF4.Dataset.
-    """
-    fpath = pathlib.Path(fpath).expanduser().resolve()
-
-    # determine if it's a WHUHVModel or HUVModel
-    if hasattr(soln, "w"):
-        keys = ["w", "hu", "hv"]
-    else:
-        keys = ["h", "u", "v"]
-
-    if ngh == 0:
-        data = {k: soln[k] for k in keys}
-    else:
-        slc = slice(ngh, -ngh)  # alias for convenience; non-ghost domain
-        data = {k: soln[k][slc, slc] for k in keys}
-
-    with netCDF4.Dataset(fpath, "a", **kwargs) as dset:  # pylint: disable=no-member
-        add_time_data_to_dataset(dset, data, time, tidx)
-
-
-def create_topography_file(fpath, x, y, data, options=None, **kwargs):
-    """A helper to create a topography DEM file with NetCDF CF convention.
-
-    The key of the elevation is fixed to `elevation` for convenience. By default, the spatial axes
-    `x` and `y` use EPSG 3857 system. All length units are in meters (i.e., `m`).
-
-    Arguments
-    ---------
-    fpath : str or PathLike
-        The path to the file.
-    x, y : nplike.ndarray
-        The coordinates of the gridlines in x (west-east)and y (south-north) direction.
-    data : nplike.ndarray
-        The elevation data with shape (len(y), len(x))
-    options : dict or None
-        To overwrite the default attribute values of `x`, `y`, `elevation`, and `root`. See the
-        docstring of `wrtie_to_dataset`.
-    **kwargs
-        Keyword arguments sent to netCDF4.Dataset.
-    """
-    fpath = pathlib.Path(fpath).expanduser().resolve()
-    _options = {"elevation": {"units": "m"}}
-    _options.update({} if options is None else options)
-
-    with netCDF4.Dataset(fpath, "w", **kwargs) as dset:  # pylint: disable=no-member
-        write_to_dataset(dset, x, y, None, {"elevation": data}, _options)
