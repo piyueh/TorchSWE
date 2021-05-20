@@ -7,24 +7,20 @@
 # Distributed under terms of the BSD 3-Clause license.
 """Functions related to updating ghost cells, i.e., boundary conditions.
 """
-import copy
-from typing import Literal, Callable
-
-from pydantic import conint
-from torchswe import nplike
-from torchswe.utils.config import BaseConfig, SingleBCConfig, BCConfig
-from torchswe.utils.data import Topography, States
+import copy as _copy
+from torchswe import nplike as _nplike
+from torchswe.utils.dummy import DummyDtype as _DummyDtype
 # pylint: disable=fixme
 
 _extrap_seq = {
-    "west": lambda n, ngh, dtype: nplike.tile(
-        nplike.arange(ngh, 0, -1, dtype=dtype), (n, 1)),
-    "east": lambda n, ngh, dtype: nplike.tile(
-        nplike.arange(1, ngh+1, dtype=dtype), (n, 1)),
-    "north": lambda n, ngh, dtype: nplike.tile(
-        nplike.arange(1, ngh+1, dtype=dtype).reshape((ngh, 1)), (1, n)),
-    "south": lambda n, ngh, dtype: nplike.tile(
-        nplike.arange(ngh, 0, -1, dtype=dtype).reshape((ngh, 1)), (1, n))
+    "west": lambda n, ngh, dtype: _nplike.tile(
+        _nplike.arange(ngh, 0, -1, dtype=dtype), (n, 1)),
+    "east": lambda n, ngh, dtype: _nplike.tile(
+        _nplike.arange(1, ngh+1, dtype=dtype), (n, 1)),
+    "north": lambda n, ngh, dtype: _nplike.tile(
+        _nplike.arange(1, ngh+1, dtype=dtype).reshape((ngh, 1)), (1, n)),
+    "south": lambda n, ngh, dtype: _nplike.tile(
+        _nplike.arange(ngh, 0, -1, dtype=dtype).reshape((ngh, 1)), (1, n))
 }
 
 _extrap_anchor = {
@@ -81,19 +77,19 @@ def periodic_factory(ngh: int, orientation: str):
     # TODO: here we use `.copy()` to make legate happy, see nv-legate/legate.numpy#16
 
     def periodic_west(conserv_q):
-        conserv_q[ngh:-ngh, :ngh] = copy.deepcopy(conserv_q[ngh:-ngh, -ngh-ngh:-ngh])
+        conserv_q[ngh:-ngh, :ngh] = _copy.deepcopy(conserv_q[ngh:-ngh, -ngh-ngh:-ngh])
         return conserv_q
 
     def periodic_east(conserv_q):
-        conserv_q[ngh:-ngh, -ngh:] = copy.deepcopy(conserv_q[ngh:-ngh, ngh:ngh+ngh])
+        conserv_q[ngh:-ngh, -ngh:] = _copy.deepcopy(conserv_q[ngh:-ngh, ngh:ngh+ngh])
         return conserv_q
 
     def periodic_south(conserv_q):
-        conserv_q[:ngh, ngh:-ngh] = copy.deepcopy(conserv_q[-ngh-ngh:-ngh, ngh:-ngh])
+        conserv_q[:ngh, ngh:-ngh] = _copy.deepcopy(conserv_q[-ngh-ngh:-ngh, ngh:-ngh])
         return conserv_q
 
     def periodic_north(conserv_q):
-        conserv_q[-ngh:, ngh:-ngh] = copy.deepcopy(conserv_q[ngh:ngh+ngh, ngh:-ngh])
+        conserv_q[-ngh:, ngh:-ngh] = _copy.deepcopy(conserv_q[ngh:ngh+ngh, ngh:-ngh])
         return conserv_q
 
     candidates = {
@@ -123,22 +119,22 @@ def outflow_factory(ngh: int, orientation: str):
 
     def outflow_west(conserv_q):
         for i in range(ngh):
-            conserv_q[ngh:-ngh, i] = copy.deepcopy(conserv_q[ngh:-ngh, ngh])
+            conserv_q[ngh:-ngh, i] = _copy.deepcopy(conserv_q[ngh:-ngh, ngh])
         return conserv_q
 
     def outflow_east(conserv_q):
         for i in range(1, ngh+1):
-            conserv_q[ngh:-ngh, -i] = copy.deepcopy(conserv_q[ngh:-ngh, -ngh-1])
+            conserv_q[ngh:-ngh, -i] = _copy.deepcopy(conserv_q[ngh:-ngh, -ngh-1])
         return conserv_q
 
     def outflow_south(conserv_q):
         for i in range(ngh):
-            conserv_q[i, ngh:-ngh] = copy.deepcopy(conserv_q[ngh, ngh:-ngh])
+            conserv_q[i, ngh:-ngh] = _copy.deepcopy(conserv_q[ngh, ngh:-ngh])
         return conserv_q
 
     def outflow_north(conserv_q):
         for i in range(1, ngh+1):
-            conserv_q[-i, ngh:-ngh] = copy.deepcopy(conserv_q[-ngh-1, ngh:-ngh])
+            conserv_q[-i, ngh:-ngh] = _copy.deepcopy(conserv_q[-ngh-1, ngh:-ngh])
         return conserv_q
 
     candidates = {
@@ -291,7 +287,7 @@ def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
     inflow_bc_depth.bcslc = bcslc
 
     def inflow_bc_velocity(conserv_q):
-        depth = nplike.maximum(conserv_q[w_idx]-topo_cache[bcslc], 0.)
+        depth = _nplike.maximum(conserv_q[w_idx]-topo_cache[bcslc], 0.)
         delta = (const * depth - conserv_q[anchor]) * 2
         conserv_q[slc] = conserv_q[anchor] + seq * delta
         return conserv_q
@@ -325,94 +321,74 @@ def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
     return inflow_bc_velocity
 
 
-class BoundaryGhostUpdaterOneBound(BaseConfig):
-    """Ghost cell updaters on a single boundary."""
-    nedge: conint(ge=1)  # number of non-ghost cells ALONG this boundary
-    ngh: conint(ge=2)
-    orientation: Literal["west", "east", "south", "north"]
-    w: Callable[[nplike.ndarray], nplike.ndarray]
-    hu: Callable[[nplike.ndarray], nplike.ndarray]
-    hv: Callable[[nplike.ndarray], nplike.ndarray]
+def get_ghost_cell_updaters(bcs, nx, ny, ngh, dtype, topo=None):  # pylint: disable=invalid-name
+    """Get a function that updates all ghost cells.
 
-    def __init__(self, bc: SingleBCConfig, n: int, ngh: int, orient: str, topo: Topography = None):
-        # validate data models for a sanity check
-        bc.check()
+    This is a function factory. The return of this funciton is a function with signature:
+        torchswe.utils.data.States = func(torchswe.utils.data.States)
+    The update happens in-place, so the return of this function is not important. We return it
+    just to comform the coding style.
 
-        keymap = {0: "w", 1: "hu", 2: "hv"}
-        kwargs = {}
+    Arguments
+    ---------
+    bcs : torchswe.utils.config.BCConfig
+        The configuration instance of boundary conditions.
+    nx, ny : int
+        Numbers of non-ghost cells along x and y directions.
+    ngh : int
+        Number of ghost cell layers outside each boundary.
+    dtype : str, nplike.float32, or nplike.float64
+        Floating number precision.
+    topo : torchswe.tuils.data.Topography
+        Topography instance. Some boundary conditions require topography elevations.
 
-        for i, bctype in enumerate(bc.types):
-            if bctype == "periodic":  # periodic BC
-                kwargs[keymap[i]] = periodic_factory(ngh, orient)
-            elif bctype == "outflow":  # constant extrapolation BC (outflow)
-                kwargs[keymap[i]] = outflow_factory(ngh, orient)
-            elif bctype == "extrap":  # linear extrapolation BC
-                kwargs[keymap[i]] = linear_extrap_factory(n, ngh, orient, topo.dtype)
-            elif bctype == "const":  # constant/Dirichlet
-                kwargs[keymap[i]] = constant_bc_factory(bc.values[i], n, ngh, orient, topo.dtype)
-            elif bctype == "inflow":  # inflow/constant non-conservative variables
+    Returns
+    -------
+    A callable with signature `torchswe.utils.data.States = func(torchswe.utils.data.States)`.
+    """
+
+    bcs.check()
+    dtype = _DummyDtype.validator(dtype)
+
+    nngh = {"west": ny, "east": ny, "south": nx, "north": nx}
+    funcs = {"w": {}, "hu": {}, "hv": {}}
+
+    for i, key in enumerate(["w", "hu", "hv"]):
+        for ornt in ["west", "east", "south", "north"]:
+            # periodic BC
+            if bcs[ornt].types[i] == "periodic":
+                funcs[key][ornt] = periodic_factory(ngh, ornt)
+
+            # constant extrapolation BC (outflow)
+            elif bcs[ornt].types[i] == "outflow":
+                funcs[key][ornt] = outflow_factory(ngh, ornt)
+
+            # linear extrapolation BC
+            elif bcs[ornt].types[i] == "extrap":
+                funcs[key][ornt] = linear_extrap_factory(nngh[ornt], ngh, ornt, dtype)
+
+            # constant, i.e., Dirichlet
+            elif bcs[ornt].types[i] == "const":
+                funcs[key][ornt] = constant_bc_factory(
+                    bcs[ornt].values[i], nngh[ornt], ngh, ornt, dtype)
+
+            # inflow, i.e., constant non-conservative variables
+            elif bcs[ornt].types[i] == "inflow":
                 topo.check()
-                kwargs[keymap[i]] = inflow_bc_factory(
-                    bc.values[i], n, ngh, orient, topo, i, topo.dtype)
-            else:  # this shouldn't happen because pydantic should have catched the error
-                raise ValueError("{} is not recognized.".format(bctype))
+                funcs[key][ornt] = inflow_bc_factory(
+                    bcs[ornt].values[i], nngh[ornt], ngh, ornt, topo, i, dtype)
 
-        # initialize this data model instance and let pydantic validate the model
-        super().__init__(nedge=n, ngh=ngh, orientation=orient, **kwargs)
+            # this shouldn't happen because pydantic should have catched the error
+            else:
+                raise ValueError("{} is not recognized.".format(bcs[ornt].types[i]))
 
-    def update_all(self, values: States):
-        """Update all ghost cell of all components on this boundary.
+    def updater(soln):
+        for key in ["w", "hu", "hv"]:
+            for ornt in ["west", "east", "south", "north"]:
+                soln.q[key] = funcs[key][ornt](soln.q[key])
+        return soln
 
-        Arguments
-        ---------
-        values : torchswe.utils.data.States
-            An instance of the States data model.
+    # store the functions as an attribute for debug
+    updater.funcs = funcs
 
-        Returns
-        -------
-        values : torchswe.utils.data.States
-            The same input object. Values are updated in-place. Returning it just for coding style.
-        """
-        # values should be updated in-place; returning array again just for consistency in style
-        values.q.w = self.w(values.q.w)
-        values.q.hu = self.hu(values.q.hu)
-        values.q.hv = self.hv(values.q.hv)
-        return values
-
-
-class BoundaryGhostUpdater(BaseConfig):
-    """Ghost cell updaters for all boundaries and all components."""
-    ngh: conint(ge=2)
-    west: BoundaryGhostUpdaterOneBound
-    east: BoundaryGhostUpdaterOneBound
-    south: BoundaryGhostUpdaterOneBound
-    north: BoundaryGhostUpdaterOneBound
-
-    def __init__(self, bcs: BCConfig, nx: int, ny: int, ngh: int, topo: Topography = None):
-        super().__init__(
-            ngh=ngh,
-            west=BoundaryGhostUpdaterOneBound(bcs.west, ny, ngh, "west", topo),
-            east=BoundaryGhostUpdaterOneBound(bcs.east, ny, ngh, "east", topo),
-            south=BoundaryGhostUpdaterOneBound(bcs.south, nx, ngh, "south", topo),
-            north=BoundaryGhostUpdaterOneBound(bcs.north, nx, ngh, "north", topo)
-        )
-
-    def update_all(self, values: States):
-        """Update all ghost cell of all components on all boundaries.
-
-        Arguments
-        ---------
-        values : torchswe.utils.data.States
-            An instance of the States data model.
-
-        Returns
-        -------
-        values : torchswe.utils.data.States
-            The same input object. Values are updated in-place. Returning it just for coding style.
-        """
-        # values should be updated in-place; returning array again just for consistency in style
-        values = self.west.update_all(values)
-        values = self.east.update_all(values)
-        values = self.south.update_all(values)
-        values = self.north.update_all(values)
-        return values
+    return updater

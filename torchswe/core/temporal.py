@@ -67,7 +67,7 @@ def euler(states: States, grid: Gridlines, topo: Topography, config: Config, run
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
     # an initial updating, just in case
-    states = runtime.ghost_updater.update_all(states)
+    states = runtime.ghost_updater(states)
 
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
@@ -85,7 +85,7 @@ def euler(states: States, grid: Gridlines, topo: Topography, config: Config, run
         states.q.w[internal, internal] += (states.rhs.w * runtime.dt)
         states.q.hu[internal, internal] += (states.rhs.hu * runtime.dt)
         states.q.hv[internal, internal] += (states.rhs.hv * runtime.dt)
-        states = runtime.ghost_updater.update_all(states)
+        states = runtime.ghost_updater(states)
 
         # update iteration index and time
         runtime.counter += 1
@@ -142,7 +142,7 @@ def ssprk2(states: States, grid: Gridlines, topo: Topography, config: Config, ru
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
     # previous solution; should not be changed until the end of each time-step
-    states = runtime.ghost_updater.update_all(states)
+    states = runtime.ghost_updater(states)
 
     # to hold previous solution
     prev_q = copy.deepcopy(states.q)
@@ -163,7 +163,7 @@ def ssprk2(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
         states.q.hu[nongh, nongh] += (states.rhs.hu * runtime.dt)
         states.q.hv[nongh, nongh] += (states.rhs.hv * runtime.dt)
-        states = runtime.ghost_updater.update_all(states)
+        states = runtime.ghost_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = runtime.rhs_updater(states, grid, topo, config, runtime)
@@ -175,7 +175,7 @@ def ssprk2(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         states.q.hu[nongh, nongh] /= 2
         states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] + states.rhs.hv * runtime.dt)
         states.q.hv[nongh, nongh] /= 2
-        states = runtime.ghost_updater.update_all(states)
+        states = runtime.ghost_updater(states)
 
         # update iteration index and time
         runtime.counter += 1
@@ -237,7 +237,7 @@ def ssprk3(states: States, grid: Gridlines, topo: Topography, config: Config, ru
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
     # previous solution; should not be changed until the end of each time-step
-    states = runtime.ghost_updater.update_all(states)
+    states = runtime.ghost_updater(states)
 
     # to hold previous solution
     prev_q = copy.deepcopy(states.q)
@@ -258,7 +258,7 @@ def ssprk3(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
         states.q.hu[nongh, nongh] += (states.rhs.hu * runtime.dt)
         states.q.hv[nongh, nongh] += (states.rhs.hv * runtime.dt)
-        states = runtime.ghost_updater.update_all(states)
+        states = runtime.ghost_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = runtime.rhs_updater(states, grid, topo, config, runtime)
@@ -270,7 +270,7 @@ def ssprk3(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         states.q.hu[nongh, nongh] /= 4
         states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] * 3. + states.rhs.hv * runtime.dt)
         states.q.hv[nongh, nongh] /= 4
-        states = runtime.ghost_updater.update_all(states)
+        states = runtime.ghost_updater(states)
 
         # stage 3: now states.rhs is RHS(u^2)
         states, _ = runtime.rhs_updater(states, grid, topo, config, runtime)
@@ -285,7 +285,7 @@ def ssprk3(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         states.q.hv[nongh, nongh] *= 2  # 2 * u^2
         states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] + states.rhs.hv * runtime.dt * 2)
         states.q.hv[nongh, nongh] /= 3
-        states = runtime.ghost_updater.update_all(states)
+        states = runtime.ghost_updater(states)
 
         # update iteration index and time
         runtime.counter += 1

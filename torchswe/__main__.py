@@ -17,7 +17,7 @@ from torchswe.utils.data import get_empty_states
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.core.initializer import init, get_cmd_arguments
 from torchswe.core.fvm import fvm
-from torchswe.core.boundary_conditions import BoundaryGhostUpdater
+from torchswe.core.boundary_conditions import get_ghost_cell_updaters
 from torchswe.core.temporal import euler, ssprk2, ssprk3
 
 # enforce print precision
@@ -79,20 +79,25 @@ def main():
     # function to calculate right-hand-side
     runtime.rhs_updater = fvm
 
-    # object to update ghost cells
-    runtime.ghost_updater = BoundaryGhostUpdater(
-        config.bc, config.spatial.discretization[0], config.spatial.discretization[1],
-        config.params.ngh, topo)
+    # get the callable to update ghost cells
+    runtime.ghost_updater = get_ghost_cell_updaters(
+        config.bc, *config.spatial.discretization, config.params.ngh, config.dtype, topo)
     logger.info("Done setting runtime data.")
 
     # initialize an empty solution/states object
-    slc = slice(config.params.ngh, -config.params.ngh)  # slice indicating the non-ghost cells
     soln = get_empty_states(
         config.spatial.discretization[0], config.spatial.discretization[1],
         config.params.ngh, config.dtype)
+    logger.info("Done creating an empty state holder.")
+
+    # copy initial data to the solution holder
+    slc = slice(config.params.ngh, -config.params.ngh)  # slice indicating the non-ghost cells
     soln.q.w[slc, slc], soln.q.hu[slc, slc], soln.q.hv[slc, slc] = ic_data.w, ic_data.hu, ic_data.hv
-    soln = runtime.ghost_updater.update_all(soln)
-    logger.info("Done creating initial state holder.")
+    logger.info("Done applying initial conditions.")
+
+    # update ghost cells
+    soln = runtime.ghost_updater(soln)
+    logger.info("Done updating ghost cells.")
 
     # select time marching function
     marching = {"Euler": euler, "SSP-RK2": ssprk2, "SSP-RK3": ssprk3}  # available options
