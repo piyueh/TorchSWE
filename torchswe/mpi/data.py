@@ -6,18 +6,24 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""Functions and classes related to MPI runs.
+"""Data models used for MPI runs.
 """
 # pylint: disable=too-few-public-methods, no-self-argument, no-self-use, unnecessary-pass
 import time
-from typing import Optional, Tuple
-from mpi4py import MPI
-from pydantic import root_validator, validator, conint
-from torchswe.utils.config import BaseConfig
-from torchswe.utils.data import States, DummyDataModel, get_empty_states
+from typing import Optional as _Optional, Tuple as _Tuple
+from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
+from mpi4py import MPI as _MPI
+from pydantic import root_validator as _root_validator, validator as _validator, conint as _conint
+from torchswe import nplike as _nplike
+from torchswe.utils.config import BaseConfig as _BaseConfig
+from torchswe.utils.dummy import DummyDtype as _DummyDtype
+from torchswe.utils.data import Gridlines as _Gridlines, States as _States
+from torchswe.utils.data import Topography as _Topography, DummyDataModel as _DummyDataModel
+from torchswe.utils.data import get_empty_states as _get_empty_states, get_gridline as _get_gridline
+from torchswe.utils.netcdf import read as _ncread
 
 
-class BlockMPI(BaseConfig, DummyDataModel):
+class Block(_BaseConfig, _DummyDataModel):
     """A base class containing the info of a process in a 2D Cartesian topology.
 
     Attributes
@@ -44,36 +50,47 @@ class BlockMPI(BaseConfig, DummyDataModel):
     """
 
     # mpi related
-    comm: MPI.Comm
-    proc_shape: Tuple[conint(strict=True, ge=0), conint(strict=True, ge=0)]
-    proc_loc: Tuple[conint(strict=True, ge=0), conint(strict=True, ge=0)]
-    west: Optional[conint(strict=True, ge=0)] = ...
-    east: Optional[conint(strict=True, ge=0)] = ...
-    south: Optional[conint(strict=True, ge=0)] = ...
-    north: Optional[conint(strict=True, ge=0)] = ...
+    comm: _MPI.Comm
+    proc_shape: _Tuple[_conint(strict=True, ge=0), _conint(strict=True, ge=0)]
+    proc_loc: _Tuple[_conint(strict=True, ge=0), _conint(strict=True, ge=0)]
+    west: _Optional[_conint(strict=True, ge=0)] = ...
+    east: _Optional[_conint(strict=True, ge=0)] = ...
+    south: _Optional[_conint(strict=True, ge=0)] = ...
+    north: _Optional[_conint(strict=True, ge=0)] = ...
 
     # global-grid related
-    gnx: conint(strict=True, gt=0)
-    gny: conint(strict=True, gt=0)
+    gnx: _conint(strict=True, gt=0)
+    gny: _conint(strict=True, gt=0)
 
     # local-grid related
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    ibg: conint(strict=True, ge=0)
-    ied: conint(strict=True, gt=0)
-    jbg: conint(strict=True, ge=0)
-    jed: conint(strict=True, gt=0)
+    nx: _conint(strict=True, gt=0)
+    ny: _conint(strict=True, gt=0)
+    ibg: _conint(strict=True, ge=0)
+    ied: _conint(strict=True, gt=0)
+    jbg: _conint(strict=True, ge=0)
+    jed: _conint(strict=True, gt=0)
 
     # ghost cells (the same for internal boundaries and domain boundaries)
-    ngh: conint(strict=True, ge=2)
+    ngh: _conint(strict=True, ge=0)
 
-    @validator("comm")
+    def get_block(self):
+        """Get a copy of this block.
+
+        Usually used by derived classes.
+        """
+        return Block(
+            comm=self.comm, proc_shape=self.proc_shape, proc_loc=self.proc_loc, west=self.west,
+            east=self.east, south=self.south, north=self.north, gnx=self.gnx, gny=self.gny,
+            nx=self.nx, ny=self.ny, ibg=self.ibg, ied=self.ied, jbg=self.jbg, jed=self.jed,
+            ngh=self.ngh)
+
+    @_validator("comm")
     def _val_comm(cls, val):
         recvbuf = val.allgather(val.Get_rank())
         assert recvbuf == list(range(val.Get_size())), "Communicator not working."
         return val
 
-    @validator("proc_shape")
+    @_validator("proc_shape")
     def _val_proc_shape(cls, val, values):
         if "comm" not in values:  # comm did not pass the validation
             return val
@@ -81,7 +98,7 @@ class BlockMPI(BaseConfig, DummyDataModel):
         assert val[0] * val[1] == world_size, "shape: {}, world_size: {}".format(val, world_size)
         return val
 
-    @validator("proc_loc")
+    @_validator("proc_loc")
     def _val_proc_loc(cls, val, values):
         if "proc_shape" not in values:  # proc_shape didn't pass the validation
             return val
@@ -90,7 +107,7 @@ class BlockMPI(BaseConfig, DummyDataModel):
         assert val[1] < shp[1], "proc_loc[1]: {}, proc_shape[1]: {}".format(val[1], shp[1])
         return val
 
-    @validator("nx", "ny")
+    @_validator("nx", "ny")
     def _val_sum_n(cls, val, values, field):
         if "proc_shape" not in values:  # proc_shape didn't pass the validation
             return val
@@ -102,7 +119,7 @@ class BlockMPI(BaseConfig, DummyDataModel):
             field.name, tgt, total//values["proc_shape"][key], values[tgt])
         return val
 
-    @validator("ied", "jed")
+    @_validator("ied", "jed")
     def _val_end(cls, val, values, field):
         # pylint: disable=invalid-name
         other = "ibg" if field.name == "ied" else "jbg"
@@ -112,7 +129,7 @@ class BlockMPI(BaseConfig, DummyDataModel):
             "{} should > {}: {}, {}".format(field.name, other, val, values[other])
         return val
 
-    @root_validator
+    @_root_validator
     def _val_neighbors(cls, values):
 
         # try to communicate with neighbors
@@ -168,33 +185,121 @@ class BlockMPI(BaseConfig, DummyDataModel):
         return values
 
 
-class StatesMPI(States, BlockMPI):
+class States(_States, Block):
     """MPI version of the States data model.
 
     Attributes
     ----------
-    The following attributes are inherented from torchswe.utils.mpi.BlockMPI:
+    The following attributes are inherented from torchswe.mpi.data.Block:
 
     comm : MPI.Comm
-    proc_shape : (int, int)
-    proc_loc : (int, int)
+    proc_shape, proc_loc : (int, int)
     west, east, south, north : int or None
-    gnx, gny : int
-    nx, ny : int
-    ibg, ied : int
-    jbg, jed : int
-    ngh : int
+    gnx, gny, nx, ny, ngh : int
+    ibg, ied, jbg, jed : int
 
     The following attributes are inherented from torchswe.utils.data.States:
 
-    dtype: torchswe.utils.dummy.DummyDtype
-    q: torchswe.utils.data.WHUHVModel
-    src: torchswe.utils.data.WHUHVModel
+    dtype : torchswe.utils.dummy.DummyDtype
+    q, src, rhs : torchswe.utils.data.WHUHVModel
     slp: torchswe.utils.data.Slopes
-    rhs: torchswe.utils.data.WHUHVModel
     face: torchswe.utils.data.FaceQuantityModel
     """
-    pass
+
+    def exchange_data(self):
+        """Exchange data with neighbor MPI process to update overlapped slices."""
+        # pylint: disable=too-many-locals
+
+        sbuf, sreq, rbuf, rreq = {}, {}, {}, {}
+
+        stags = {
+            "west": {"w": 31, "hu": 32, "hv": 33}, "east": {"w": 41, "hu": 42, "hv": 43},
+            "south": {"w": 51, "hu": 52, "hv": 53}, "north": {"w": 61, "hu": 62, "hv": 63},
+        }
+
+        rtags = {
+            "west": {"w": 41, "hu": 42, "hv": 43}, "east": {"w": 31, "hu": 32, "hv": 33},
+            "south": {"w": 61, "hu": 62, "hv": 63}, "north": {"w": 51, "hu": 52, "hv": 53},
+        }
+
+        sslcs = {
+            "west": (slice(None), slice(self.ngh, 2*self.ngh)),
+            "east": (slice(None), slice(-2*self.ngh, -self.ngh)),
+            "south": (slice(self.ngh, 2*self.ngh), slice(None)),
+            "north": (slice(-2*self.ngh, -self.ngh), slice(None)),
+        }
+
+        rslcs = {
+            "west": (slice(None), slice(None, self.ngh)),
+            "east": (slice(None), slice(-self.ngh, None)),
+            "south": (slice(None, self.ngh), slice(None)),
+            "north": (slice(-self.ngh, None), slice(None)),
+        }
+
+        ans = 0
+        for ornt in ["west", "east", "south", "north"]:
+            if self[ornt] is not None:
+                for var in ["w", "hu", "hv"]:
+                    key = (ornt, var)
+                    sbuf[key] = self.q[var][sslcs[ornt]].copy()
+                    sreq[key] = self.comm.Isend(sbuf[key], self[ornt], stags[ornt][var])
+                    rbuf[key] = _nplike.zeros_like(self.q[var][rslcs[ornt]])
+                    rreq[key] = self.comm.Irecv(rbuf[key], self[ornt], rtags[ornt][var])
+                    ans += 1
+
+        tstart = time.perf_counter()
+        done = 0
+        while done != ans and time.perf_counter()-tstart < 5.:
+            for key, req in rreq.items():
+                if key in rbuf and req.Test():
+                    self.q[key[1]][rslcs[key[0]]] = rbuf[key]
+                    del rbuf[key]
+                    done += 1
+
+        # make usre if the while loop exited because of done == ans
+        if done != ans:
+            raise RuntimeError("Receiving data from neighbor timeout: {}".format(rbuf.keys()))
+
+        # only leave this functio when send requests are also done
+        tstart = time.perf_counter()
+        done = 0
+        while done != ans and time.perf_counter()-tstart < 5.:
+            for key, req in sreq.items():
+                if key in sbuf and req.Test():
+                    del sbuf[key]
+                    done += 1
+
+        # make usre if the while loop exited because of done == ans
+        if done != ans:
+            raise RuntimeError("Sending data from neighbor timeout: {}".format(sbuf.keys()))
+
+
+class Gridlines(_Gridlines, Block):
+    """MPI version of the Gridlines data model.
+
+    Attributes
+    ----------
+    gxbg, gxed, gybg, gyed : float
+        The global bounds in x and y directions.
+
+    The following attributes are inherented from torchswe.mpi.data.Block:
+
+    comm : MPI.Comm
+    proc_shape, proc_loc : (int, int)
+    west, east, south, north : int or None
+    gnx, gny, nx, ny, ngh : int
+    ibg, ied, jbg, jed : int
+
+    The following attributes are inherented from torchswe.utils.data.Gridlines:
+
+    x, y : Gridline
+    y : Gridline
+    t : List[float]
+    """
+    gxbg: float
+    gxed: float
+    gybg: float
+    gyed: float
 
 
 def cal_num_procs(world_size: int, gnx: int, gny: int):
@@ -247,7 +352,7 @@ def cal_num_procs(world_size: int, gnx: int, gny: int):
     return pnx, pny
 
 
-def cal_proc_loc(pnx: int, rank: int):
+def cal_proc_loc_from_rank(pnx: int, rank: int):
     """Calculate the location of a rank in a 2D Cartesian topology.
 
     A very simple assignment method. Using this function to unify the way of assignment throughout
@@ -266,6 +371,24 @@ def cal_proc_loc(pnx: int, rank: int):
         The indices of the rank in the 2D MPI topology in x and y directions.
     """
     return rank % pnx, rank // pnx
+
+
+def cal_rank_from_proc_loc(pnx: int, pi: int, pj: int):
+    """Given (pj, pi), calculate the rank.
+
+    Arguments
+    ---------
+    pnx : int
+        Number of MPI processes in x directions.
+    pi, pj : int
+        The location indices of this process in x and y direction in the 2D process topology.
+
+    Returns
+    -------
+    rank : int
+    """
+    # pylint: disable=invalid-name
+    return pj * pnx + pi
 
 
 def cal_local_cell_range(pnx: int, pny: int, pi: int, pj: int, gnx: int, gny: int):
@@ -339,7 +462,7 @@ def cal_neighbors(pnx: int, pny: int, pi: int, pj: int, rank: int):
     return west, east, south, north
 
 
-def get_blockmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int):
+def get_block(comm: _MPI.Comm, gnx: int, gny: int, ngh: int):
     """Get an instance of BloclMPI for the current MPI process.
 
     Arguments
@@ -354,7 +477,7 @@ def get_blockmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int):
 
     Returns
     -------
-    An instance of BlockMPI.
+    An instance of Block.
     """
     # pylint: disable=invalid-name
 
@@ -362,7 +485,7 @@ def get_blockmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int):
 
     pnx, pny = cal_num_procs(comm.Get_size(), gnx, gny)
 
-    pi, pj = cal_proc_loc(pnx, comm.Get_rank())
+    pi, pj = cal_proc_loc_from_rank(pnx, comm.Get_rank())
 
     data["west"], data["east"], data["south"], data["north"] = \
         cal_neighbors(pnx, pny, pi, pj, comm.Get_rank())
@@ -375,11 +498,13 @@ def get_blockmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int):
     data["proc_shape"] = (pny, pnx)
     data["proc_loc"] = (pj, pi)
 
-    return BlockMPI(**data)
+    return Block(**data)
 
 
-def get_empty_statesmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int, dtype: str):
-    """Get an instance of StatesMPI for the current process with all-zero data arrays.
+def get_empty_states(comm: _MPI.Comm, gnx: int, gny: int, ngh: int, dtype: str):
+    """Get an instance of States for the current process with all-zero data arrays.
+
+    This overloads the serial version of `get_empty_states`.
 
     Arguments
     ---------
@@ -394,9 +519,106 @@ def get_empty_statesmpi(comm: MPI.Comm, gnx: int, gny: int, ngh: int, dtype: str
 
     Returns
     -------
-    An instance of StatesMPI.
+    An instance of States.
     """
-    block = get_blockmpi(comm, gnx, gny, ngh)
-    states = get_empty_states(block.nx, block.ny, block.ngh, dtype)
+    block = get_block(comm, gnx, gny, ngh)
+    states = _get_empty_states(block.nx, block.ny, block.ngh, dtype)
     kwargs = {**states.__dict__, **block.__dict__}  # to resolve duplicated attrs, e.g., nx, ny, etc
-    return StatesMPI(**kwargs)
+    return States(**kwargs)
+
+
+def get_gridlines(comm, gnx, gny, gxbg, gxed, gybg, gyed, t, dtype):
+    """Get an MPI-version of Gridlines.
+
+    It's the same object as the one used for serial code, but now it stores local grid info owned
+    by the current process.
+
+    Arguments
+    ---------
+    comm : MPI.Comm
+    gnx, gny : int
+    gxbg, gxed : float
+    gybg, gyed : float
+    t : list/tuple of floats
+    dtype : str, nplike.float32, or nplike.float64
+
+    Returns
+    -------
+    An instance of torchswe.mpi.data.Gridlines.
+    """
+    # pylint: disable=too-many-arguments, invalid-name, too-many-locals
+
+    block = get_block(comm, gnx, gny, 0)
+
+    delta = [(gxed - gxbg) / gnx, (gyed - gybg) / gny]
+    xbg, xed = block.ibg * delta[0] + gxbg, block.ied * delta[0] + gxbg
+    ybg, yed = block.jbg * delta[1] + gybg, block.jed * delta[1] + gybg
+    assert abs(block.nx*delta[0]-xed+xbg) <= 1e-10
+    assert abs(block.ny*delta[1]-yed+ybg) <= 1e-10
+
+    data = {"gxbg": gxbg, "gxed": gxed, "gybg": gybg, "gyed": gyed}
+    data["x"] = _get_gridline("x", block.nx, xbg, xed, dtype)
+    data["y"] = _get_gridline("y", block.ny, ybg, yed, dtype)
+    data["t"] = t
+    data.update(block.__dict__)
+
+    return Gridlines(**data)
+
+
+def get_topography(comm, topofile, key, grid_xv, grid_yv, dtype):
+    """Get a Topography object from a config object.
+
+    Arguments
+    ---------
+    comm : MPI.Comm
+    topofile : str or PathLike
+    key : str
+    grid_xv, grid_yv : nplike.ndarray
+    dtype : str, nplike.float32, nplike.float64
+
+    Returns
+    -------
+    topo : torchswe.utils.data.Topography
+    """
+    # pylint: disable=too-many-locals
+    dtype = _DummyDtype.validator(dtype)
+    assert dtype == grid_xv.dtype
+    assert dtype == grid_yv.dtype
+
+    dem, _ = _ncread(
+        topofile, [key], [grid_xv[0], grid_xv[-1], grid_yv[0], grid_yv[-1]],
+        parallel=True, comm=comm)
+
+    vert = dem[key]
+
+    # see if we need to do interpolation
+    try:
+        interp = not (_nplike.allclose(grid_xv, dem["x"]) and _nplike.allclose(grid_yv, dem["y"]))
+    except ValueError:  # assume thie excpetion means a shape mismatch
+        interp = True
+
+    # unfortunately, we need to do interpolation in such a situation
+    if interp:
+        interpolator = _RectBivariateSpline(dem["x"], dem["y"], vert.T)
+        vert = _nplike.array(interpolator(grid_xv, grid_yv).T)  # scipy returns vanilla numpy
+
+    # cast to desired float type
+    vert = vert.astype(dtype)
+
+    # topography elevation at cell centers through linear interpolation
+    cntr = vert[:-1, :-1] + vert[:-1, 1:] + vert[1:, :-1] + vert[1:, 1:]
+    cntr /= 4
+
+    # topography elevation at cell faces' midpoints through linear interpolation
+    xface = (vert[:-1, :] + vert[1:, :]) / 2.
+    yface = (vert[:, :-1] + vert[:, 1:]) / 2.
+
+    # gradient at cell centers through central difference; here allows nonuniform grids
+    # this function does not assume constant cell sizes
+    xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid_xv[1:] - grid_xv[:-1])[None, :]
+    ygrad = (yface[1:, :] - yface[:-1, :]) / (grid_yv[1:] - grid_yv[:-1])[:, None]
+
+    # initialize DataModel and let pydantic validates data
+    return _Topography(
+        nx=len(grid_xv)-1, ny=len(grid_yv)-1, dtype=dtype, vert=vert, cntr=cntr,
+        xface=xface, yface=yface, xgrad=xgrad, ygrad=ygrad)
