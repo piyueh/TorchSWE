@@ -147,10 +147,20 @@ class SingleBCConfig(BaseConfig):
     types: Tuple[BCTypeHint, BCTypeHint, BCTypeHint]
     values: Tuple[Optional[float], Optional[float], Optional[float]] = [None, None, None]
 
+    @validator("types")
+    def check_periodicity(cls, v):
+        """If one component is periodic, all components should be periodic."""
+        if any(t == "periodic" for t in v):
+            assert all(t == "periodic" for t in v), "All components should be periodic."
+        return v
+
     @validator("values")
     def check_values(cls, v, values):
         """Check if values are set accordingly for some BC types.
         """
+        if "types" not in values:
+            return v
+
         for bctype, bcval in zip(values["types"], v):
             if bctype in ("const", "inflow"):
                 assert isinstance(bcval, float), \
@@ -176,6 +186,9 @@ class BCConfig(BaseConfig):
     @root_validator(pre=False)
     def check_periodicity(cls, values):
         """Check whether periodic BCs match at corresponding boundary pairs."""
+        if any((t not in values) for t in ["west", "east", "south", "north"]):
+            return values
+
         result = True
         for types in zip(values["west"]["types"], values["east"]["types"]):
             if any(t == "periodic" for t in types):
