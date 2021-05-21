@@ -193,8 +193,8 @@ def create_ic(ic_config, gridlines, topo, dtype):
     # see if we need to do interpolation
     try:
         interp = not (
-            nplike.allclose(gridlines.x.cntr, nplike.array(icdata["x"])) and
-            nplike.allclose(gridlines.y.cntr, nplike.array(icdata["y"])))
+            nplike.allclose(gridlines.x.cntr, icdata["x"]) and
+            nplike.allclose(gridlines.y.cntr, icdata["y"]))
     except ValueError:  # assume thie excpetion means a shape mismatch
         interp = True
 
@@ -211,9 +211,9 @@ def create_ic(ic_config, gridlines, topo, dtype):
         interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[2]][:].T)
         hv = interpolator(gridlines.x.cntr, gridlines.y.cntr).T
     else:
-        w = nplike.array(icdata[ic_config.keys[0]][:].copy())
-        hu = nplike.array(icdata[ic_config.keys[1]][:].copy())
-        hv = nplike.array(icdata[ic_config.keys[2]][:].copy())
+        w = icdata[ic_config.keys[0]]
+        hu = icdata[ic_config.keys[1]]
+        hv = icdata[ic_config.keys[2]]
 
     # make sure the w can not be smaller than topopgraphy elevation
     w = nplike.maximum(w, topo.cntr)

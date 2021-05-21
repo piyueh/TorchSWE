@@ -11,8 +11,8 @@
 from pathlib import Path as _Path
 from datetime import datetime as _datetime, timezone as _timezone
 
-from numpy import searchsorted as _searchsorted, array as _vanilla_np_array
 from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
+from torchswe import nplike as _nplike
 from torchswe.utils.dummy import DummyDict as _DummyDict
 
 
@@ -163,8 +163,8 @@ def read_from_dataset(dset, data_keys, domain=None):
     attrs = _DummyDict()
 
     # make a local copy of the global fridline
-    data["x"] = dset["x"][:].data
-    data["y"] = dset["y"][:].data
+    data["x"] = _nplike.array(dset["x"][:])
+    data["y"] = _nplike.array(dset["y"][:])
 
     # determine the target domain in the index space
     if domain is None:
@@ -176,10 +176,10 @@ def read_from_dataset(dset, data_keys, domain=None):
         assert data["y"][-1] >= domain[3], "{}, {}".format(data["y"][-1], domain[3])
 
         # find the start and end indices containing the provided domain
-        ibg = _searchsorted(data["x"], domain[0])
-        ied = _searchsorted(data["x"], domain[1])
-        jbg = _searchsorted(data["y"], domain[2])
-        jed = _searchsorted(data["y"], domain[3])
+        ibg = int(_nplike.searchsorted(data["x"], domain[0]))
+        ied = int(_nplike.searchsorted(data["x"], domain[1]))
+        jbg = int(_nplike.searchsorted(data["y"], domain[2]))
+        jed = int(_nplike.searchsorted(data["y"], domain[3]))
 
         ibg = ibg - 1 if data["x"][ibg] > domain[0] else ibg
         ied = ied + 1 if data["x"][ied] < domain[1] else ied
@@ -209,13 +209,16 @@ def read_from_dataset(dset, data_keys, domain=None):
 
     # read data and attributes of each specified key
     for key in data_keys:
-        data[key] = dset[key][slc].data
+        data[key] = _nplike.array(dset[key][slc])
         attrs[key] = dset[key].__dict__
 
     return data, attrs
 
 
-def write(fpath, axs, data=None, global_n=None, idx_bounds=None, options=None, **kwargs):
+def write(
+    fpath, axs, data=None, global_n=None, idx_bounds=None, corner=None, deltas=None, options=None,
+    **kwargs
+):
     """Write to a new NetCDF file with CF convention.
 
     Arguments
@@ -241,14 +244,18 @@ def write(fpath, axs, data=None, global_n=None, idx_bounds=None, options=None, *
     **kwargs :
         Arbitrary keyword arguments that will be provide to netCDF4.Dataset.__init__.
     """
+    # pylint: disable=too-many-arguments
 
     fpath = _Path(fpath).expanduser().resolve()
 
     with _Dataset(fpath, "w", **kwargs) as rootgrp:  # pylint: disable=no-member
-        rootgrp = write_to_dataset(rootgrp, axs, data, global_n, idx_bounds, options)
+        rootgrp = write_to_dataset(
+            rootgrp, axs, data, global_n, idx_bounds, corner, deltas, options)
 
 
-def write_to_dataset(dset, axs, data=None, global_n=None, idx_bounds=None, options=None):
+def write_to_dataset(
+    dset, axs, data=None, global_n=None, idx_bounds=None, corner=None, deltas=None, options=None
+):
     """Write gridlines and data to an opened but empty NetCDF dataset using CF convention.
 
     Arguments
@@ -285,18 +292,21 @@ def write_to_dataset(dset, axs, data=None, global_n=None, idx_bounds=None, optio
     - The spatial gridline x an y are always assumed to be EPSG:3857 coordinates.
     - No sanity check will be done. Users have to be careful of dimensions mismatch.
     """
+    # pylint: disable=too-many-arguments
+
+    # default values
+    global_n = [len(axs[0]), len(axs[1])] if global_n is None else global_n
+    idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
+    corner = (axs[0][0], axs[1][-1]) if corner is None else corner
+    deltas = (axs[0][1]-axs[0][0], axs[1][1]-axs[1][0]) if deltas is None else deltas
 
     # get default options
     options = {} if options is None else options
-    _options = default_attrs((axs[0][0], axs[1][-1]), (axs[0][1]-axs[0][0], axs[1][1]-axs[1][0]))
+    _options = default_attrs(corner, deltas)
     _options = {**options, **_options}
 
     for key in ["root", "x", "y", "time", "mercator"]:
         _options[key].update(options[key] if key in options else {})
-
-    # other default values
-    global_n = [len(axs[0]), len(axs[1])] if global_n is None else global_n
-    idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
 
     # global attributes
     dset.setncatts(_options["root"])
@@ -351,7 +361,7 @@ def add_variables_to_dataset(dset, data, idx_bounds=None, options=None):
 
         # create the variable
         shape = ("ntime", "ny", "nx") if "ntime" in dset.dimensions else ("ny", "nx")
-        dset.createVariable(key, "f8", shape, True, 9, fill_value=nan)  # all NaN in it right now
+        dset.createVariable(key, "f8", shape, fill_value=nan)  # all NaN in it right now
 
         # variable attributes
         dset[key].long_name = key
@@ -453,7 +463,6 @@ def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, opti
 
     # update default values
     global_n = len(values) if global_n is None else global_n
-    collective = (global_n == len(values))
     idx_bounds = [None, None] if idx_bounds is None else idx_bounds
     options = {} if options is None else options
 
@@ -462,7 +471,7 @@ def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, opti
     dset[name].setncatts(options)
 
     try:
-        dset[name].set_collective(collective)
+        dset[name].set_collective(True)
     except RuntimeError as err:
         if "Parallel operation" not in str(err):  # only raise error if not complaining serial data
             raise
@@ -476,11 +485,11 @@ def _copy_data(var, array, slc):
     """Copy a non-completely np-compatible ndarray to a NetCDF4 variable."""
 
     try:
-        var[slc] = _vanilla_np_array(array)
+        var[slc] = array
     except TypeError as err:
         if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
             var[slc] = array.get()  # cupy
         elif str(err).startswith("can't convert cuda:"):
-            var[slc] = array.cpu().numpy()
+            var[slc] = array.cpu().numpy()  # pytorch
         else:
             raise

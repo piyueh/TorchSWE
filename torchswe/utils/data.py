@@ -515,14 +515,11 @@ def get_topography(
 
     dem, _ = ncread(topofile, [key])
 
-    # the NetCDF4 uses vanilla NumPy ndarray; copy it to a nplike.ndarray
-    vert = nplike.array(dem[key][:])
+    vert = dem[key]
 
     # see if we need to do interpolation
     try:
-        interp = not (
-            nplike.allclose(grid_xv, nplike.array(dem["x"])) and
-            nplike.allclose(grid_yv, nplike.array(dem["y"])))
+        interp = not (nplike.allclose(grid_xv, dem["x"]) and nplike.allclose(grid_yv, dem["y"]))
     except ValueError:  # assume thie excpetion means a shape mismatch
         interp = True
 
