@@ -34,7 +34,10 @@ meta = dict(
     ],
     license_files=["LICENSE"],
     packages=setuptools.find_packages(),
-    entry_points={"console_scripts": ["TorchSWE.py = torchswe.__main__:main"]}
+    entry_points={"console_scripts": [
+        "TorchSWE.py = torchswe.__main__:main",
+        "TorchSWEMPI.py = torchswe.__main_mpi__:main",
+    ]}
 )
 
 meta["extras_require"] = {
