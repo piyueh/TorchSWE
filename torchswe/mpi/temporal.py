@@ -79,11 +79,11 @@ def euler(states: States, grid: Gridlines, topo: Topography, config: Config, run
         # adaptive dt
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
 
-        # make sure cur_t + dt won't exceed next_t
-        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
-
         # synchronize dt from all processes
         runtime.dt = states.comm.allreduce(runtime.dt, MPI.MIN)
+
+        # make sure cur_t + dt won't exceed next_t
+        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
 
         # update
         states.q.w[internal, internal] += (states.rhs.w * runtime.dt)
@@ -161,11 +161,11 @@ def ssprk2(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         # adaptive dt based on the CFL of 1st order Euler
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
 
-        # make sure cur_t + dt won't exceed next_t
-        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
-
         # synchronize dt from all processes
         runtime.dt = states.comm.allreduce(runtime.dt, MPI.MIN)
+
+        # make sure cur_t + dt won't exceed next_t
+        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
@@ -260,11 +260,11 @@ def ssprk3(states: States, grid: Gridlines, topo: Topography, config: Config, ru
         # adaptive dt based on the CFL of 1st order Euler
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
 
-        # make sure cur_t + dt won't exceed next_t
-        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
-
         # synchronize dt from all processes
         runtime.dt = states.comm.allreduce(runtime.dt, MPI.MIN)
+
+        # make sure cur_t + dt won't exceed next_t
+        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
