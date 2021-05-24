@@ -17,7 +17,7 @@ from typing import List
 import numpy
 import matplotlib
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read_cf
+from torchswe.utils.netcdf import read as ncread
 
 
 # paths
@@ -34,14 +34,7 @@ main = importlib.import_module("create_data").main
 
 # read data in
 # -------------
-if case_dir.joinpath("solutions.npz").is_file():
-    sim_data = {}
-    with numpy.load(case_dir.joinpath("solutions.npz")) as data:
-        for k, v in data.items():
-            sim_data[k] = v[:]
-else:
-    sim_data, _ = read_cf(case_dir.joinpath("solutions.nc"), ["w", "hu", "hv"])
-    numpy.savez_compressed(case_dir.joinpath("solutions"), **sim_data)
+sim_data, _ = ncread(case_dir.joinpath("solutions.nc"), ["w", "hu", "hv"])
 
 # some parameters
 # ----------------

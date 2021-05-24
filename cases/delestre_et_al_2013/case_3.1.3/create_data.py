@@ -14,8 +14,8 @@ instead of cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.config import Config
-from torchswe.utils.netcdf import write_cf
+from torchswe.utils.data import get_gridlines
+from torchswe.utils.io import create_topography_file
 
 
 def main():
@@ -24,29 +24,21 @@ def main():
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as fobj:
-        config: Config = yaml.load(fobj, Loader=yaml.Loader)
+        config = yaml.load(fobj, Loader=yaml.Loader)
 
-    x = numpy.linspace(
-        config.spatial.domain[0], config.spatial.domain[1],
-        config.spatial.discretization[0]+1, dtype=numpy.float64)
-    y = numpy.linspace(
-        config.spatial.domain[2], config.spatial.domain[3],
-        config.spatial.discretization[1]+1, dtype=numpy.float64)
+    # gridlines; ignore temporal axis
+    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
 
     # create 1D version of B first
-    topo_vert = numpy.zeros_like(x)
-
-    loc = (x >= 8.) * (x <= 12.)
-    topo_vert[loc] = 0.2 - 0.05 * numpy.power(x[loc]-10., 2)
+    topo_vert = numpy.zeros_like(grid.x.vert)
+    loc = (grid.x.vert >= 8.) * (grid.x.vert <= 12.)
+    topo_vert[loc] = 0.2 - 0.05 * numpy.power(grid.x.vert[loc]-10., 2)
 
     # make it 2D
-    topo_vert = numpy.tile(topo_vert, (config.spatial.discretization[1]+1, 1))
+    topo_vert = numpy.tile(topo_vert, (grid.y.n+1, 1))
 
     # write topography file
-    write_cf(
-        case.joinpath(config.topo.file), {"x": x, "y": y},
-        {config.topo.key: topo_vert},
-        options={config.topo.key: {"units": "m"}})
+    create_topography_file(case.joinpath(config.topo.file), (grid.x.vert, grid.y.vert), topo_vert)
 
     return 0
 

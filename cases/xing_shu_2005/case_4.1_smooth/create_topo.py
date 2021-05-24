@@ -14,8 +14,8 @@ instead of cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.config import Config
-from torchswe.utils.netcdf import write_cf
+from torchswe.utils.data import get_gridlines
+from torchswe.utils.io import create_topography_file
 
 
 def main():
@@ -25,21 +25,15 @@ def main():
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as f:
-        config: Config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.load(f, Loader=yaml.Loader)
 
-    x = numpy.linspace(
-        config.spatial.domain[0], config.spatial.domain[1],
-        config.spatial.discretization[0]+1, dtype=numpy.float64)
-    y = numpy.linspace(
-        config.spatial.domain[2], config.spatial.domain[3],
-        config.spatial.discretization[1]+1, dtype=numpy.float64)
+    # gridlines; ignore temporal axis
+    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
 
-    B = numpy.tile(5.*numpy.exp(-0.4*((x-5.)**2)), (config.spatial.discretization[1]+1, 1))
 
-    write_cf(
-        case.joinpath(config.topo.file), {"x": x, "y": y},
-        {config.topo.key: B},
-        options={config.topo.key: {"units": "m"}})
+    # topography, defined on cell vertices
+    B = numpy.tile(5.*numpy.exp(-0.4*((grid.x.vert-5.)**2)), (grid.y.n+1, 1))
+    create_topography_file(case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert], B)
 
     return 0
 

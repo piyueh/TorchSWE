@@ -14,8 +14,8 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.config import Config
-from torchswe.utils.netcdf import write_cf
+from torchswe.utils.data import get_empty_whuhvmodel, get_gridlines
+from torchswe.utils.io import create_soln_snapshot_file, create_topography_file
 
 
 def topo(x, y, h0=0.1, L=4., a=1.):
@@ -50,36 +50,19 @@ def main():
     with open(case.joinpath("config.yaml"), 'r') as f:
         config: Config = yaml.load(f, Loader=yaml.Loader)
 
-    x = numpy.linspace(
-        config.spatial.domain[0], config.spatial.domain[1],
-        config.spatial.discretization[0]+1, dtype=numpy.float64)
-    y = numpy.linspace(
-        config.spatial.domain[2], config.spatial.domain[3],
-        config.spatial.discretization[1]+1, dtype=numpy.float64)
+    # gridlines; ignore temporal axis
+    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
 
-    # 2D X, Y for temporarily use
-    X, Y = numpy.meshgrid(x, y)
+    # topography, defined on cell vertices
+    create_topography_file(
+        case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert],
+        topo(*numpy.meshgrid(grid.x.vert, grid.y.vert)))
 
-    # write topography file
-    write_cf(
-        case.joinpath(config.topo.file), {"x": x, "y": y},
-        {config.topo.key: topo(X, Y)},
-        options={config.topo.key: {"units": "m"}})
-
-    # x and y for cell centers
-    xc = (x[:-1] + x[1:]) / 2.
-    yc = (y[:-1] + y[1:]) / 2.
-    Xc, Yc = numpy.meshgrid(xc, yc)
-
-    # I.C.: w, hu, hv
-    w, hu, hv = exact_soln(Xc, Yc, 0.)
-
-    # write I.C. file
-    write_cf(
-        case.joinpath(config.ic.file), {"x": xc, "y": yc},
-        dict(zip(config.ic.keys, [w, hu, hv])),
-        options=dict(
-            zip(config.ic.keys, [{"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
+    # initial conditions, defined on cell centers
+    ic = get_empty_whuhvmodel(*config.spatial.discretization, config.dtype)
+    ic.w, ic.hu, ic.hv = exact_soln(*numpy.meshgrid(grid.x.cntr, grid.y.cntr), 0.)
+    ic.check()
+    create_soln_snapshot_file(case.joinpath(config.ic.file), grid, ic)
 
     return 0
 

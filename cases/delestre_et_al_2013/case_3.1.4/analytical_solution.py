@@ -11,7 +11,7 @@
 import pathlib
 import numpy
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read_cf
+from torchswe.utils.netcdf import read as ncread
 # pylint: disable=invalid-name, too-many-locals, too-many-statements
 
 
@@ -85,7 +85,7 @@ def main():
 
     # read simulation data
     filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
-    sim_data, _ = read_cf(filename, ["w", "hu"])
+    sim_data, _ = ncread(filename, ["w", "hu"])
     x = sim_data["x"]
     w = sim_data["w"][-1, :, :]  # only keep the soln at the last time
     w = numpy.mean(w, 0)  # use the average in y direction

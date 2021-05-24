@@ -11,7 +11,7 @@
 import pathlib
 import numpy
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read_cf
+from torchswe.utils.netcdf import read as ncread
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
 
     # read simulation data
     filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
-    sim_data, _ = read_cf(filename, ["w"])
+    sim_data, _ = ncread(filename, ["w"])
 
     # 2D coordinates
     x = sim_data["x"]

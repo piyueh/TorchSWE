@@ -17,7 +17,7 @@ from typing import List
 import numpy
 import matplotlib
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read_cf
+from torchswe.utils.netcdf import read as ncread
 
 
 # paths
@@ -33,14 +33,7 @@ exact_soln = importlib.import_module("create_data").exact_soln
 
 # read data in
 # -------------
-if case_dir.joinpath("solutions.npz").is_file():
-    sim_data = {}
-    with numpy.load(case_dir.joinpath("solutions.npz")) as data:
-        for k, v in data.items():
-            sim_data[k] = v[:]
-else:
-    sim_data, _ = read_cf(case_dir.joinpath("solutions.nc"), ["w", "hu", "hv"])
-    numpy.savez_compressed(case_dir.joinpath("solutions"), **sim_data)
+sim_data, _ = ncread(case_dir.joinpath("solutions.nc"), ["w", "hu", "hv"])
 
 # some parameters
 # ----------------
@@ -110,6 +103,7 @@ for i in range(8):
     axs[i].set_aspect("equal", adjustable="box")
     axs[i].set_xlim(0.4, 3.6)
     axs[i].set_ylim(0.4, 3.6)
+    print(sim_data["h"].shape)
     cs[i] = axs[i].contourf(sim_data["x"], sim_data["y"], sim_data["h"][i+1], lvs)
 
 for i in range(4):

@@ -14,8 +14,8 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.config import Config
-from torchswe.utils.netcdf import write_cf
+from torchswe.utils.data import get_empty_whuhvmodel, get_gridlines
+from torchswe.utils.io import create_soln_snapshot_file, create_topography_file
 
 
 def main():
@@ -25,52 +25,30 @@ def main():
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as f:
-        config: Config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.load(f, Loader=yaml.Loader)
 
-    x = numpy.linspace(
-        config.spatial.domain[0], config.spatial.domain[1],
-        config.spatial.discretization[0]+1, dtype=numpy.float64)
-    y = numpy.linspace(
-        config.spatial.domain[2], config.spatial.domain[3],
-        config.spatial.discretization[1]+1, dtype=numpy.float64)
+    # gridlines; ignore temporal axis
+    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
 
     # create 1D version of B first
-    B = numpy.zeros_like(x)
-
-    loc = (x >= 1.4) * (x <= 1.6)  # use multiplication to do logical_and
-    B[loc] = (numpy.cos(10.*numpy.pi*(x[loc]-1.5))+1.) / 4.
-
-    # make it 2D
-    B = numpy.tile(B, (config.spatial.discretization[1]+1, 1))
+    B = numpy.zeros_like(grid.x.vert)
+    loc = (grid.x.vert >= 1.4) * (grid.x.vert <= 1.6)  # use multiplication to do logical_and
+    B[loc] = (numpy.cos(10.*numpy.pi*(grid.x.vert[loc]-1.5))+1.) / 4.
+    B = numpy.tile(B, (grid.y.n+1, 1))  # make it 2D
 
     # write topography file
-    write_cf(
-        case.joinpath(config.topo.file), {"x": x, "y": y},
-        {config.topo.key: B},
-        options={config.topo.key: {"units": "m"}})
+    create_topography_file(case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert], B)
 
-    # x and y for cell centers
-    xc = (x[:-1] + x[1:]) / 2.
-    yc = (y[:-1] + y[1:]) / 2.
+    # initialize i.c., all zeros
+    ic = get_empty_whuhvmodel(*config.spatial.discretization, config.dtype)
 
-    # I.C.: w
-    w = numpy.ones_like(xc)
-
-    loc = (xc >= 1.1) * (xc <= 1.2)  # use multiplication to do logical_and
-    w[loc] += 0.2
-    w = numpy.tile(w, (config.spatial.discretization[1], 1))
-
-    # I.C.: hu & hv
-    hu = numpy.zeros_like(xc)
-    hv = numpy.zeros_like(xc)
-    hu = numpy.tile(hu, (config.spatial.discretization[1], 1))
-    hv = numpy.tile(hv, (config.spatial.discretization[1], 1))
+    # i.c.: w
+    Xc, _ = numpy.meshgrid(grid.x.cntr, grid.y.cntr)
+    ic.w = numpy.ones_like(Xc)
+    ic.w[(Xc >= 1.1) * (Xc <= 1.2)] += 0.2
 
     # write I.C. file
-    write_cf(
-        case.joinpath(config.ic.file), {"x": xc, "y": yc},
-        dict(zip(config.ic.keys, [w, hu, hv])), options=dict(
-            zip(config.ic.keys, [{"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
+    create_soln_snapshot_file(case.joinpath(config.ic.file), grid, ic)
 
     return 0
 

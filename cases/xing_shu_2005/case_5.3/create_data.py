@@ -14,8 +14,8 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.config import Config
-from torchswe.utils.netcdf import write_cf
+from torchswe.utils.data import get_gridlines, get_empty_whuhvmodel
+from torchswe.utils.io import create_topography_file, create_soln_snapshot_file
 
 
 def main():
@@ -25,46 +25,29 @@ def main():
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as f:
-        config: Config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.load(f, Loader=yaml.Loader)
 
-    x = numpy.linspace(
-        config.spatial.domain[0], config.spatial.domain[1],
-        config.spatial.discretization[0]+1, dtype=numpy.float64)
-    y = numpy.linspace(
-        config.spatial.domain[2], config.spatial.domain[3],
-        config.spatial.discretization[1]+1, dtype=numpy.float64)
-
-    # 2D X, Y for temporarily use
-    X, Y = numpy.meshgrid(x, y)
+    # gridlines; ignore temporal axis
+    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
 
     # topogeaphy elevation
+    X, Y = numpy.meshgrid(grid.x.vert, grid.y.vert)
     B = 0.8 * numpy.exp(-5.*numpy.power(X-0.9, 2)-50.*numpy.power(Y-0.5, 2))
 
     # write topography file
-    write_cf(
-        case.joinpath(config.topo.file), {"x": x, "y": y},
-        {config.topo.key: B}, options={config.topo.key: {"units": "m"}})
+    create_topography_file(case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert], B)
 
-    # x and y for cell centers
-    xc = (x[:-1] + x[1:]) / 2.
-    yc = (y[:-1] + y[1:]) / 2.
+    # initialize i.c., all zeros
+    ic = get_empty_whuhvmodel(*config.spatial.discretization, config.dtype)
 
     # I.C.: w
-    w = numpy.ones_like(xc)
-    w[(xc >= 0.05)*(xc <= 0.15)] += 0.01
-    w = numpy.tile(w, (config.spatial.discretization[1], 1))
-
-    # I.C.: hu & hv
-    hu = numpy.zeros_like(xc)
-    hv = numpy.zeros_like(xc)
-    hu = numpy.tile(hu, (config.spatial.discretization[1], 1))
-    hv = numpy.tile(hv, (config.spatial.discretization[1], 1))
+    Xc, _ = numpy.meshgrid(grid.x.cntr, grid.y.cntr)
+    ic.w[...] = 1.0
+    ic.w[(Xc >= 0.05)*(Xc <= 0.15)] += 0.01
 
     # write I.C. file
-    write_cf(
-        case.joinpath(config.ic.file), {"x": xc, "y": yc},
-        dict(zip(config.ic.keys, [w, hu, hv])), options=dict(
-            zip(config.ic.keys, [{"units": "m"}, {"units": "m2 s-1"}, {"units": "m2 s-1"}])))
+    ic.check()
+    create_soln_snapshot_file(case.joinpath(config.ic.file), grid, ic)
 
     return 0
 
