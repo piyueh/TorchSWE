@@ -456,6 +456,10 @@ def get_snapshot_times(output_type: str, params: List[Union[int, float]], dt: fl
     elif output_type == "t_start t_end no save":
         t = params
 
+    # run simulation from `t_start` with `n_steps` iterations but not saving solutions at all
+    elif output_type == "t_start n_steps no save":
+        t = [params[0], params[1] * dt]
+
     # should never reach this branch because pydantic has detected any invalid arguments
     else:
         raise ValueError("{} is not an allowed output method.".format(output_type))

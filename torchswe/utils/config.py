@@ -24,6 +24,7 @@ OutputTypeHint = Union[
     Tuple[Literal["t_start every_steps multiple"], confloat(ge=0), conint(ge=1), conint(ge=1)],
     Tuple[Literal["t_start t_end n_saves"], confloat(ge=0), confloat(gt=0), conint(ge=1)],
     Tuple[Literal["t_start t_end no save"], confloat(ge=0), confloat(gt=0)],
+    Tuple[Literal["t_start n_steps no save"], confloat(ge=0), conint(ge=1)],
 ]
 
 TemporalTypeHint = Literal["Euler", "SSP-RK2", "SSP-RK3"]
@@ -113,9 +114,9 @@ class TemporalConfig(BaseConfig):
         if v[0] == "at":
             msg = "Times are not monotonically increasing"
             assert all(v[1][i]>v[1][i-1] for i in range(1, len(v[1]))), msg
-        elif v[0] == "t_start every_steps multiple":
-            assert not values["adaptive"], "The \"every_steps\" method needs \"adaptive=False\"."
-        elif v[0] == "t_start t_end n_saves" or v[0] == "t_start t_end no save":
+        elif v[0] in ["t_start every_steps multiple", "t_start n_steps no save"]:
+            assert not values["adaptive"], "Needs \"adaptive=False\"."
+        elif v[0] in ["t_start t_end n_saves", "t_start t_end no save"]:
             assert v[2] > v[1], "End time is not greater than start time."
 
         return v
@@ -123,7 +124,7 @@ class TemporalConfig(BaseConfig):
     @validator("max_iters")
     def _val_max_iters(cls, v, values):
         """Validate and modify max_iters."""
-        if values["output"][0] == "t_start every_steps multiple":
+        if values["output"][0] in ["t_start every_steps multiple", "t_start n_steps no save"]:
             v = values["output"][2]  # use per_step as max_iters
         return v
 

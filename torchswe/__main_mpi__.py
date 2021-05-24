@@ -115,7 +115,7 @@ def main():
     marching = marching[config.temporal.scheme]  # don't need the origianl dict anymore
 
     # create an NetCDF file and append I.C.
-    if config.temporal.output[0] != "t_start t_end no save":
+    if not "no save" in config.temporal.output[0]:
         outfile = config.case.joinpath("solutions.nc")  # initialize an empty solution file
         create_empty_soln_file(outfile, grid)
         write_soln_to_file(outfile, grid, soln.q, grid.t[0], 0, soln.ngh)
@@ -136,7 +136,7 @@ def main():
         assert abs(runtime.next_t-runtime.cur_t) < 1e-10
 
         # append to the NetCDF file
-        if config.temporal.output[0] != "t_start t_end no save":
+        if not "no save" in config.temporal.output[0]:
             write_soln_to_file(outfile, grid, soln.q, runtime.next_t, tidx+1, soln.ngh)
             logger.info("Done writing the solution at T=%s to the NetCDF file.", runtime.next_t)
 
