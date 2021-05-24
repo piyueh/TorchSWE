@@ -13,7 +13,7 @@ from datetime import datetime as _datetime, timezone as _timezone
 
 from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
 from torchswe import nplike as _nplike
-from torchswe.utils.dummy import DummyDict as _DummyDict
+from torchswe.utils.misc import DummyDict as _DummyDict
 
 
 def default_attrs(corner, delta):

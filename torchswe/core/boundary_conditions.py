@@ -9,7 +9,7 @@
 """
 import copy as _copy
 from torchswe import nplike as _nplike
-from torchswe.utils.dummy import DummyDtype as _DummyDtype
+from torchswe.utils.misc import DummyDtype as _DummyDtype
 # pylint: disable=fixme
 
 _extrap_seq = {

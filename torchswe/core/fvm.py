@@ -15,7 +15,7 @@ from torchswe.core.misc import decompose_variables, get_local_speed
 from torchswe.core.flux import get_discontinuous_flux
 from torchswe.utils.config import Config
 from torchswe.utils.data import States, Gridlines, Topography
-from torchswe.utils.dummy import DummyDict
+from torchswe.utils.misc import DummyDict
 
 if nplike.__name__ == "legate.numpy":
     from torchswe.core.legate.limiters import minmod_slope
@@ -38,7 +38,7 @@ def fvm(states: States, grid: Gridlines, topo: Topography, config: Config, runti
     grid : torchswe.utils.data.Gridlines
     topo : torchswe.utils.data.Topography
     config : torchswe.utils.config.Config
-    runtime : torchswe.utils.dummy.DummyDict
+    runtime : torchswe.utils.misc.DummyDict
 
     Returns:
     --------

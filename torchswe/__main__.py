@@ -12,7 +12,7 @@
 import time
 import logging
 from torchswe import nplike
-from torchswe.utils.dummy import DummyDict
+from torchswe.utils.misc import DummyDict
 from torchswe.utils.data import get_empty_states
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.core.initializer import init, get_cmd_arguments

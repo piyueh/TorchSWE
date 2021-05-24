@@ -13,7 +13,7 @@ import logging
 from mpi4py import MPI
 from torchswe.utils.data import States, Gridlines, Topography
 from torchswe.utils.config import Config
-from torchswe.utils.dummy import DummyDict
+from torchswe.utils.misc import DummyDict
 
 logger = logging.getLogger("torchswe.core.temporal")
 

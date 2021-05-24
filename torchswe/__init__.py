@@ -11,7 +11,7 @@
 import os
 import logging
 import functools
-from .utils.dummy import DummyErrState, dummy_function
+from .utils.misc import DummyErrState, dummy_function
 
 
 # assume these two variables mean the code's running with Legate system

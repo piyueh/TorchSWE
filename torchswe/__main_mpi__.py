@@ -13,7 +13,7 @@ import time
 import logging
 from mpi4py import MPI
 from torchswe import nplike
-from torchswe.utils.dummy import DummyDict
+from torchswe.utils.misc import DummyDict
 from torchswe.mpi.data import get_empty_states
 from torchswe.mpi.io import create_empty_soln_file, write_soln_to_file
 from torchswe.mpi.initializer import init

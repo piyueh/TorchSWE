@@ -16,7 +16,7 @@ from mpi4py import MPI as _MPI
 from pydantic import root_validator as _root_validator, validator as _validator, conint as _conint
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
-from torchswe.utils.dummy import DummyDtype as _DummyDtype
+from torchswe.utils.misc import DummyDtype as _DummyDtype
 from torchswe.utils.data import Gridlines as _Gridlines, States as _States
 from torchswe.utils.data import Topography as _Topography, DummyDataModel as _DummyDataModel
 from torchswe.utils.data import get_empty_states as _get_empty_states, get_gridline as _get_gridline
@@ -200,7 +200,7 @@ class States(_States, Block):
 
     The following attributes are inherented from torchswe.utils.data.States:
 
-    dtype : torchswe.utils.dummy.DummyDtype
+    dtype : torchswe.utils.misc.DummyDtype
     q, src, rhs : torchswe.utils.data.WHUHVModel
     slp: torchswe.utils.data.Slopes
     face: torchswe.utils.data.FaceQuantityModel

@@ -18,7 +18,7 @@ from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.config import BaseConfig
 from torchswe.utils.netcdf import read as ncread
-from torchswe.utils.dummy import DummyDtype
+from torchswe.utils.misc import DummyDtype
 
 
 def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:

@@ -6,7 +6,7 @@
 #
 # Distributed under terms of the BSD 3-Clause license.
 
-"""A collection of some dummy stuff.
+"""A collection of some misc stuff.
 """
 import os
 import logging
@@ -22,7 +22,7 @@ elif "USE_TORCH" in os.environ and os.environ["USE_TORCH"] == "1":
 else:
     from numpy import float32, float64
 
-logger = logging.getLogger("torchswe.utils.dummy")
+logger = logging.getLogger("torchswe.utils.misc")
 
 
 def dummy_function(*args, **kwargs):  #pylint: disable=unused-argument, useless-return
