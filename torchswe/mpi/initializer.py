@@ -8,6 +8,7 @@
 
 """Things relating to initializatio of a simulation with MPI.
 """
+import logging as _logging
 import yaml as _yaml
 from torchswe import nplike as _nplike
 from torchswe.core.initializer import get_cmd_arguments as _get_cmd_arguments
@@ -18,6 +19,8 @@ from torchswe.utils.data import get_snapshot_times as _get_snapshot_times
 from torchswe.utils.misc import interpolate as _interpolate
 from torchswe.mpi.data import get_gridlines as _get_gridlines
 from torchswe.mpi.data import get_topography as _get_topography
+
+_logger = _logging.getLogger("torchswe.mpi.initializer")
 
 
 def init(comm, args=None):
@@ -148,6 +151,7 @@ def create_ic(comm, ic_config, grid, topo, dtype):
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
+        _logger.warning("Grids do not match. Doing spline interpolation.")
         w = _nplike.array(
             _interpolate(
                 icdata["x"], icdata["y"], icdata[ic_config.keys[0]].T, grid.x.cntr, grid.y.cntr

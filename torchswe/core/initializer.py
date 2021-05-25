@@ -8,6 +8,7 @@
 
 """Things relating to initializatio of a simulation.
 """
+import logging
 import pathlib
 import argparse
 from typing import Optional, List
@@ -18,6 +19,8 @@ from torchswe.utils.netcdf import read as ncread
 from torchswe.utils.config import Config
 from torchswe.utils.data import get_snapshot_times, get_gridlines, get_topography, WHUHVModel
 from torchswe.utils.misc import interpolate as _interpolate
+
+logger = logging.getLogger("torchswe.core.initializer")
 
 
 def init(args: Optional[argparse.Namespace] = None):
@@ -200,6 +203,7 @@ def create_ic(ic_config, gridlines, topo, dtype):
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
+        logger.warning("Grid not match. Doing spline interpolation.")
         w = nplike.array(
             _interpolate(
                 icdata["x"], icdata["y"], icdata[ic_config.keys[0]].T,

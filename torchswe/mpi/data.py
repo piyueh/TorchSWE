@@ -10,6 +10,7 @@
 """
 # pylint: disable=too-few-public-methods, no-self-argument, no-self-use, unnecessary-pass
 import time
+import logging as _logging
 from typing import Optional as _Optional, Tuple as _Tuple
 from mpi4py import MPI as _MPI
 from pydantic import root_validator as _root_validator, validator as _validator, conint as _conint
@@ -20,6 +21,8 @@ from torchswe.utils.data import Gridlines as _Gridlines, States as _States
 from torchswe.utils.data import Topography as _Topography, DummyDataModel as _DummyDataModel
 from torchswe.utils.data import get_empty_states as _get_empty_states, get_gridline as _get_gridline
 from torchswe.utils.netcdf import read as _ncread
+
+_logger = _logging.getLogger("torchswe.mpi.data")
 
 
 class Block(_BaseConfig, _DummyDataModel):
@@ -598,6 +601,7 @@ def get_topography(comm, topofile, key, grid_xv, grid_yv, dtype):
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
+        _logger.warning("Grids do not match. Doing spline interpolation.")
         vert = _nplike.array(_interpolate(dem["x"], dem["y"], vert.T, grid_xv, grid_yv).T)
 
     # cast to desired float type

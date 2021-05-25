@@ -11,6 +11,7 @@
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 import os
 import copy
+import logging
 from typing import Literal, Tuple, List, Union
 
 from pydantic import validator, conint, confloat
@@ -18,6 +19,8 @@ from torchswe import nplike
 from torchswe.utils.config import BaseConfig
 from torchswe.utils.netcdf import read as ncread
 from torchswe.utils.misc import DummyDtype, interpolate as _interpolate
+
+logger = logging.getLogger("torchswe.utils.data")
 
 
 def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:
@@ -528,6 +531,7 @@ def get_topography(
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
+        logger.warning("Grids do not match. Doing spline interpolation.")
         vert = nplike.array(_interpolate(dem["x"], dem["y"], vert.T, grid_xv, grid_yv).T)
 
     # cast to desired float type
