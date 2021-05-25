@@ -41,7 +41,9 @@ def create_soln_snapshot_file(fpath, grid, soln, **kwargs):
             raise
 
     with _Dataset(fpath, "w", **kwargs) as dset:
-        _write_to_dataset(dset, [grid.x.cntr, grid.y.cntr], data, options=options)
+        _write_to_dataset(
+            dset, [grid.x.cntr, grid.y.cntr], data,
+            corner=[grid.x.vert[0], grid.y.vert[-1]], options=options)
 
 
 def create_empty_soln_file(fpath, grid, model="whuhv", **kwargs):
@@ -75,7 +77,9 @@ def create_empty_soln_file(fpath, grid, model="whuhv", **kwargs):
         options = {"h": {"units": "m"}, "u": {"units": "m s-1"}, "v": {"units": "m s-1"}}
 
     with _Dataset(fpath, "w", **kwargs) as dset:
-        _write_to_dataset(dset, [grid.x.cntr, grid.y.cntr, grid.t], data, options=options)
+        _write_to_dataset(
+            dset, [grid.x.cntr, grid.y.cntr, grid.t], data,
+            corner=[grid.x.vert[0], grid.y.vert[-1]], options=options)
 
 
 def write_soln_to_file(fpath, soln, time, tidx, ngh=0, **kwargs):

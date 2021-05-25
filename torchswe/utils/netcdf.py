@@ -166,14 +166,26 @@ def read_from_dataset(dset, data_keys, domain=None):
     data["x"] = _nplike.array(dset["x"][:])
     data["y"] = _nplike.array(dset["y"][:])
 
+    try:  # the raster data could be defined at cell centers, i.e., extent is different
+        transform = dset["mercator"].GeoTransform.split()
+        extent = [
+            float(transform[0]), float(transform[0]) + float(transform[1]) * len(data["x"]),
+            float(transform[3]) + float(transform[5]) * len(data["y"]), float(transform[3])
+        ]
+    except IndexError as err:
+        if "mercator not found" in str(err):  # otherwise, use x, y data for extent
+            extent = [data["x"][0], data["x"][-1], data["y"][0], data["y"][-1]]
+        raise
+
     # determine the target domain in the index space
     if domain is None:
         ibg, ied, jbg, jed = None, None, None, None  # standard slicing: None:None means all
     else:
-        assert data["x"][0] <= domain[0], "{}, {}".format(data["x"][0], domain[0])
-        assert data["x"][-1] >= domain[1], "{}, {}".format(data["x"][-1], domain[1])
-        assert data["y"][0] <= domain[2], "{}, {}".format(data["y"][0], domain[2])
-        assert data["y"][-1] >= domain[3], "{}, {}".format(data["y"][-1], domain[3])
+        # make sure the whole raster covers the required domain
+        assert extent[0] <= domain[0], "{}, {}".format(extent[0], domain[0])
+        assert extent[1] >= domain[1], "{}, {}".format(extent[1], domain[1])
+        assert extent[2] <= domain[2], "{}, {}".format(extent[2], domain[2])
+        assert extent[3] >= domain[3], "{}, {}".format(extent[3], domain[3])
 
         # find the start and end indices containing the provided domain
         ibg = int(_nplike.searchsorted(data["x"], domain[0]))
@@ -181,10 +193,15 @@ def read_from_dataset(dset, data_keys, domain=None):
         jbg = int(_nplike.searchsorted(data["y"], domain[2]))
         jed = int(_nplike.searchsorted(data["y"], domain[3]))
 
-        ibg = ibg - 1 if data["x"][ibg] > domain[0] else ibg
-        ied = ied + 1 if data["x"][ied] < domain[1] else ied
-        jbg = jbg - 1 if data["y"][jbg] > domain[2] else jbg
-        jed = jed + 1 if data["y"][jed] < domain[3] else jed
+        # torch's searchsorted signature differs, so no right search; manual adjustment instead
+        ied = len(data["x"]) - 1 if ied >= len(data["x"]) else ied
+        jed = len(data["y"]) - 1 if jed >= len(data["y"]) else jed
+
+        # make sure the target domain is big enough for interpolation, except for edge cases
+        ibg = ibg - 1 if data["x"][ibg] > domain[0] and ibg != 0 else ibg
+        ied = ied + 1 if data["x"][ied] < domain[1] and ied < len(data["x"])-2 else ied
+        jbg = jbg - 1 if data["y"][jbg] > domain[2] and jbg != 0 else jbg
+        jed = jed + 1 if data["y"][jed] < domain[3] and jed < len(data["y"])-2 else jed
 
         # the end has to shift one for slicing
         ied += 1
