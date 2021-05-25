@@ -13,11 +13,11 @@ import argparse
 from typing import Optional, List
 
 import yaml
-from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.netcdf import read as ncread
 from torchswe.utils.config import Config
 from torchswe.utils.data import get_snapshot_times, get_gridlines, get_topography, WHUHVModel
+from torchswe.utils.misc import interpolate as _interpolate
 
 
 def init(args: Optional[argparse.Namespace] = None):
@@ -200,16 +200,26 @@ def create_ic(ic_config, gridlines, topo, dtype):
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
-        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[0]][:].T)
-        w = interpolator(gridlines.x.cntr, gridlines.y.cntr).T
+        w = nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic_config.keys[0]].T,
+                gridlines.x.cntr, gridlines.y.cntr
+            ).T
+        )
 
-        # get an interpolator for conserv_q_ic[1], use the default 3rd order spline
-        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[1]][:].T)
-        hu = interpolator(gridlines.x.cntr, gridlines.y.cntr).T
+        hu = nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic_config.keys[1]].T,
+                gridlines.x.cntr, gridlines.y.cntr
+            ).T
+        )
 
-        # get an interpolator for conserv_q_ic[2], use the default 3rd order spline
-        interpolator = RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[2]][:].T)
-        hv = interpolator(gridlines.x.cntr, gridlines.y.cntr).T
+        hv = nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic_config.keys[2]].T,
+                gridlines.x.cntr, gridlines.y.cntr
+            ).T
+        )
     else:
         w = icdata[ic_config.keys[0]]
         hu = icdata[ic_config.keys[1]]

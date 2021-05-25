@@ -9,13 +9,13 @@
 """Things relating to initializatio of a simulation with MPI.
 """
 import yaml as _yaml
-from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
 from torchswe import nplike as _nplike
 from torchswe.core.initializer import get_cmd_arguments as _get_cmd_arguments
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import WHUHVModel as _WHUHVModel
 from torchswe.utils.netcdf import read as _ncread
 from torchswe.utils.data import get_snapshot_times as _get_snapshot_times
+from torchswe.utils.misc import interpolate as _interpolate
 from torchswe.mpi.data import get_gridlines as _get_gridlines
 from torchswe.mpi.data import get_topography as _get_topography
 
@@ -148,16 +148,23 @@ def create_ic(comm, ic_config, grid, topo, dtype):
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
-        func = _RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[0]][:].T)
-        w = func(grid.x.cntr, grid.y.cntr).T
+        w = _nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic_config.keys[0]].T, grid.x.cntr, grid.y.cntr
+            ).T
+        )
 
-        # get an interpolator for conserv_q_ic[1], use the default 3rd order spline
-        func = _RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[1]][:].T)
-        hu = func(grid.x.cntr, grid.y.cntr).T
+        hu = _nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic_config.keys[1]].T, grid.x.cntr, grid.y.cntr
+            ).T
+        )
 
-        # get an interpolator for conserv_q_ic[2], use the default 3rd order spline
-        func = _RectBivariateSpline(icdata["x"], icdata["y"], icdata[ic_config.keys[2]][:].T)
-        hv = func(grid.x.cntr, grid.y.cntr).T
+        hv = _nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic_config.keys[2]].T, grid.x.cntr, grid.y.cntr
+            ).T
+        )
     else:
         w = icdata[ic_config.keys[0]]
         hu = icdata[ic_config.keys[1]]

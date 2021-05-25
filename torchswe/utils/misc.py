@@ -11,6 +11,7 @@
 import os
 import logging
 import collections
+from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
 
 # instead of importing from torchswe, we do it here again to avoid circular importing
 if "LEGATE_MAX_DIM" in os.environ and "LEGATE_MAX_FIELDS" in os.environ:
@@ -96,3 +97,43 @@ class DummyDtype:  # pylint: disable=too-few-public-methods
             raise ValueError(msg)
 
         return v
+
+
+def interpolate(x_in, y_in, data_in, x_out, y_out):
+    """A wrapper to interpolation with scipy.interpolate.RectBivariateSpline.
+
+    scipy.interpolate.RectBivariateSpline only accpets vanilla NumPy array. Different np-like
+    backends use different method to convert to vanilla numpy.ndarray. This function unifies them
+    and the interpolation.
+
+    The return is always vanilla numpy.ndarray.
+
+    Arguments
+    ---------
+    x_in, y_in, data_in : nplike.ndarray
+        The first three inputs to scipy.interpolate.RectBivariateSpline.
+    x_out, y_out : nplike.ndarray
+        The first two inputs to scipy.interpolate.RectBivariateSpline.__call__.
+
+    Returns
+    -------
+    data_out : numpy.ndarray
+        The output of scipy.interpolate.RectBivariateSpline.__call__.
+    """
+
+    try:
+        func = _RectBivariateSpline(x_in, y_in, data_in)
+    except TypeError as err:
+        if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
+            func = _RectBivariateSpline(x_in.get(), y_in.get(), data_in.get())  # cupy
+            x_out = x_out.get()
+            y_out = y_out.get()
+        elif str(err).startswith("can't convert cuda:"):
+            func = _RectBivariateSpline(
+                x_in.cpu().numpy(), y_in.cpu().numpy(), data_in.cpu().numpy())  # pytorch
+            x_out = x_out.cpu().numpy()
+            y_out = y_out.cpu().numpy()
+        else:
+            raise
+
+    return func(x_out, y_out)

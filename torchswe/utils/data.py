@@ -14,11 +14,10 @@ import copy
 from typing import Literal, Tuple, List, Union
 
 from pydantic import validator, conint, confloat
-from scipy.interpolate import RectBivariateSpline
 from torchswe import nplike
 from torchswe.utils.config import BaseConfig
 from torchswe.utils.netcdf import read as ncread
-from torchswe.utils.misc import DummyDtype
+from torchswe.utils.misc import DummyDtype, interpolate as _interpolate
 
 
 def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:
@@ -529,8 +528,7 @@ def get_topography(
 
     # unfortunately, we need to do interpolation in such a situation
     if interp:
-        interpolator = RectBivariateSpline(dem["x"], dem["y"], vert.T)
-        vert = nplike.array(interpolator(grid_xv, grid_yv).T)  # it uses vanilla numpy
+        vert = nplike.array(_interpolate(dem["x"], dem["y"], vert.T, grid_xv, grid_yv).T)
 
     # cast to desired float type
     vert = vert.astype(dtype)
