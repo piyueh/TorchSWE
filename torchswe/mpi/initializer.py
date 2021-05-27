@@ -10,6 +10,7 @@
 """
 import logging as _logging
 import yaml as _yaml
+from mpi4py import MPI
 from torchswe import nplike as _nplike
 from torchswe.core.initializer import get_cmd_arguments as _get_cmd_arguments
 from torchswe.utils.config import Config as _Config
@@ -28,6 +29,8 @@ def init(comm, args=None):
 
     Attributes
     ----------
+    comm : mpi4py.MPI.Comm
+        The communicator.
     args : None or argparse.Namespace
         By default, None means getting arguments from command-line. If not None, it should be the
         return from ArgumentParser.parse().
@@ -44,6 +47,10 @@ def init(comm, args=None):
     state_ic : torchswe.utils.data.WHUHVModel
         Initial confitions.
     """
+
+    # set GPU id
+    if _nplike.__name__ == "cupy":
+        set_device(comm)
 
     # get cmd arguments
     if args is None:
@@ -116,6 +123,8 @@ def create_ic(comm, ic_config, grid, topo, dtype):
 
     Arguments
     ---------
+    comm : mpi4py.MPI.Comm
+        The communicator.
     ic_config : torchswe.utils.config.ICConfig
     grid : torchswe.utils.data.Gridlines
     topo : torchswe.utils.data.Topography
@@ -178,3 +187,39 @@ def create_ic(comm, ic_config, grid, topo, dtype):
     w = _nplike.maximum(w, topo.cntr)
 
     return _WHUHVModel(nx=grid.x.n, ny=grid.y.n, dtype=dtype, w=w, hu=hu, hv=hv)
+
+
+def set_device(comm: MPI.Comm):
+    """Set the GPU device ID for this rank when using CuPy backend.
+
+    We try our best to make neighber ranks use the same GPU.
+
+    Arguments
+    ---------
+    comm : mpi4py.MPI.Comm
+        The communicator.
+    """
+
+    # get number of GPUs on this particular compute node
+    n_gpus = _nplike.cuda.runtime.getDeviceCount()
+
+    # get the info of the processes on this compute node
+    local_name = MPI.Get_processor_name()
+    local_comm = comm.Split_type(MPI.COMM_TYPE_SHARED)
+    local_size = local_comm.Get_size()
+    local_rank = local_comm.Get_rank()
+
+    # set the corresponding gpu id for this rank
+    group_size = local_size // n_gpus
+    remains = local_size % n_gpus
+
+    if local_rank < (group_size + 1) * remains:  # groups having 1 more rank 'cause of the remainder
+        my_gpu = local_rank // (group_size + 1)
+    else:
+        my_gpu = (local_rank - remains) // group_size
+
+    _nplike.cuda.runtime.setDevice(my_gpu)
+
+    _logger.debug(
+        "node name: %s; local size:%d; local rank: %d; gpu id: %d",
+        local_name, local_size, local_rank, my_gpu)

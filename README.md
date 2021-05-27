@@ -84,23 +84,29 @@ This installs both OpenMPI and MPI-enabled NetCDF4.
 
 Didn't test with MPICH, so I'm not sure if MPICH works with CUDA.
 
-- To run a case using MPI + NumPy (assuming already in the case folder)
+- To run a case using MPI + NumPy (assuming already in a case folder)
   ```
   $ mpiexec -n <number of processes> TorchSWEMPI.py ./
   ```
-- To run a case using MPI + CuPy (assuming there are two GPUs)
+- To run a case using MPI + CuPy (assuming already in a case folder)
   ```
-  $ USE_CUPY=1 mpiexec \
-        -n 1 -x CUDA_VISIBLE_DEVICES=<the 1st GPU> ./ : \
-        -n 1 -x CUDA_VISIBLE_DEVICES=<the 2nd GPU> ./
+  $ USE_CUPY=1 mpiexec -n <number of processes> TorchSWEMPI.py ./
   ```
-  Note there's a colon `:` between each MPI process specification.
+  When multiple GPUs are availabe on a compute node, the code assigns GPUs based
+  on local ranks (local to the compute node; not the global rank). Note
+  that the number of processes (i.e., ranks) does not have to be the same as the
+  number of available GPUs. If the number of processes is higher than that of
+  GPUs, multiple ranks will share GPUs. Nevertheless, no study has been done
+  to understand if this will give any performance penalty or benefit. To see
+  which GPU on which node is assigned to which rank, run the simulation with
+  `--log-level debug`. The information should appear at the very beginning of
+  the output.
   
   You may need to install `mpi4py` from its GitHub's master branch. The
   currently released versions (as of v3.0.3) do not supported CuPy buffer yet.
   
   Also, if using the OpenMPI from Anaconda, you need to add an extra flag
-  `--mca opal_cuda_support 1` to the `mpiexec` command because this version
+  `--mca opal_cuda_support 1` to the `mpiexec` command because this build
   disables the CUDA suppory by default.
 
 ### Note
