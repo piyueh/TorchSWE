@@ -11,6 +11,7 @@
 from pathlib import Path as _Path
 from datetime import datetime as _datetime, timezone as _timezone
 
+import numpy as _vanillanp
 from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
 from torchswe import nplike as _nplike
 from torchswe.utils.misc import DummyDict as _DummyDict
@@ -502,7 +503,7 @@ def _copy_data(var, array, slc):
     """Copy a non-completely np-compatible ndarray to a NetCDF4 variable."""
 
     try:
-        var[slc] = array
+        var[slc] = _vanillanp.array(array)
     except TypeError as err:
         if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
             var[slc] = array.get()  # cupy
