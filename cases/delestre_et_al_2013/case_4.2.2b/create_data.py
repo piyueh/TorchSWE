@@ -48,7 +48,7 @@ def main():
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as f:
-        config: Config = yaml.load(f, Loader=yaml.Loader)
+        config = yaml.load(f, Loader=yaml.Loader)
 
     # gridlines; ignore temporal axis
     grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
