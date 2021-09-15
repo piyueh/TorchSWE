@@ -35,6 +35,7 @@ class BaseConfig(BaseModel):
 
     class Config:  # pylint: disable=too-few-public-methods
         """pydantic configuration of this model."""
+        validate_all = True
         allow_population_by_field_name = True
         arbitrary_types_allowed = True
         extra = "forbid"
@@ -92,9 +93,18 @@ class TemporalConfig(BaseConfig):
         The end time of the simulation, i.e., the simulation stops when reaching this time.
     output : list/tuple or None
         Three available formats:
-            1. ["every", delta_t]: outputs every `delta_t` time.
-            2. ["at", [t1, t2, t3, ...]]: outputs at t1, t2, t3, ...
-            3. None: don't output any solutions.
+            1. ["at", [t1, t2, t3, t4, ...]]:
+                saves solutions at t1, t2, t3, ..., etc.
+            2. ["t_start every_seconds multiple", t0, dt, n]:
+                starting from t0, saves solutions every dt seconds for n times.
+            3. ["t_start every_steps multiple", t0, n0, n1]:
+                starting from t0, saves solutions every n0 time steps for n1 times
+            4. ["t_start t_end n_saves", t0, t1, n]:
+                starting from t0, evenly saves n solutions up to time t1.
+            5. ["t_start t_end no save", t0, t1]:
+                runs the simulation from t0 to t1 without saving any solutions.
+            6. ["t_start n_steps no save", t0, n]:
+                runs the simulation from t0 and runs for n steps without saving any solutions.
         Default: None
     scheme : str
         Currently, either "Euler", "RK2", or "RK4". Default: "RK2"
