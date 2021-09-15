@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=42.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.coverage.run]
+source = ["torchswe/tests"]
+source_pkgs = ["torchswe"]
+
+[tool.coverage.paths]
+source = [
+    ".",
+    ".tox/*/lib/*/site-packages/",
+    '.tox\\*\\Lib\\site-packages\\',
+]
+
+[tool.tox]
+legacy_tox_ini = """
+[tox]
+minversion = 3.23.0
+requires =
+    tox-wheel
+    tox-gh-actions
+envlist = py{38,39}
+isolated_build = true
+
+[gh-actions]
+python =
+    3.8: py38
+    3.9: py39
+
+[testenv]
+wheel = True
+deps = 
+    pytest
+    pytest-cov
+commands = 
+    pytest {posargs}
+"""
