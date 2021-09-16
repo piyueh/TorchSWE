@@ -11,21 +11,21 @@
 from pathlib import Path as _Path
 from datetime import datetime as _datetime, timezone as _timezone
 
-import numpy as _vanillanp
+import numpy as _vanilla_np
 from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
 from torchswe import nplike as _nplike
 from torchswe.utils.misc import DummyDict as _DummyDict
 
 
 def default_attrs(corner, delta):
-    """Get basic attributes for a NetCDF4 file.
+    """Get basic attributes for a raster NetCDF4 file.
 
     Arguments
     ---------
     corner : tuple
         A tuple of two floats indicating the x and y coordinates at the west-north corner.
     delta : tuple
-        A tuple of two floats indicatinf the dx and dy, i.e., cell sizes.
+        A tuple of two floats indicating the dx and dy, i.e., cell sizes.
 
     Returns
     -------
@@ -280,7 +280,7 @@ def write_to_dataset(
     ---------
     dset : netCDF4.Dataset
         The destination dataset.
-    xyt : a list/tuple
+    axs : a list/tuple
         Can be a length-2 or length-3 list/tuple. If length is 2, it's type is [ndarray, ndarray],
         corresponding to x and y gridlines. If length is 3, the additional one is the temporal axis.
     data : dict
@@ -291,6 +291,10 @@ def write_to_dataset(
         provided `axs` represent the local gridlines, so their shapes are different from `global_n`.
     idx_bounds : list/tuple of 4 int (west, east, south, north)
         Only useful for parallel write. Write data to the slice/block bounded in these indices.
+    corner : a list/tuple of two floats
+        The coordinate of the north-west corner of the resulting raster dataset.
+    deltas : a list/tuple of two floats
+        The cell sizes in x and y axes.
     options: a dict of dict
         The outer dictionary has pairs (variable name, dictionary). The inner dictionaries
         are the attributes of each vriable. A special key is "root", which holds attributes
@@ -500,10 +504,10 @@ def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, opti
 
 
 def _copy_data(var, array, slc):
-    """Copy a non-completely np-compatible ndarray to a NetCDF4 variable."""
+    """Copy a partially np-compatible ndarray to a NetCDF4 variable."""
 
     try:
-        var[slc] = _vanillanp.array(array)
+        var[slc] = _vanilla_np.array(array)
     except TypeError as err:
         if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
             var[slc] = array.get()  # cupy

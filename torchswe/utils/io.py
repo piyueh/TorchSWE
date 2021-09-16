@@ -15,20 +15,24 @@ from torchswe.utils.netcdf import add_time_data_to_dataset as _add_time_data_to_
 from torchswe.utils.netcdf import read as _ncread
 
 
-def create_soln_snapshot_file(fpath, grid, soln, **kwargs):
+def create_soln_snapshot_file(fpath, domain, soln, **kwargs):
     """Create a NetCDF file with a single snapshot of solutions.
 
     Arguments
     ---------
     fpath : str or PathLike
         The path to the file.
-    grid : torchswe.utils.data.Gridlines
-        The Gridlines instance corresponds to the solutions.
+    domain : torchswe.utils.data.Domain
+        The Domain instance corresponds associated to the solutions.
     soln : torchswe.utils.data.WHUHVModel or torchswe.utils.data.HUVModel
-        The snapshot of the solution.
+        The snapshot of the solutions.
     **kwargs
-        Keyword arguments sent to netCDF4.Dataset.
+        Keyword arguments sent to netCDF4.Dataset (excluding `parallel` and `comm`).
     """
+
+    assert "parallel" not in kwargs, "`parallel` should not be included in `kwargs`"
+    assert "comm" not in kwargs, "`parallel` should not be included in `kwargs`"
+
     fpath = _Path(fpath).expanduser().resolve()
 
     try:
@@ -41,18 +45,30 @@ def create_soln_snapshot_file(fpath, grid, soln, **kwargs):
         else:
             raise
 
-    with _Dataset(fpath, "w", **kwargs) as dset:
+    with _Dataset(fpath, "w", parallel=True, comm=domain.process.comm, **kwargs) as dset:
+
         _write_to_dataset(
-            dset, [grid.x.cntr, grid.y.cntr], data,
-            corner=[grid.x.vert[0], grid.y.vert[-1]], options=options)
+            dset=dset,
+            axs=(domain.x.centers, domain.y.centers),
+            data=data,
+            global_n=(domain.x.gn, domain.y.gn),
+            idx_bounds=(domain.x.ibegin, domain.x.iend, domain.y.ibegin, domain.y.iend),
+            corner=(domain.x.glower, domain.y.gupper),
+            deltas=(domain.x.delta, domain.y.delta),
+            options=options
+        )
+
+        dset.sync()
 
 
-def create_empty_soln_file(fpath, grid, model="whuhv", **kwargs):
+def create_empty_soln_file(fpath, domain, t, model="whuhv", **kwargs):
     """Create an new NetCDF file for solutions using the corresponding grid object.
 
     Create an empty NetCDF4 file with axes `x`, `y`, and `time`. `x` and `y` are defined at cell
     centers. The spatial coordinates use EPSG 3856. The temporal axis is limited with dimension
-    `ntime`. Also, it creates empty solution variables called `w`, `hu`, and `hv` to the dataset
+    `ntime` (i.e., not using the unlimited axis feature from CF convention).
+
+    Also, this function creates empty solution variables called `w`, `hu`, and `hv` in the dataset
     with `NaN` for all values. The shapes of these variables are `(ntime, ny, nx)`. The units of
     them are "m", "m2 s-1", and "m2 s-1", respectively.
 
@@ -60,14 +76,19 @@ def create_empty_soln_file(fpath, grid, model="whuhv", **kwargs):
     ---------
     fpath : str or PathLike
         The path to the file.
-    grid : torchswe.utils.data.Gridlines
-        The Gridlines instance corresponds to the solutions.
+    domain : torchswe.utils.data.Domain
+        The Domain instance corresponds to the solutions.
+    t : torchswe.utils.data.Timeline
+        The temporal axis object.
     model : str, either "whuhv" or "huv"
-        The type of solution model: the conservative form (w, hu, hv) or non-conservative form (
-        h, u, v).
+        The type of solution: the conservative form (w, hu, hv) or non-conservative form (h, u, v).
     **kwargs
         Keyword arguments sent to netCDF4.Dataset.
     """
+
+    assert "parallel" not in kwargs, "`parallel` should not be included in `kwargs`"
+    assert "comm" not in kwargs, "`parallel` should not be included in `kwargs`"
+
     fpath = _Path(fpath).expanduser().resolve()
 
     if model == "whuhv":
@@ -77,31 +98,47 @@ def create_empty_soln_file(fpath, grid, model="whuhv", **kwargs):
         data = {k: None for k in ["h", "u", "v"]}
         options = {"h": {"units": "m"}, "u": {"units": "m s-1"}, "v": {"units": "m s-1"}}
 
-    with _Dataset(fpath, "w", **kwargs) as dset:
+    with _Dataset(fpath, "w", parallel=True, comm=domain.process.comm, **kwargs) as dset:
+
         _write_to_dataset(
-            dset, [grid.x.cntr, grid.y.cntr, grid.t], data,
-            corner=[grid.x.vert[0], grid.y.vert[-1]], options=options)
+            dset=dset,
+            axs=(domain.x.centers, domain.y.centers, t.values),
+            data=data,
+            global_n=(domain.x.gn, domain.y.gn),
+            idx_bounds=(domain.x.ibegin, domain.x.iend, domain.y.ibegin, domain.y.iend),
+            corner=(domain.x.glower, domain.y.gupper),
+            deltas=(domain.x.delta, domain.y.delta),
+            options=options
+        )
+
+        dset.sync()
 
 
-def write_soln_to_file(fpath, soln, time, tidx, ngh=0, **kwargs):
+def write_soln_to_file(fpath, domain, soln, time, tidx, ngh=0, **kwargs):
     """Write a solution snapshot to an existing NetCDF file.
 
     Arguments
     ---------
     fpath : str or PathLike
         The path to the file.
+    domain : torchswe.utils.data.Domain
+        A Domain instance associated to the solutions.
     soln : torchswe.utils.data.WHUHVModel or torchswe.utils.data.HUVModel
-        The States instance containing solutions.
+        The conservative solutions or non-conservative solutions.
     time : float
         The simulation time of this snapshot.
     tidx : int
         The index of the snapshot time in the temporal axis.
     ngh : int
-        The number of ghost-cell layers out side each boundary.
+        The number of ghost-cell layers outside each boundary. These layers will be excluded from
+        the dataset.
     **kwargs
         Keyword arguments sent to netCDF4.Dataset.
     """
     fpath = _Path(fpath).expanduser().resolve()
+
+    assert "parallel" not in kwargs, "`parallel` should not be included in `kwargs`"
+    assert "comm" not in kwargs, "`parallel` should not be included in `kwargs`"
 
     # determine if it's a WHUHVModel or HUVModel
     if hasattr(soln, "w"):
@@ -115,11 +152,16 @@ def write_soln_to_file(fpath, soln, time, tidx, ngh=0, **kwargs):
         slc = slice(ngh, -ngh)  # alias for convenience; non-ghost domain
         data = {k: soln[k][slc, slc] for k in keys}
 
-    with _Dataset(fpath, "a", **kwargs) as dset:
-        _add_time_data_to_dataset(dset, data, time, tidx)
+    with _Dataset(fpath, "a", parallel=True, comm=domain.process.comm, **kwargs) as dset:
+
+        _add_time_data_to_dataset(
+            dset=dset, data=data, time=time, tidx=tidx,
+            idx_bounds=(domain.x.ibegin, domain.x.iend, domain.y.ibegin, domain.y.iend)
+        )
+        dset.sync()
 
 
-def create_topography_file(fpath, axs, elevation, options=None, **kwargs):
+def create_topography_file(fpath, axs, elevation, key="elevation", options=None, **kwargs):
     """A helper to create a topography DEM file with NetCDF CF convention.
 
     The key of the elevation is fixed to `elevation` for convenience. By default, the spatial axes
@@ -133,17 +175,19 @@ def create_topography_file(fpath, axs, elevation, options=None, **kwargs):
         The coordinates of the gridlines in x (west-east) and y (south-north) direction.
     elevation : nplike.ndarray
         The elevation data with shape (ny, nx)
+    key : str
+        The key used to identify the elevation data in the dataset. (default: "elevation")
     options : dict or None
         To overwrite the default attribute values of `x`, `y`, `elevation`, and `root`.
     **kwargs
         Keyword arguments sent to netCDF4.Dataset.
     """
     fpath = _Path(fpath).expanduser().resolve()
-    _options = {"elevation": {"units": "m"}}
+    _options = {key: {"units": "m"}}
     _options.update({} if options is None else options)
 
     with _Dataset(fpath, "w", **kwargs) as dset:
-        _write_to_dataset(dset, axs, {"elevation": elevation}, options=_options)
+        _write_to_dataset(dset, axs, {key: elevation}, options=_options)
 
 
 def read_topography_file(fpath, key, extent, **kwargs):
