@@ -8,22 +8,22 @@
 
 """A collection of some misc stuff.
 """
-import os
-import logging
-import collections
+import os as _os
+import logging as _logging
+import collections as _collections
 from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
 
 # instead of importing from torchswe, we do it here again to avoid circular importing
-if "LEGATE_MAX_DIM" in os.environ and "LEGATE_MAX_FIELDS" in os.environ:
+if "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
     from legate.numpy import float32, float64  # pylint: disable=no-name-in-module
-elif "USE_CUPY" in os.environ and os.environ["USE_CUPY"] == "1":
+elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from cupy import float32, float64  # pylint: disable=import-error
-elif "USE_TORCH" in os.environ and os.environ["USE_TORCH"] == "1":
+elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     from torch import float32, float64  # pylint: disable=import-error
 else:
     from numpy import float32, float64
 
-logger = logging.getLogger("torchswe.utils.misc")
+_logger = _logging.getLogger("torchswe.utils.misc")
 
 
 def dummy_function(*args, **kwargs):  #pylint: disable=unused-argument, useless-return
@@ -36,11 +36,11 @@ def dummy_function(*args, **kwargs):  #pylint: disable=unused-argument, useless-
     - the member of the context manager: errstate
     - set_printoptions
     """
-    logger.debug("This dummy function is called by CuPy.")
+    _logger.debug("This dummy function is called by CuPy.")
     return None
 
 
-class DummyDict(collections.UserDict):  # pylint: disable=too-many-ancestors
+class DummyDict(_collections.UserDict):  # pylint: disable=too-many-ancestors
     """A dummy dict of which the data can be accessed as attributes.
     """
 
