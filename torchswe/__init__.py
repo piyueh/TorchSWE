@@ -8,38 +8,57 @@
 
 """A shallow-water equation solver for pipeline landspill.
 """
-import os
-import logging
-import functools
-from .utils.misc import DummyErrState, dummy_function
+__version__ = "0.2"
+
+import os as _os
+import logging as _logging
+import functools as _functools
+_logger = _logging.getLogger("torchswe")
+
+
+def _dummy_function(*args, **kwargs):  #pylint: disable=unused-argument, useless-return
+    """A dummy function for CuPy.
+
+    Many functions in NumPy are not implemented in CuPy. However, most of them are not important.
+    In order not to write another codepath for CuPy, we assign this dummy function to CuPy's
+    corresponding attributes. Currenty, known functions
+
+    - the member of the context manager: errstate
+    - set_printoptions
+    """
+    _logger.debug("_dummy_function is called by CuPy.")
+    return None
+
+
+class _DummyErrState:  # pylint: disable=too-few-public-methods
+    """A dummy errstate context manager."""
+    __enter__ = _dummy_function
+    __exit__ = _dummy_function
+    def __init__(self, *args, **kwargs):
+        pass
 
 
 # assume these two variables mean the code's running with Legate system
-if "LEGATE_MAX_DIM" in os.environ and "LEGATE_MAX_FIELDS" in os.environ:
+if "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
     from legate import numpy as nplike
-elif "USE_CUPY" in os.environ and os.environ["USE_CUPY"] == "1":
-    import cupy as nplike
-    import cupyx
-    nplike.errstate = DummyErrState
-    nplike.set_printoptions = dummy_function
-elif "USE_TORCH" in os.environ and os.environ["USE_TORCH"] == "1":
-    import torch as _torch
-    import torch as nplike
-    nplike.errstate = DummyErrState
-    nplike.ndarray = _torch.Tensor
-    nplike.ndarray.astype = _torch.Tensor.to
-    nplike.array = _torch.tensor
-    nplike.nonzero = functools.partial(_torch.nonzero, as_tuple=True)
-    nplike.power = _torch.pow
+elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
+    import cupy as nplike  # pylint: disable=import-error
+    import cupyx  # pylint: disable=import-error
+    nplike.errstate = _DummyErrState
+    nplike.set_printoptions = _dummy_function
+elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
+    import torch as nplike  # pylint: disable=import-error
+    nplike.errstate = _DummyErrState
+    nplike.ndarray = nplike.Tensor
+    nplike.ndarray.astype = nplike.Tensor.to
+    nplike.array = nplike.tensor
+    nplike.nonzero = _functools.partial(nplike.nonzero, as_tuple=True)
+    nplike.power = nplike.pow
     nplike.ndarray.__str__ = lambda self: "{}".format(self.item())
 
-    if "TORCH_USE_CPU" in os.environ and os.environ["TORCH_USE_CPU"] == "1":
+    if "TORCH_USE_CPU" in _os.environ and _os.environ["TORCH_USE_CPU"] == "1":
         nplike.set_default_tensor_type('torch.FloatTensor')
     else:
         nplike.set_default_tensor_type('torch.cuda.FloatTensor')
 else:
     import numpy as nplike
-
-
-__version__ = "0.2"
-logger = logging.getLogger("torchswe")

@@ -8,36 +8,15 @@
 
 """A collection of some misc stuff.
 """
-import os as _os
 import logging as _logging
 import collections as _collections
-from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
 
-# instead of importing from torchswe, we do it here again to avoid circular importing
-if "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
-    from legate.numpy import float32, float64  # pylint: disable=no-name-in-module
-elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
-    from cupy import float32, float64  # pylint: disable=import-error
-elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
-    from torch import float32, float64  # pylint: disable=import-error
-else:
-    from numpy import float32, float64
+from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
+from mpi4py import MPI as _MPI
+from torchswe import nplike as _nplike
+
 
 _logger = _logging.getLogger("torchswe.utils.misc")
-
-
-def dummy_function(*args, **kwargs):  #pylint: disable=unused-argument, useless-return
-    """A dummy function for CuPy.
-
-    Many functions in NumPy are not implemented in CuPy. However, most of them are not important.
-    In order not to write another codepath for CuPy, we assign this dummy function to CuPy's
-    corresponding attributes. Currenty, known functions
-
-    - the member of the context manager: errstate
-    - set_printoptions
-    """
-    _logger.debug("This dummy function is called by CuPy.")
-    return None
 
 
 class DummyDict(_collections.UserDict):  # pylint: disable=too-many-ancestors
@@ -64,14 +43,6 @@ class DummyDict(_collections.UserDict):  # pylint: disable=too-many-ancestors
         self.__delitem__(key)
 
 
-class DummyErrState:  # pylint: disable=too-few-public-methods
-    """A dummy errstate context manager."""
-    __enter__ = dummy_function
-    __exit__ = dummy_function
-    def __init__(self, *args, **kwargs):
-        pass
-
-
 class DummyDtype:  # pylint: disable=too-few-public-methods
     """A dummy dtype to make all NumPy, Legate, CuPy and PyTorch happy.
 
@@ -90,10 +61,10 @@ class DummyDtype:  # pylint: disable=too-few-public-methods
 
         if isinstance(v, str):
             try:
-                return {"float32": float32, "float64": float64}[v]
+                return {"float32": _nplike.float32, "float64": _nplike.float64}[v]
             except KeyError as err:
                 raise ValueError(msg) from err
-        elif v not in (float32, float64):
+        elif v not in (_nplike.float32, _nplike.float64):
             raise ValueError(msg)
 
         return v
@@ -281,3 +252,41 @@ def cal_neighbors(pnx: int, pny: int, pi: int, pj: int, rank: int):
     south = rank - pnx if pj != 0 else None
     north = rank + pnx if pj != pny-1 else None
     return west, east, south, north
+
+
+def set_device(comm: _MPI.Comm):
+    """Set the GPU device ID for this rank when using CuPy backend.
+
+    We try our best to make neighber ranks use the same GPU.
+
+    Arguments
+    ---------
+    comm : mpi4py.MPI.Comm
+        The communicator.
+    """
+
+    assert _nplike.__name__ == "cupy", "This function only works with CuPy backend."
+
+    # get number of GPUs on this particular compute node
+    n_gpus = _nplike.cuda.runtime.getDeviceCount()
+
+    # get the info of the processes on this compute node
+    local_name = _MPI.Get_processor_name()
+    local_comm = comm.Split_type(_MPI.COMM_TYPE_SHARED)
+    local_size = local_comm.Get_size()
+    local_rank = local_comm.Get_rank()
+
+    # set the corresponding gpu id for this rank
+    group_size = local_size // n_gpus
+    remains = local_size % n_gpus
+
+    if local_rank < (group_size + 1) * remains:  # groups having 1 more rank 'cause of the remainder
+        my_gpu = local_rank // (group_size + 1)
+    else:
+        my_gpu = (local_rank - remains) // group_size
+
+    _nplike.cuda.runtime.setDevice(my_gpu)
+
+    _logger.debug(
+        "node name: %s; local size:%d; local rank: %d; gpu id: %d",
+        local_name, local_size, local_rank, my_gpu)
