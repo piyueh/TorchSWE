@@ -1,0 +1,83 @@
+#! /usr/bin/env python3
+from mpi4py import MPI
+from torchswe import nplike
+from torchswe.utils.init import get_process
+from torchswe.utils.init import get_gridline
+
+rank=MPI.COMM_WORLD.Get_rank()
+proc=get_process(MPI.COMM_WORLD, 60, 80)
+
+x = get_gridline("x", proc.pnx, proc.pi, 100, -1.2, 11.3, "float64")
+assert x.axis == "x", "from rank {}".format(rank)
+assert x.gn == 100, "from rank {}".format(rank)
+assert abs(x.glower+1.2) < 1e-12, "from rank {}".format(rank)
+assert abs(x.gupper-11.3) < 1e-12, "from rank {}".format(rank)
+assert x.n == 50, "from rank {}".format(rank)
+assert abs(x.delta-0.125) < 1e-12, "from rank {}".format(rank)
+
+if rank == 0:
+    assert abs(x.lower+1.2) <= 1e-12, "from rank {}".format(rank)
+    assert abs(x.upper-5.05) <= 1e-12, "from rank {}".format(rank)
+    assert x.ibegin == 0, "from rank {}".format(rank)
+    assert x.iend == 50, "from rank {}".format(rank)
+    assert nplike.allclose(x.vertices, nplike.linspace(-1.2, 5.05, 51)), "from rank {}".format(rank)
+
+elif rank == 1:
+    assert abs(x.lower-5.05) <= 1e-12, "from rank {}".format(rank)
+    assert abs(x.upper-11.3) <= 1e-12, "from rank {}".format(rank)
+    assert x.ibegin == 50, "from rank {}".format(rank)
+    assert x.iend == 100, "from rank {}".format(rank)
+    assert nplike.allclose(x.vertices, nplike.linspace(5.05, 11.3, 51)), "from rank {}".format(rank)
+
+elif rank == 2:
+    assert abs(x.lower+1.2) <= 1e-12, "from rank {}".format(rank)
+    assert abs(x.upper-5.05) <= 1e-12, "from rank {}".format(rank)
+    assert x.ibegin == 0, "from rank {}".format(rank)
+    assert x.iend == 50, "from rank {}".format(rank)
+    assert nplike.allclose(x.vertices, nplike.linspace(-1.2, 5.05, 51)), "from rank {}".format(rank)
+
+elif rank == 3:
+    assert abs(x.lower-5.05) <= 1e-12, "from rank {}".format(rank)
+    assert abs(x.upper-11.3) <= 1e-12, "from rank {}".format(rank)
+    assert x.ibegin == 50, "from rank {}".format(rank)
+    assert x.iend == 100, "from rank {}".format(rank)
+    assert nplike.allclose(x.vertices, nplike.linspace(5.05, 11.3, 51)), "from rank {}".format(rank)
+
+y = get_gridline("y", proc.pny, proc.pj, 99, 3.6, 13.5, "float64")
+assert y.axis == "y", "from rank {}".format(rank)
+assert y.gn == 99, "from rank {}".format(rank)
+assert abs(y.glower-3.6) < 1e-12, "from rank {}".format(rank)
+assert abs(y.gupper-13.5) < 1e-12, "from rank {}".format(rank)
+assert abs(y.delta-0.1) < 1e-12, "from rank {}".format(rank)
+
+if rank == 0:
+    assert y.n == 50, "from rank {}".format(rank)
+    assert abs(y.lower-3.6) <= 1e-12, "from rank {}".format(rank)
+    assert abs(y.upper-8.6) <= 1e-12, "from rank {}".format(rank)
+    assert y.ibegin == 0, "from rank {}".format(rank)
+    assert y.iend == 50, "from rank {}".format(rank)
+    assert nplike.allclose(y.vertices, nplike.linspace(3.6, 8.6, 51)), "from rank {}".format(rank)
+
+elif rank == 1:
+    assert y.n == 50, "from rank {}".format(rank)
+    assert abs(y.lower-3.6) <= 1e-12, "from rank {}".format(rank)
+    assert abs(y.upper-8.6) <= 1e-12, "from rank {}".format(rank)
+    assert y.ibegin == 0, "from rank {}".format(rank)
+    assert y.iend == 50, "from rank {}".format(rank)
+    assert nplike.allclose(y.vertices, nplike.linspace(3.6, 8.6, 51)), "from rank {}".format(rank)
+
+elif rank == 2:
+    assert y.n == 49, "from rank {}".format(rank)
+    assert abs(y.lower-8.6) <= 1e-12, "from rank {}".format(rank)
+    assert abs(y.upper-13.5) <= 1e-12, "from rank {}".format(rank)
+    assert y.ibegin == 50, "from rank {}".format(rank)
+    assert y.iend == 99, "from rank {}".format(rank)
+    assert nplike.allclose(y.vertices, nplike.linspace(8.6, 13.5, 50)), "from rank {}".format(rank)
+
+elif rank == 3:
+    assert y.n == 49, "from rank {}".format(rank)
+    assert abs(y.lower-8.6) <= 1e-12, "from rank {}".format(rank)
+    assert abs(y.upper-13.5) <= 1e-12, "from rank {}".format(rank)
+    assert y.ibegin == 50, "from rank {}".format(rank)
+    assert y.iend == 99, "from rank {}".format(rank)
+    assert nplike.allclose(y.vertices, nplike.linspace(8.6, 13.5, 50)), "from rank {}".format(rank)

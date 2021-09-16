@@ -1,0 +1,89 @@
+#! /usr/bin/env python3
+from mpi4py import MPI
+from torchswe import nplike
+from torchswe.utils.init import get_process
+from torchswe.utils.init import get_gridline
+from torchswe.utils.init import get_domain
+from torchswe.utils.init import get_empty_states
+
+rank=MPI.COMM_WORLD.Get_rank()
+
+process = get_process(MPI.COMM_WORLD, 50, 50)
+x = get_gridline("x", process.pnx, process.pi, 50, 0., 5., "float64")
+y = get_gridline("y", process.pny, process.pj, 50, 0., 10., "float64")
+domain = get_domain(process, x, y)
+results = get_empty_states(domain, 2)
+results.check()
+
+assert results.q.shape == (29, 29), "q: incorrect shape; rank {}".format(rank)
+assert results.src.shape == (25, 25), "src: incorrect shape; rank {}".format(rank)
+assert results.slp.x.shape == (25, 27), "slp.x: incorrect shape; rank {}".format(rank)
+assert results.slp.y.shape == (27, 25), "slp.y: incorrect shape; rank {}".format(rank)
+assert results.rhs.shape == (25, 25), "slp.y: incorrect shape; rank {}".format(rank)
+assert results.face.x.plus.shape == (25, 26), "face.x: incorrect shape; rank {}".format(rank)
+assert results.face.y.plus.shape == (26, 25), "face.y: incorrect shape; rank {}".format(rank)
+
+idx = nplike.arange(1, 30)[:, None] * 100 + nplike.arange(1, 30)[None, :]
+for i, key in enumerate(["w", "hu", "hv"]):
+    results.q[key][2:27, 2:4] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[2:27, 2:4]
+    results.q[key][2:27, -4:-2] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[2:27, -4:-2]
+    results.q[key][2:4, 2:27] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[2:4, 2:27]
+    results.q[key][-4:-2, 2:27] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[-4:-2, 2:27]
+results.exchange_data()
+
+msg = "error: rank {}, {}, {}"
+if rank == 0:
+    for i, key in enumerate(["w", "hu", "hv"]):
+        ans = 0.
+        assert nplike.allclose(results.q[key][2:-2, :2], ans), msg.format(rank, "west", key)
+
+        ans = 1e6 * (1 + 1) + 1e5 * (i + 1) + idx[2:27, 2:4]
+        assert nplike.allclose(results.q[key][2:-2, -2:], ans), msg.format(rank, "east", key)
+
+        ans = 0.
+        assert nplike.allclose(results.q[key][:2, 2:-2], ans), msg.format(rank, "south", key)
+
+        ans = 1e6 * (2 + 1) + 1e5 * (i + 1) + idx[2:4, 2:27]
+        assert nplike.allclose(results.q[key][-2:, 2:-2], ans), msg.format(rank, "north", key)
+
+elif rank == 1:
+    for i, key in enumerate(["w", "hu", "hv"]):
+        ans = 1e6 * (0 + 1) + 1e5 * (i + 1) + idx[2:27, -4:-2]
+        assert nplike.allclose(results.q[key][2:-2, :2], ans), msg.format(rank, "west", key)
+
+        ans = 0.
+        assert nplike.allclose(results.q[key][2:-2, -2:], ans), msg.format(rank, "east", key)
+
+        ans = 0.
+        assert nplike.allclose(results.q[key][:2, 2:-2], ans), msg.format(rank, "south", key)
+
+        ans = 1e6 * (3 + 1) + 1e5 * (i + 1) + idx[2:4, 2:27]
+        assert nplike.allclose(results.q[key][-2:, 2:-2], ans), msg.format(rank, "north", key)
+
+elif rank == 2:
+    for i, key in enumerate(["w", "hu", "hv"]):
+        ans = 0.
+        assert nplike.allclose(results.q[key][2:-2, :2], ans), msg.format(rank, "west", key)
+
+        ans = 1e6 * (3 + 1) + 1e5 * (i + 1) + idx[2:27, 2:4]
+        assert nplike.allclose(results.q[key][2:-2, -2:], ans), msg.format(rank, "east", key)
+
+        ans = 1e6 * (0 + 1) + 1e5 * (i + 1) + idx[-4:-2, 2:27]
+        assert nplike.allclose(results.q[key][:2, 2:-2], ans), msg.format(rank, "south", key)
+
+        ans = 0.
+        assert nplike.allclose(results.q[key][-2:, 2:-2], ans), msg.format(rank, "north", key)
+
+elif rank == 3:
+    for i, key in enumerate(["w", "hu", "hv"]):
+        ans = 1e6 * (2 + 1) + 1e5 * (i + 1) + idx[2:27, -4:-2]
+        assert nplike.allclose(results.q[key][2:-2, :2], ans), msg.format(rank, "west", key)
+
+        ans = 0.
+        assert nplike.allclose(results.q[key][2:-2, -2:], ans), msg.format(rank, "east", key)
+
+        ans = 1e6 * (1 + 1) + 1e5 * (i + 1) + idx[-4:-2, 2:27]
+        assert nplike.allclose(results.q[key][:2, 2:-2], ans), msg.format(rank, "south", key)
+
+        ans = 0.
+        assert nplike.allclose(results.q[key][-2:, 2:-2], ans), msg.format(rank, "north", key)

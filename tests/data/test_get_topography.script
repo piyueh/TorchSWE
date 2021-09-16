@@ -1,0 +1,24 @@
+#! /usr/bin/env python3
+from mpi4py import MPI
+from torchswe import nplike
+from torchswe.utils.init import get_process
+from torchswe.utils.init import get_gridline
+from torchswe.utils.init import get_domain
+from torchswe.utils.init import get_topography
+
+rank=MPI.COMM_WORLD.Get_rank()
+
+process = get_process(MPI.COMM_WORLD, 50, 50)
+x = get_gridline("x", process.pnx, process.pi, 50, 0., 5., "float64")
+y = get_gridline("y", process.pny, process.pj, 50, 0., 10., "float64")
+domain = get_domain(process, x, y)
+
+demx = nplike.linspace(0., 5., 51)
+demy = nplike.linspace(0., 10., 51)
+elev = (25. - (demy - 5.)**2)[:, None] * (6.25 - (demx - 2.5)**2)[None, :]
+
+topo = get_topography(domain, elev, demx, demy)
+
+ans = (25.-(domain.y.vertices-5.)**2)[:, None] * (6.25-(domain.x.vertices-2.5)**2)[None, :]
+assert nplike.allclose(topo.vertices, ans), "from rank {}".format(rank)
+assert topo.vertices.shape == (26, 26), "from rank {}".format(rank)

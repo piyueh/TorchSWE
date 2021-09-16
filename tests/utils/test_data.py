@@ -10,26 +10,11 @@
 """
 import pydantic
 from torchswe import nplike
-from torchswe.utils.data import get_gridline, Gridline
-
-
-def test_get_gridline():
-    """Test Gridline model."""
-    gridlines = [None, None, None, None]
-    gridlines[0] = get_gridline("x", 4, 0, 100, -1.2, 11.3, "float64")
-    gridlines[1] = get_gridline("x", 4, 1, 100, -1.2, 11.3, "float64")
-    gridlines[2] = get_gridline("x", 4, 2, 100, -1.2, 11.3, "float64")
-    gridlines[3] = get_gridline("x", 4, 3, 100, -1.2, 11.3, "float64")
-
-    assert gridlines[0].vertices[0] == -1.2
-    assert gridlines[0].vertices[-1] == gridlines[1].vertices[0]
-    assert gridlines[1].vertices[-1] == gridlines[2].vertices[0]
-    assert gridlines[2].vertices[-1] == gridlines[3].vertices[0]
-    assert gridlines[3].vertices[-1] == 11.3
+from torchswe.utils.data import Gridline
 
 
 def test_gridline_validation():
-    """Test the validation mechanism."""
+    """Test the validation mechanism of Gridline."""
 
     data = {
         "dtype": "float64",

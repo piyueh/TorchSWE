@@ -1,0 +1,43 @@
+#! /usr/bin/env python3
+from mpi4py import MPI
+from torchswe.utils.init import get_process
+
+rank=MPI.COMM_WORLD.Get_rank()
+proc=get_process(MPI.COMM_WORLD, 60, 80)
+assert proc.comm==MPI.COMM_WORLD, "from rank {}".format(rank)
+assert proc.pnx == 2, "from rank {}".format(rank)
+assert proc.pny == 2, "from rank {}".format(rank)
+assert proc.proc_shape == (2, 2), "from rank {}".format(rank)
+
+if rank == 0:
+    assert proc.pi == 0, "from rank {}".format(rank)
+    assert proc.pj == 0, "from rank {}".format(rank)
+    assert proc.proc_loc == (0, 0), "from rank {}".format(rank)
+    assert proc.west is None, "from rank {}".format(rank)
+    assert proc.east == 1, "from rank {}".format(rank)
+    assert proc.south is None, "from rank {}".format(rank)
+    assert proc.north == 2, "from rank {}".format(rank)
+if rank == 1:
+    assert proc.pi == 1, "from rank {}".format(rank)
+    assert proc.pj == 0, "from rank {}".format(rank)
+    assert proc.proc_loc == (0, 1), "from rank {}".format(rank)
+    assert proc.west == 0, "from rank {}".format(rank)
+    assert proc.east is None, "from rank {}".format(rank)
+    assert proc.south is None, "from rank {}".format(rank)
+    assert proc.north == 3, "from rank {}".format(rank)
+if rank == 2:
+    assert proc.pi == 0, "from rank {}".format(rank)
+    assert proc.pj == 1, "from rank {}".format(rank)
+    assert proc.proc_loc == (1, 0), "from rank {}".format(rank)
+    assert proc.west is None, "from rank {}".format(rank)
+    assert proc.east == 3, "from rank {}".format(rank)
+    assert proc.south == 0, "from rank {}".format(rank)
+    assert proc.north is None, "from rank {}".format(rank)
+if rank == 3:
+    assert proc.pi == 1, "from rank {}".format(rank)
+    assert proc.pj == 1, "from rank {}".format(rank)
+    assert proc.proc_loc == (1, 1), "from rank {}".format(rank)
+    assert proc.west == 2, "from rank {}".format(rank)
+    assert proc.east is None, "from rank {}".format(rank)
+    assert proc.south == 1, "from rank {}".format(rank)
+    assert proc.north is None, "from rank {}".format(rank)
