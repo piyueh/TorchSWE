@@ -15,11 +15,11 @@ from scipy.interpolate import RectBivariateSpline as _RectBivariateSpline
 
 # instead of importing from torchswe, we do it here again to avoid circular importing
 if "LEGATE_MAX_DIM" in os.environ and "LEGATE_MAX_FIELDS" in os.environ:
-    from legate.numpy import float32, float64
+    from legate.numpy import float32, float64  # pylint: disable=no-name-in-module
 elif "USE_CUPY" in os.environ and os.environ["USE_CUPY"] == "1":
-    from cupy import float32, float64
+    from cupy import float32, float64  # pylint: disable=import-error
 elif "USE_TORCH" in os.environ and os.environ["USE_TORCH"] == "1":
-    from torch import float32, float64
+    from torch import float32, float64  # pylint: disable=import-error
 else:
     from numpy import float32, float64
 
@@ -137,3 +137,147 @@ def interpolate(x_in, y_in, data_in, x_out, y_out):
             raise
 
     return func(x_out, y_out)
+
+
+def cal_num_procs(world_size: int, gnx: int, gny: int):
+    """Calculate the number of MPI processes in x and y directions based on the number of cells.
+
+    Arguments
+    ---------
+    world_size : int
+        Total number of MPI processes.
+    gnx, gny : int
+        Number of cells globally.
+
+    Retunrs
+    -------
+    pnx, pny : int
+        Number of MPI processes in x and y directions. Note the order of pnx and pny.
+
+    Notes
+    -----
+    Based on the following desired conditions (for perfect situation):
+
+    (1) pnx * pny = world_size
+    (2) pnx / gnx = pny / gny
+
+    From (2), we get pny = pnx * gny / gnx. Substitute it into (1), we get
+    pnx * pnx * gny / gnx = world_size. Then, finally, we have pnx = sqrt(
+    world_size * gnx / gny). Round pnx to get an integer.
+
+    If the rounded pnx is 0, then we set it to 1.
+
+    Finally, when determining pny, we decrease pnx until we find a pnx that can
+    exactly divide world_size.
+    """
+
+    # start with this number for pnx
+    pnx = max(int(0.5+(gnx*world_size/gny)**0.5), 1)
+
+    # decrease pnx until it can exactly divide world_size
+    while world_size % pnx != 0:
+        pnx -= 1
+
+    # calculate pny
+    pny = world_size // pnx
+    assert world_size == pnx * pny  # sanity check
+
+    if gnx > gny and pnx < pny:
+        pnx, pny = pny, pnx  # swap
+
+    return pnx, pny
+
+
+def cal_proc_loc_from_rank(pnx: int, rank: int):
+    """Calculate the location of a rank in a 2D Cartesian topology.
+
+    Arguments
+    ---------
+    pnx : int
+        Number of MPI processes in x directions.
+    rank : int
+        The rank of the process of which we want to calculate local cell numbers.
+
+    Returns
+    -------
+    pi, pj : int
+        The indices of the rank in the 2D MPI topology in x and y directions.
+    """
+    return rank % pnx, rank // pnx
+
+
+def cal_rank_from_proc_loc(pnx: int, pi: int, pj: int):
+    """Given (pj, pi), calculate the rank.
+
+    Arguments
+    ---------
+    pnx : int
+        Number of MPI processes in x directions.
+    pi, pj : int
+        The location indices of this process in x and y direction in the 2D process topology.
+
+    Returns
+    -------
+    rank : int
+    """
+    # pylint: disable=invalid-name
+    return pj * pnx + pi
+
+
+def cal_local_gridline_range(pn: int, pi: int, gn: int):
+    """Calculate the range of local cells on a target MPI process.
+
+    Arguments
+    ---------
+    pn : int
+        Number of MPI processes the target direction.
+    pi : int
+        The indices of this process in the target direction.
+    gn : int
+        Number of global cells in the target direction.
+
+    Returns
+    -------
+    local_n : int
+        Number of cells in this local gridline.
+    local_ibg, local_ied : int
+        The global indices of the first and the last cells in the target direction.
+
+    Notes
+    -----
+    Though we say local_ied is the indices of the last cells, they are actually the indices of
+    the last cells plus 1, so that we can directly use them in slicing, range, iterations, etc.
+    """
+    # pylint: disable=invalid-name
+    assert pi < pn
+    base = gn // pn
+    remainder = gn % pn
+    local_ibg = base * pi + min(pi, remainder)
+    local_ied = base * (pi + 1) + min(pi+1, remainder)
+    return local_ied - local_ibg, local_ibg, local_ied
+
+
+def cal_neighbors(pnx: int, pny: int, pi: int, pj: int, rank: int):
+    """Calculate neighbors' rank.
+
+    Arguments
+    ---------
+    pnx, pny : int
+        Number of MPI processes in x and y directions.
+    pi, pj : int
+        The indices of a rank in the 2D MPI topology in x and y directions.
+    rank : int
+        The rank of the process of which we want to calculate local cell numbers.
+
+    Returns
+    -------
+    west, east, south, north : int or None
+        The ranks of neighbors in these direction. If None, it means the current rank is on the
+        domain boundary.
+    """
+    # pylint: disable=invalid-name
+    west = rank - 1 if pi != 0 else None
+    east = rank + 1 if pi != pnx-1 else None
+    south = rank - pnx if pj != 0 else None
+    north = rank + pnx if pj != pny-1 else None
+    return west, east, south, north

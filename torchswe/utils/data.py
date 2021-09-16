@@ -9,22 +9,29 @@
 """Data models.
 """
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
-import os
-import copy
-import logging
-from typing import Literal, Tuple, List, Union
+import time as _time
+import logging as _logging
+from operator import itemgetter as _itemgetter
+from typing import Optional as _Optional
+from typing import Literal as _Literal
+from typing import Tuple as _Tuple
+from typing import Union as _Union
 
-from pydantic import validator, conint, confloat
-from torchswe import nplike
-from torchswe.utils.config import BaseConfig
-from torchswe.utils.netcdf import read as ncread
-from torchswe.utils.misc import DummyDtype, interpolate as _interpolate
+from mpi4py import MPI as _MPI
+from pydantic import validator as _validator
+from pydantic import conint as _conint
+from pydantic import confloat as _confloat
+from pydantic import root_validator as _root_validator
+from torchswe import nplike as _nplike
+from torchswe.utils.config import BaseConfig as _BaseConfig
+from torchswe.utils.misc import DummyDtype as _DummyDtype
 
-logger = logging.getLogger("torchswe.utils.data")
+
+_logger = _logging.getLogger("torchswe.utils.data")
 
 
-def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:
-    """Validating a given ndarray has dtype matching dtype; used by pydantic."""
+def _pydantic_val_dtype(val: _nplike.ndarray, values: dict) -> _nplike.ndarray:
+    """Validates that a given ndarray has a matching dtype; used by pydantic."""
     try:
         assert val.dtype == values["dtype"], \
             "float number type mismatch. Should be {}, got {}".format(values["dtype"], val.dtype)
@@ -34,7 +41,7 @@ def _pydantic_val_dtype(val: nplike.ndarray, values: dict) -> nplike.ndarray:
 
 
 def _pydantic_val_arrays(val, values):
-    """Validate arrays under the same data model, i.e., sharing the same shape and dtype."""
+    """Validates arrays under the same data model, i.e., sharing the same shape and dtype."""
     try:
         shape = (values["ny"], values["nx"])
         dtype = values["dtype"]
@@ -48,18 +55,20 @@ def _pydantic_val_arrays(val, values):
 
 
 def _pydantic_val_nan_inf(val, field):
-    assert not nplike.any(nplike.isnan(val)), "Got NaN in {}".format(field.name)
-    assert not nplike.any(nplike.isinf(val)), "Got Inf in {}".format(field.name)
+    """Validates if any elements are NaN or inf."""
+    assert not _nplike.any(_nplike.isnan(val)), "Got NaN in {}".format(field.name)
+    assert not _nplike.any(_nplike.isinf(val)), "Got Inf in {}".format(field.name)
     return val
 
 
-def _shape_val_factory(shift: Union[Tuple[int, int], Literal["ghost"], int]):
+def _shape_val_factory(shift: _Union[_Tuple[int, int], int]):
+    """A function factory creating a function to validate shapes of arrays."""
+
     def _core_func(val, values):
+        """A function to validate the shape."""
         try:
             if isinstance(shift, int):
                 target = (values["n"]+shift,)
-            elif shift == "ghost":
-                target = (values["ny"]+2*values["n_ghost"], values["nx"]+2*values["n_ghost"])
             else:
                 target = (values["ny"]+shift[0], values["nx"]+shift[1])
         except KeyError as err:
@@ -71,227 +80,537 @@ def _shape_val_factory(shift: Union[Tuple[int, int], Literal["ghost"], int]):
     return _core_func
 
 
-class Gridline(BaseConfig):
-    """Gridline data model.
-
-    Attributes
-    ----------
-    direction: either "x" or "y"
-    n: number of cells
-    start: lower bound
-    end: higher bound
-    delta: float; cell size in the corresponding direction.
-    dtype: "float32", "float64", nplike.float32, nplike64.
-    vert: 1D array of length n+1; coordinates at vertices.
-    cntr: 1D array of length n; coordinates at cell centers.
-    xface: 1D array of langth n+1 or n; coordinates at the cell faces normal to x-axis.
-    yface: 1D array of langth n or n+1; coordinates at the cell faces normal to y-axis.
-
-    Notes
-    -----
-    The lengths of xface and yface depend on the direction.
-    """
-    direction: Literal["x", "y"]
-    n: conint(strict=True, gt=0)
-    start: float
-    end: float
-    delta: confloat(gt=0.)
-    dtype: DummyDtype
-    vert: nplike.ndarray
-    cntr: nplike.ndarray
-    xface: nplike.ndarray
-    yface: nplike.ndarray
-
-    # common validators
-    _val_vert = validator('vert', allow_reuse=True)(_shape_val_factory(1))
-    _val_cntr = validator('cntr', allow_reuse=True)(_shape_val_factory(0))
-    _val_dtypes = validator("vert", "cntr", "xface", "yface", allow_reuse=True)(_pydantic_val_dtype)
-
-    @validator("vert", "cntr", "xface", "yface")
-    def _val_linspace(cls, v, values):
-        """Make sure the linspace is working correctly."""
-        diff = v[1:] - v[:-1]
-        assert nplike.all(diff > 0), "Not in monotonically increasing order."
-        assert nplike.allclose(diff, values["delta"], atol=1e-10), "Delta does not match."
-        return v
-
-    @validator("xface")
-    def _val_xface(cls, v, values):
-        if values["direction"] == "x":
-            return _shape_val_factory(1)(v, values)
-        return _shape_val_factory(0)(v, values)
-
-    @validator("yface")
-    def _val_yface(cls, v, values):
-        if values["direction"] == "x":
-            return _shape_val_factory(0)(v, values)
-        return _shape_val_factory(1)(v, values)
-
-
-class Gridlines(BaseConfig):
-    """Gridlines.
-
-    Attributes
-    ----------
-    x, y: Gridline object; representing x and y grindline coordinates.
-    t: a list; time values for outputing solutions.
-    """
-    x: Gridline
-    y: Gridline
-    t: List[float]
-
-
-class Topography(BaseConfig):
-    """Data model for topography elevation.
-
-    Attributes
-    ----------
-    vert : (Ny+1, Nx+1) array; elevation at vertices.
-    cntr : (Ny, Nx) array; elevation at cell centers.
-    xface : (Ny, Nx+1) array; elevation at cell faces normal to x-axis.
-    yface : (Ny+1, Nx) array; elevation at cell faces normal to y-axis.
-    xgrad : (Ny, Nx) array; derivatives w.r.t. x at cell centers.
-    ygrad : (Ny, Nx) array; derivatives w.r.t. y at cell centers.
-    """
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
-    vert: nplike.ndarray
-    cntr: nplike.ndarray
-    xface: nplike.ndarray
-    yface: nplike.ndarray
-    xgrad: nplike.ndarray
-    ygrad: nplike.ndarray
-
-    # validators
-    _val_dtypes = validator(
-        "vert", "cntr", "xface", "yface", "xgrad", "ygrad",
-        allow_reuse=True)(_pydantic_val_dtype)
-    _val_ny_1_nx_1 = validator("vert", allow_reuse=True)(_shape_val_factory([1, 1]))
-    _val_ny_nx_1 = validator("xface", allow_reuse=True)(_shape_val_factory([0, 1]))
-    _val_ny_1_nx = validator("yface", allow_reuse=True)(_shape_val_factory([1, 0]))
-    _val_ny_nx = validator("cntr", "xgrad", "ygrad", allow_reuse=True)(_shape_val_factory([0, 0]))
-
-
 class DummyDataModel:
     """A dummy class as a base for those needs the property `shape`."""
+
     @property
     def shape(self):
         "Shape of the arrays in this object."
         return (self.ny, self.nx)  # pylint: disable=no-member
 
 
-class WHUHVModel(BaseConfig, DummyDataModel):
-    """Data model with keys w, hu, and v."""
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
-    w: nplike.ndarray
-    hu: nplike.ndarray
-    hv: nplike.ndarray
+class Process(_BaseConfig):
+    """A base class containing the info of an MPI process in a 2D Cartesian topology.
+
+    Attributes
+    ----------
+    comm : MPI.Comm
+        The communicator.
+    pnx, pny : int
+        The numbers of processes in the 2D Cartesian process topology.
+    pi, pj : int
+        The location of this process in the 2D Cartesian topology.
+    west, east, south, north : int or None
+        The ranks of the neighbors. If None, means the border is on domain boundary.
+    """
+
+    # mpi related
+    comm: _MPI.Comm
+    pnx: _conint(strict=True, gt=0)
+    pny: _conint(strict=True, gt=0)
+    pi: _conint(strict=True, ge=0)
+    pj: _conint(strict=True, ge=0)
+    west: _Optional[_conint(strict=True, ge=0)] = ...
+    east: _Optional[_conint(strict=True, ge=0)] = ...
+    south: _Optional[_conint(strict=True, ge=0)] = ...
+    north: _Optional[_conint(strict=True, ge=0)] = ...
+
+    @_validator("comm")
+    def _val_comm(cls, val):
+        recvbuf = val.allgather(val.Get_rank())
+        assert recvbuf == list(range(val.Get_size())), "Communicator not working."
+        return val
+
+    @_root_validator
+    def _val_topology(cls, values):
+        rank = values["comm"].Get_rank()
+        size = values["comm"].Get_size()
+        pnx, pny, pi, pj = _itemgetter("pnx", "pny", "pi", "pj")(values)
+        assert pnx * pny == size, "MPI world size does not equal to pnx * pny."
+        assert pj * pnx + pi == rank, "MPI rank does not equal to pj * pnx + pi."
+        return values
+
+    @_root_validator
+    def _val_neighbors(cls, values):
+        # try to communicate with neighbors
+        buff = _itemgetter("pnx", "pny", "pi", "pj")(values)
+        send_tags = {"west": 31, "east": 41, "south": 51, "north": 61}
+        recv_tags = {"west": 41, "east": 31, "south": 61, "north": 51}
+        reqs, ready, reply = {}, {}, {}
+
+        for key in ["west", "east", "south", "north"]:
+            if values[key] is not None:
+                values["comm"].isend(buff, values[key], send_tags[key])
+                reqs[key] = values["comm"].irecv(source=values[key], tag=recv_tags[key])
+                ready[key], reply[key] = reqs[key].test()
+
+        counter = 0
+        while (not all(ready.values())) and counter < 10:
+            for key, val in reqs.items():
+                if ready[key]:  # already ready some time in the previous iterations
+                    continue
+                ready[key], reply[key] = val.test()  # test again if this one is not ready
+
+            counter += 1
+            _time.sleep(1)
+
+        for key, state, ans in zip(ready.keys(), ready.values(), reply.values()):
+            # first make sure we got message from this neighbor
+            assert state, "Neighbor in {} (rank {}) did not answer.".format(key, values[key])
+
+            # second make sure the neighbor has the same topology as we do
+            assert ans[0] == buff[0], "Err: pnx, {}, {}, {}".format(key, ans[0], buff[0])
+            assert ans[1] == buff[1], "Err: pny, {}, {}, {}".format(key, ans[1], buff[1])
+
+            # lastly, check this neighbor's pi and pj
+            if key == "west":
+                assert ans[2] == buff[2] - 1, "West's pi: {}, my pi: {}".format(ans[2], buff[2])
+                assert ans[3] == buff[3], "West's pj: {}, my pj: {}".format(ans[3], buff[3])
+            elif key == "east":
+                assert ans[2] == buff[2] + 1, "East's pi: {}, my pi: {}".format(ans[2], buff[2])
+                assert ans[3] == buff[3], "East's pj: {}, my pj: {}".format(ans[3], buff[3])
+            elif key == "south":
+                assert ans[2] == buff[2], "South's pi: {}, my pi: {}".format(ans[2], buff[2])
+                assert ans[3] == buff[3] - 1, "South's pj: {}, my pj: {}".format(ans[3], buff[3])
+            elif key == "north":
+                assert ans[2] == buff[2], "North's pi: {}, my pi: {}".format(ans[2], buff[2])
+                assert ans[3] == buff[3] + 1, "North's pj: {}, my pj: {}".format(ans[3], buff[3])
+            else:  # should be redundant, but I prefer keep it
+                raise ValueError("Unrecoganized key: {}".format(key))
+
+        return values
+
+    @property
+    def proc_shape(self):
+        """Returns the shape of the 2D Cartesian process topology."""
+        return (self.pny, self.pnx)
+
+    @property
+    def proc_loc(self):
+        """Returns the location of the current process in the 2D Cartesian process topology."""
+        return (self.pj, self.pi)
+
+
+class Gridline(_BaseConfig):
+    """Local gridline data model.
+
+    Attributes
+    ----------
+    axis : str
+        Either "x" or "y".
+    gn : int
+        Number of global cells.
+    glower, gupper : float
+        The global lower and the global higher bounds (coordinates) of this axis.
+    n : int
+        Number of cells.
+    lower, upper : float
+        The local lower and the local higher bounds (coordinates) of this gridline.
+    ibegin, iend : int
+        The lower cell index and upper cell index plus one of this gridline.
+    delta : float
+        Cell size.
+    dtype : str, nplike.float32, or nplike64.
+        The type of floating numbers. If a string, it should be either "float32" or "float64".
+        If not a string, it should be either `nplike.float32` or `nplike.float64`.
+    vertices: 1D array of length n+1
+        Coordinates at vertices.
+    centers: 1D array of length n
+        Coordinates at cell centers.
+    xfcenters: 1D array of langth n+1 or n
+        Coordinates at the centers of the cell faces normal to x-axis.
+    yfcenters: 1D array of langth n or n+1
+        Coordinates at the centers of the cell faces normal to y-axis.
+
+    Notes
+    -----
+    The lengths of xfcenters and yfcenters depend on the direction.
+    """
+
+    dtype: _DummyDtype
+    axis: _Literal["x", "y"]
+    gn: _conint(strict=True, gt=0)
+    glower: float
+    gupper: float
+    n: _conint(strict=True, gt=0)
+    lower: float
+    upper: float
+    ibegin: _conint(strict=True, ge=0)
+    iend: _conint(strict=True, gt=0)
+    delta: _confloat(gt=0.)
+    vertices: _nplike.ndarray
+    centers: _nplike.ndarray
+    xfcenters: _nplike.ndarray
+    yfcenters: _nplike.ndarray
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_all(cls, values):
+        """Validations that rely the existence of other fields."""
+
+        # coordinate ranges
+        gbg, ged, bg, ed = _itemgetter("glower", "gupper", "lower", "upper")(values)
+        assert gbg < ged, "Global lower bound >= global upper bound: {}, {}".format(gbg, ged)
+        assert bg < ed, "Local lower bound >= local upper bound: {}, {}".format(bg, ed)
+        assert bg >= gbg, "Local lower bound < global lower bound: {}, {}".format(bg, gbg)
+        assert ed <= ged, "Local upper bound > global upper bound: {}, {}".format(ed, ged)
+
+        # index range
+        gn, n, ibg, ied = _itemgetter("gn", "n", "ibegin", "iend")(values)
+        assert n <= gn, "Local cell number > global cell number: {}, {}".format(gn, n)
+        assert n == (ied - ibg), "Local cell number != index difference"
+        assert ibg < ied, "Begining index >= end index: {}, {}".format(ibg, ied)
+
+        # check dtype and increment
+        for v in _itemgetter("vertices", "centers", "xfcenters", "yfcenters")(values):
+            diff = v[1:] - v[:-1]
+            assert _nplike.all(diff > 0), "Not in monotonically increasing order."
+            assert _nplike.allclose(diff, values["delta"], atol=1e-10), "Delta does not match."
+            assert v.dtype == values["dtype"], "Floating-number types mismatch"
+
+        # check vertices
+        assert values["vertices"].shape == (values["n"]+1,), "The number of vertices doesn't match."
+
+        # check cell centers
+        assert values["centers"].shape == (values["n"],), "The number of centers doesn't match."
+        assert _nplike.allclose(
+            values["centers"], (values["vertices"][:-1]+values["vertices"][1:])/2.), \
+            "Centers are not at the mid-points between neighboring vertices."
+
+        # check the centers of faces
+        if values["axis"] == "x":
+            assert _nplike.allclose(values["xfcenters"], values["vertices"])
+            assert _nplike.allclose(values["yfcenters"], values["centers"])
+        else:
+            assert _nplike.allclose(values["xfcenters"], values["centers"])
+            assert _nplike.allclose(values["yfcenters"], values["vertices"])
+
+        return values
+
+
+class Timeline(_BaseConfig):
+    """An object holding information of times for snapshots.
+
+    This object supports using square brackets and slicing to get value(s). Just like a list.
+
+    Attributes
+    ----------
+    values : a tuple of floats
+        The actual values of times.
+    save : bool
+        Whether the times are for saving solutions.
+    """
+    values: _Tuple[float, ...]
+    save: bool
+
+    @_validator("values")
+    def _val_values(cls, val):
+        assert len(val) >= 2, "The length of values should >= 2"
+        pos = [(v2-v1)>0. for v1, v2 in zip(val[:-1], val[1:])]
+        assert all(pos), "Times are not in a monotonically increasing order."
+        return val
+
+    def __getitem__(self, key):
+        return self.values.__getitem__(key)
+
+
+class Domain(_BaseConfig):
+    """A base class containing the info of a process in a 2D Cartesian topology.
+
+    Attributes
+    ----------
+    process : Process
+        The object holding MPI information.
+    x, y : Gridline object
+        x and y grindline coordinates.
+    """
+
+    # mpi process
+    process: Process
+
+    # gridlines
+    x: Gridline
+    y: Gridline
+
+    @_root_validator
+    def _val_range(cls, values):
+
+        buff = [
+            values["process"].comm.Get_rank(),
+            values["x"].ibegin, values["x"].iend, values["y"].ibegin, values["y"].iend
+        ]
+
+        send_tags = {"west": 31, "east": 41, "south": 51, "north": 61}
+        recv_tags = {"west": 41, "east": 31, "south": 61, "north": 51}
+        reqs, ready, reply = {}, {}, {}
+
+        for key, val in values["process"].dict(include={"west", "east", "south", "north"}).items():
+            if val is not None:
+                values["process"].comm.isend(buff, val, send_tags[key])
+                reqs[key] = values["process"].comm.irecv(source=val, tag=recv_tags[key])
+                ready[key], reply[key] = reqs[key].test()
+
+        counter = 0
+        while (not all(ready.values())) and counter < 10:
+            for key, val in reqs.items():
+                if ready[key]:  # already ready some time in the previous iterations
+                    continue
+                ready[key], reply[key] = val.test()
+
+            counter += 1
+            _time.sleep(1)
+
+        for key, state, ans in zip(ready.keys(), ready.values(), reply.values()):
+            # first make sure we got message from this neighbor
+            assert state, "Neighbor in {} (rank {}) did not answer.".format(key, values[key])
+            # second make sure this is the correct neighbor (is this redundant?)
+            assert ans[0] == values["process"][key], \
+                "{}: {}, {}".format(key, ans[0], values["process"][key])
+
+            # check the indices from the neighbor in the west
+            if key == "west":
+                assert ans[2] == buff[1], "West's ied != my ibg: {}, {}".format(ans[2], buff[1])
+                assert ans[3] == buff[3], "West's jbg != my jbg: {}, {}".format(ans[3], buff[3])
+                assert ans[4] == buff[4], "West's jed != my jed: {}, {}".format(ans[4], buff[4])
+            elif key == "east":
+                assert ans[1] == buff[2], "East's ibg != my ied: {}, {}".format(ans[1], buff[2])
+                assert ans[3] == buff[3], "East's jbg != my jbg: {}, {}".format(ans[3], buff[3])
+                assert ans[4] == buff[4], "East's jed != my jed: {}, {}".format(ans[4], buff[4])
+            elif key == "south":
+                assert ans[1] == buff[1], "South's ibg != my ibg: {}, {}".format(ans[1], buff[1])
+                assert ans[2] == buff[2], "South's ied != my ied: {}, {}".format(ans[2], buff[2])
+                assert ans[4] == buff[3], "South's jed != my jbg: {}, {}".format(ans[4], buff[3])
+            elif key == "north":
+                assert ans[1] == buff[1], "North's ibg != my ibg: {}, {}".format(ans[1], buff[1])
+                assert ans[2] == buff[2], "North's ied != my ied: {}, {}".format(ans[2], buff[2])
+                assert ans[3] == buff[4], "North's jbg != my jed: {}, {}".format(ans[3], buff[4])
+            else:  # should be redundant, but I prefer keep it
+                raise ValueError("Unrecoganized key: {}".format(key))
+
+        return values
+
+
+class Topography(_BaseConfig):
+    """Data model for digital elevation.
+
+    Attributes
+    ----------
+    domain : torchswe.utils.data.Domain
+        The Domain instance associated with this Topography instance.
+    vertices : (ny+1, nx+1) array
+        Elevation at vertices.
+    centers : (ny, nx) array
+        Elevation at cell centers.
+    xfcenters : (ny, nx+1) array
+        Elevation at cell faces normal to x-axis.
+    yfcenters : (ny+1, nx) array
+        Elevation at cell faces normal to y-axis.
+    xgrad : (ny, nx) array
+        Derivatives w.r.t. x at cell centers.
+    ygrad : (ny, nx) array
+        Derivatives w.r.t. y at cell centers.
+    """
+    domain: Domain
+    vertices: _nplike.ndarray
+    centers: _nplike.ndarray
+    xfcenters: _nplike.ndarray
+    yfcenters: _nplike.ndarray
+    xgrad: _nplike.ndarray
+    ygrad: _nplike.ndarray
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_arrays(cls, values):
+        """Validations that rely on other fields' correctness."""
+
+        # check dtype
+        arrays = ["vertices", "centers", "xfcenters", "yfcenters", "xgrad", "ygrad"]
+        target = values["domain"].x.dtype
+        for k, v in zip(arrays, _itemgetter(*arrays)(values)):
+            assert v.dtype == target, "{}: dtype does not match".format(k)
+
+        # check shapes
+        msg = "shape does not match."
+        nx, ny = values["domain"].x.n, values["domain"].y.n
+        assert values["vertices"].shape == (ny+1, nx+1), "vertices: " + msg
+        assert values["centers"].shape == (ny, nx), "centers: " + msg
+        assert values["xfcenters"].shape == (ny, nx+1), "xfcenters: " + msg
+        assert values["yfcenters"].shape == (ny+1, nx), "yfcenters: " + msg
+        assert values["xgrad"].shape == (ny, nx), "xgrad: " + msg
+        assert values["ygrad"].shape == (ny, nx), "ygrad: " + msg
+
+        # check linear interpolation
+        v = values["vertices"]
+        msg = "linear interpolation"
+        assert _nplike.allclose(values["xfcenters"], (v[1:, :]+v[:-1, :])/2.), "xfcenters: " + msg
+        assert _nplike.allclose(values["yfcenters"], (v[:, 1:]+v[:, :-1])/2.), "yfcenters: " + msg
+        assert _nplike.allclose(values["centers"], (v[:-1, :-1]+v[:-1, 1:]+v[1:, :-1]+v[1:, 1:])/4.)
+
+        v = values["xfcenters"]
+        assert _nplike.allclose(values["centers"], (v[:, 1:]+v[:, :-1])/2.), "centers vs xfcenters"
+
+        v = values["yfcenters"]
+        assert _nplike.allclose(values["centers"], (v[1:, :]+v[:-1, :])/2.), "centers vs yfcenters"
+
+        # check central difference
+        v = values["xfcenters"]
+        dx = (values["domain"].x.vertices[1:] - values["domain"].x.vertices[:-1])[None, :]
+        assert _nplike.allclose(values["xgrad"], (v[:, 1:]-v[:, :-1])/dx), "xgrad vs xfcenters"
+
+        v = values["yfcenters"]
+        dy = (values["domain"].y.vertices[1:] - values["domain"].y.vertices[:-1])[:, None]
+        assert _nplike.allclose(values["ygrad"], (v[1:, :]-v[:-1, :])/dy), "ygrad vs yfcenters"
+
+        return values
+
+
+class WHUHVModel(_BaseConfig, DummyDataModel):
+    """Data model with keys w, hu, and v.
+
+    Attributes
+    ----------
+    nx, ny : int
+        They describe the shape of the arrays (not necessarily the shape of the mesh).
+    dtype : str, nplike.float32, or nplike64.
+        The type of floating numbers. If a string, it should be either "float32" or "float64".
+    w, hu, hv : _nplike.ndarray of shape (ny, nx)
+        The fluid elevation (depth + topography elevation), depth-u-velocity, and depth-v-velocity.
+    """
+    nx: _conint(strict=True, gt=0)
+    ny: _conint(strict=True, gt=0)
+    dtype: _DummyDtype
+    w: _nplike.ndarray
+    hu: _nplike.ndarray
+    hv: _nplike.ndarray
 
     # validators
-    _val_arrays = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_arrays)
-    _val_valid_numbers = validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_nan_inf)
+    _val_arrays = _validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_arrays)
+    _val_valid_numbers = _validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_nan_inf)
 
 
-class HUVModel(BaseConfig, DummyDataModel):
-    """Data model with keys h, u, and v."""
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
-    h: nplike.ndarray
-    u: nplike.ndarray
-    v: nplike.ndarray
+class HUVModel(_BaseConfig, DummyDataModel):
+    """Data model with keys h, u, and v.
+
+    Attributes
+    ----------
+    nx, ny : int
+        They describe the shape of the arrays (not necessarily the shape of the mesh).
+    dtype : str, nplike.float32, or nplike64.
+        The type of floating numbers. If a string, it should be either "float32" or "float64".
+    h, u, v : _nplike.ndarray of shape (ny, nx)
+        The fluid depth, u-velocity, and depth-v-velocity.
+    """
+    nx: _conint(strict=True, gt=0)
+    ny: _conint(strict=True, gt=0)
+    dtype: _DummyDtype
+    h: _nplike.ndarray
+    u: _nplike.ndarray
+    v: _nplike.ndarray
 
     # validators
-    _val_arrays = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_arrays)
-    _val_valid_numbers = validator("h", "u", "v", allow_reuse=True)(_pydantic_val_nan_inf)
+    _val_arrays = _validator("h", "u", "v", allow_reuse=True)(_pydantic_val_arrays)
+    _val_valid_numbers = _validator("h", "u", "v", allow_reuse=True)(_pydantic_val_nan_inf)
 
 
-class FaceOneSideModel(BaseConfig, DummyDataModel):
-    """Data model holding quantities on one side of cell faces normal to one direction."""
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
-    w: nplike.ndarray
-    hu: nplike.ndarray
-    hv: nplike.ndarray
-    h: nplike.ndarray
-    u: nplike.ndarray
-    v: nplike.ndarray
-    a: nplike.ndarray
+class FaceOneSideModel(_BaseConfig, DummyDataModel):
+    """Data model holding quantities on one side of cell faces normal to one direction.
+
+    Attributes
+    ----------
+    nx, ny : int
+        They describe the shape of the arrays (not necessarily the shape of the mesh).
+    dtype : str, nplike.float32, or nplike64.
+        The type of floating numbers. If a string, it should be either "float32" or "float64".
+    w, hu, hv : _nplike.ndarray of shape (ny, nx)
+        The fluid elevation (depth + topography elevation), depth-u-velocity, and depth-v-velocity.
+    h, u, v : _nplike.ndarray of shape (ny, nx)
+        The fluid depth, u-velocity, and depth-v-velocity.
+    a : _nplike.ndarray of shape (ny, nx)
+        The local speed.
+    flux : WHUHVModel
+        An object holding discontinuous fluxes.
+    """
+    nx: _conint(strict=True, gt=0)
+    ny: _conint(strict=True, gt=0)
+    dtype: _DummyDtype
+    w: _nplike.ndarray
+    hu: _nplike.ndarray
+    hv: _nplike.ndarray
+    h: _nplike.ndarray
+    u: _nplike.ndarray
+    v: _nplike.ndarray
+    a: _nplike.ndarray
     flux: WHUHVModel
 
     # validator
-    _val_arrays = validator(
+    _val_arrays = _validator(
         "w", "hu", "hv", "h", "u", "v", "a", "flux", allow_reuse=True)(_pydantic_val_arrays)
-    _val_valid_numbers = validator(
+    _val_valid_numbers = _validator(
         "w", "hu", "hv", "h", "u", "v", "a", allow_reuse=True)(_pydantic_val_nan_inf)
 
 
-class FaceTwoSideModel(BaseConfig, DummyDataModel):
-    """Date model holding quantities on both sides of cell faces normal to one direction."""
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
+class FaceTwoSideModel(_BaseConfig):
+    """Date model holding quantities on both sides of cell faces normal to one direction.
+
+    Attributes
+    ----------
+    plus, minus : FaceOneSideModel
+        Objects holding data on one side of each face.
+    num_flux : WHUHVModel
+        An object holding common/continuous flux
+    """
     plus: FaceOneSideModel
     minus: FaceOneSideModel
     num_flux: WHUHVModel
 
-    # validator
-    _val_arrays = validator("plus", "minus", "num_flux", allow_reuse=True)(_pydantic_val_arrays)
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_arrays(cls, values):
+        assert values["plus"].nx == values["minus"].nx, "incorrect nx size"
+        assert values["plus"].nx == values["num_flux"].nx, "incorrect nx size"
+        assert values["plus"].ny == values["minus"].ny, "incorrect ny size"
+        assert values["plus"].ny == values["num_flux"].ny, "incorrect nx size"
+        assert values["plus"].dtype == values["minus"].dtype, "incorrect dtype"
+        assert values["plus"].dtype == values["num_flux"].dtype, "incorrect dtype"
+        return values
 
 
-class FaceQuantityModel(BaseConfig):
-    """Data model holding quantities on both sides of cell faces in both x and y directions."""
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
+class FaceQuantityModel(_BaseConfig):
+    """Data model holding quantities on both sides of cell faces in both x and y directions.
+
+    Attributes
+    ----------
+    x, y : FaceTwoSideModel
+        Objects holding data on faces facing x and y directions.
+    """
     x: FaceTwoSideModel
     y: FaceTwoSideModel
 
-    @validator("x", "y")
-    def _val_arrays(cls, v, values, field):
-        try:
-            if field.name == "x":
-                shape = (values["ny"], values["nx"]+1)
-            else:
-                shape = (values["ny"]+1, values["nx"])
-            dtype = values["dtype"]
-        except KeyError as err:
-            raise AssertionError("Validation failed due to other validation failures.") from err
-
-        assert v.dtype == dtype, "Dtype mismatch. Should be {}, got {}".format(dtype, v.dtype)
-        assert v.shape == shape, "Shape mismatch. Should be {}, got {}".format(shape, v.shape)
-        return v
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_arrays(cls, values):
+        assert (values["x"].plus.nx-values["y"].plus.nx) == 1, "incorrect nx size"
+        assert (values["y"].plus.ny-values["x"].plus.ny) == 1, "incorrect ny size"
+        assert values["x"].plus.dtype == values["y"].plus.dtype, "mismatched dtype"
+        return values
 
 
-class Slopes(BaseConfig):
-    """Data model for slopes at cell centers."""
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    dtype: DummyDtype
+class Slopes(_BaseConfig):
+    """Data model for linear extrapolating slopes at cell centers.
+
+    Attributes
+    ----------
+    x, y : WHUHVModel
+        Slopes in x and y directions.
+    """
     x: WHUHVModel
     y: WHUHVModel
 
-    @validator("x", "y")
-    def _val_arrays(cls, v, values, field):
-        try:
-            if field.name == "x":
-                shape = (values["ny"], values["nx"]+2)
-            else:
-                shape = (values["ny"]+2, values["nx"])
-            dtype = values["dtype"]
-        except KeyError as err:
-            raise AssertionError("Validation failed due to other validation failures.") from err
-
-        assert v.dtype == dtype, "Dtype mismatch. Should be {}, got {}".format(dtype, v.dtype)
-        assert v.shape == shape, "Shape mismatch. Should be {}, got {}".format(shape, v.shape)
-        return v
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_arrays(cls, values):
+        assert (values["x"].nx-values["y"].nx) == 2, "incorrect nx size"
+        assert (values["y"].ny-values["x"].ny) == 2, "incorrect ny size"
+        assert values["x"].dtype == values["y"].dtype, "dtypes do nat match"
+        return values
 
 
-class States(BaseConfig, DummyDataModel):
+class States(_BaseConfig):
     """A jumbo data model of all arrays on a mesh patch.
 
     A brief overview of the structure in this jumbo model (ignoring scalars):
@@ -306,12 +625,12 @@ class States(BaseConfig, DummyDataModel):
         face: {
             x: {                                            # shape: (ny, nx+1)
                 plus: {
-                    w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
+                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
                     a: ndarray,
                     flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
                 minus: {
-                    w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
+                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
                     a: ndarray,
                     flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
@@ -319,12 +638,12 @@ class States(BaseConfig, DummyDataModel):
             },
             y: {                                            # shape: (ny+1, nx)
                 plus: {
-                    w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
+                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
                     a: ndarray,
                     flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
                 minus: {
-                    w: ndarray hu: ndarray hv: ndarray, h: ndarray u: ndarray v: ndarray,
+                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
                     a: ndarray,
                     flux: {w: ndarray, hu: ndarray, hv: ndarray}
                 },
@@ -332,369 +651,126 @@ class States(BaseConfig, DummyDataModel):
             }
         }
     }
+
+    Attributes
+    ----------
+    domain : torchswe.utils.data.Domain
+        The domain associated to this state object.
+    ngh : int
+        Number of ghost cell layers.
+    q, src, rhs : torchswe.utils.data.WHUHVModel
+        The conservative quantities, source terms, and the right-hand-side terms. Defined at cell
+        centers.
+    slp: torchswe.utils.data.Slopes
+        The slopes for extrapolating cell-centered quantities to cell faces.
+    face: torchswe.utils.data.FaceQuantityModel
+        Holding quantites defined at cell faces, including continuous and discontinuous ones.
     """
 
-    # parameters
-    nx: conint(strict=True, gt=0)
-    ny: conint(strict=True, gt=0)
-    ngh: conint(strict=True, ge=2)
-    dtype: DummyDtype
+    # associated domain
+    domain: Domain
 
-    # quantities defined at cell centers
+    # number of ghost cell layers
+    ngh: _conint(strict=True, ge=0)
+
+    # quantities defined at cell centers and faces
     q: WHUHVModel
     src: WHUHVModel
     slp: Slopes
     rhs: WHUHVModel
     face: FaceQuantityModel
 
-    @validator("q", "src", "rhs")
-    def _val_1(cls, v, values, field):
-        try:
-            if field.name == "q":
-                shape = (values["ny"]+2*values["ngh"], values["nx"]+2*values["ngh"])
-            else:
-                shape = (values["ny"], values["nx"])
-            dtype = values["dtype"]
-        except KeyError as err:
-            raise AssertionError("Validation failed due to other validation failures.") from err
-
-        assert v.dtype == dtype, "Dtype mismatch. Should be {}, got {}".format(dtype, v.dtype)
-        assert v.shape == shape, "Shape mismatch. Should be {}, got {}".format(shape, v.shape)
-        return v
-
-    @validator("slp", "face")
-    def _val_2(cls, v, values):
-        try:
-            nx = values["nx"]
-            ny = values["ny"]
-            dtype = values["dtype"]
-        except KeyError as err:
-            raise AssertionError("Validation failed due to other validation failures.") from err
-
-        assert v.dtype == dtype, "Dtype mismatch. Should be {}, got {}".format(dtype, v.dtype)
-        assert v.nx == nx, "Nx mismatch. Should be {}, got {}".format(nx, v.nx)
-        assert v.ny == ny, "Ny mismatch. Should be {}, got {}".format(ny, v.ny)
-        return v
-
-
-def get_gridline(direction: str, n: int, start: float, end: float, dtype: str):
-    """Get a Gridline object.
-
-    Arguments
-    ---------
-    direction : str
-        Either "x" or "y".
-    n : int
-        Number of cells.
-    start, end : float
-        Lower and upper bound of this axis.
-    dtype : str, nplike.float32, or nplike.float64
-
-    Returns
-    -------
-    gridline : Gridline
-    """
-
-    dtype = DummyDtype.validator(dtype)
-    delta = (end - start) / n
-    vert = nplike.linspace(start, end, n+1, dtype=dtype)
-    cntr = nplike.linspace(start+delta/2., end-delta/2., n, dtype=dtype)
-
-    if direction == "x":
-        xface = copy.deepcopy(vert)
-        yface = copy.deepcopy(cntr)
-    else:  # if this is not "y", pydantic will let me know
-        xface = copy.deepcopy(cntr)
-        yface = copy.deepcopy(vert)
-
-    # pydantic will validate the data here
-    return Gridline(
-        direction=direction, n=n, start=start, end=end, delta=delta, dtype=dtype,
-        vert=vert, cntr=cntr, xface=xface, yface=yface)
-
-
-def get_snapshot_times(output_type: str, params: List[Union[int, float]], dt: float):
-    """Generate a list of time when the solver should output solution snapshots.
-
-    Arguments
-    ---------
-    output_type : str
-    params : a list/tuple
-    dt : float
-
-    Returns
-    -------
-    t : a list/tuple of snapshot times.
-
-    Notes
-    -----
-    See the data model TemporalConfig for the allowed output_type and params. The `output_type` is
-    the first element in TemporalConfig.output, and `params` are the remaining elements in that
-    list.
-
-    dt is only used when output_type is "t_start every_steps multiple".
-    """
-
-    # write solutions to a file at give times
-    if output_type == "at":
-        t = list(params)
-
-    # output every `every_seconds` seconds `multiple` times from `t_start`
-    elif output_type == "t_start every_seconds multiple":
-        bg, dt, n = params
-        t = (nplike.arange(0, n+1) * dt + bg).tolist()  # including saving t_start
-
-    # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
-    elif output_type == "t_start every_steps multiple":
-        bg, steps, n = params
-        t = (nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
-
-    # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
-    elif output_type == "t_start t_end n_saves":
-        bg, ed, n = params
-        t = nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
-
-    # run simulation from `t_start` to `t_end` but not saving solutions at all
-    elif output_type == "t_start t_end no save":
-        t = params
-
-    # run simulation from `t_start` with `n_steps` iterations but not saving solutions at all
-    elif output_type == "t_start n_steps no save":
-        t = [params[0], params[1] * dt]
-
-    # should never reach this branch because pydantic has detected any invalid arguments
-    else:
-        raise ValueError("{} is not an allowed output method.".format(output_type))
-
-    return t
-
-
-def get_gridlines(
-    nx: int, ny: int, xbg: int, xed: int, ybg: int, yed: int, t: Tuple[float], dtype: str
-):
-    """Get a Gridlines object using config object.
-
-    Arguments
-    ---------
-    nx, ny : int
-    xbg, xed : float
-    ybg, yed : float
-    t : list/tuple of floats
-    dtype : str, nplike.float32, or nplike.float64
-
-    Returns
-    -------
-    gridlines : Gridlines
-    """
-    # pylint: disable=too-many-arguments
-
-    data = {
-        "x": get_gridline("x", nx, xbg, xed, dtype),
-        "y": get_gridline("y", ny, ybg, yed, dtype),
-        "t": t
-    }
-
-    return Gridlines(**data)
-
-
-def get_topography(
-    topofile: Union[str, os.PathLike], key: str,
-    grid_xv: nplike.ndarray, grid_yv: nplike.ndarray,
-    dtype: str
-):
-    """Get a Topography object from a config object.
-
-    Arguments
-    ---------
-    topofile : str or PathLike
-    key : str
-    grid_xv, grid_yv : nplike.ndarray
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    topo : Topography
-    """
-    dtype = DummyDtype.validator(dtype)
-    assert dtype == grid_xv.dtype
-    assert dtype == grid_yv.dtype
-
-    dem, _ = ncread(topofile, [key])
-
-    vert = dem[key]
-
-    # see if we need to do interpolation
-    try:
-        interp = not (nplike.allclose(grid_xv, dem["x"]) and nplike.allclose(grid_yv, dem["y"]))
-    except ValueError:  # assume thie excpetion means a shape mismatch
-        interp = True
-
-    # unfortunately, we need to do interpolation in such a situation
-    if interp:
-        logger.warning("Grids do not match. Doing spline interpolation.")
-        vert = nplike.array(_interpolate(dem["x"], dem["y"], vert.T, grid_xv, grid_yv).T)
-
-    # cast to desired float type
-    vert = vert.astype(dtype)
-
-    # topography elevation at cell centers through linear interpolation
-    cntr = vert[:-1, :-1] + vert[:-1, 1:] + vert[1:, :-1] + vert[1:, 1:]
-    cntr /= 4
-
-    # topography elevation at cell faces' midpoints through linear interpolation
-    xface = (vert[:-1, :] + vert[1:, :]) / 2.
-    yface = (vert[:, :-1] + vert[:, 1:]) / 2.
-
-    # gradient at cell centers through central difference; here allows nonuniform grids
-    # this function does not assume constant cell sizes
-    xgrad = (xface[:, 1:] - xface[:, :-1]) / (grid_xv[1:] - grid_xv[:-1])[None, :]
-    ygrad = (yface[1:, :] - yface[:-1, :]) / (grid_yv[1:] - grid_yv[:-1])[:, None]
-
-    # initialize DataModel and let pydantic validates data
-    return Topography(
-        nx=len(grid_xv)-1, ny=len(grid_yv)-1, dtype=dtype, vert=vert, cntr=cntr,
-        xface=xface, yface=yface, xgrad=xgrad, ygrad=ygrad)
-
-
-def get_empty_whuhvmodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) WHUHVModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A WHUHVModel with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    w = nplike.zeros((ny, nx), dtype=dtype)
-    hu = nplike.zeros((ny, nx), dtype=dtype)
-    hv = nplike.zeros((ny, nx), dtype=dtype)
-    return WHUHVModel(nx=nx, ny=ny, dtype=dtype, w=w, hu=hu, hv=hv)
-
-
-def get_empty_huvmodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) HUVModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A HUVModel with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    h = nplike.zeros((ny, nx), dtype=dtype)
-    u = nplike.zeros((ny, nx), dtype=dtype)
-    v = nplike.zeros((ny, nx), dtype=dtype)
-    return WHUHVModel(nx=nx, ny=ny, dtype=dtype, h=h, u=u, v=v)
-
-
-def get_empty_faceonesidemodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) FaceOneSideModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A FaceOneSideModel with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    return FaceOneSideModel(
-        nx=nx, ny=ny, dtype=dtype, w=nplike.zeros((ny, nx), dtype=dtype),
-        hu=nplike.zeros((ny, nx), dtype=dtype), hv=nplike.zeros((ny, nx), dtype=dtype),
-        h=nplike.zeros((ny, nx), dtype=dtype), u=nplike.zeros((ny, nx), dtype=dtype),
-        v=nplike.zeros((ny, nx), dtype=dtype), a=nplike.zeros((ny, nx), dtype=dtype),
-        flux=get_empty_whuhvmodel(nx, ny, dtype)
-    )
-
-
-def get_empty_facetwosidemodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) FaceTwoSideModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A FaceTwoSideModel with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    return FaceTwoSideModel(
-        nx=nx, ny=ny, dtype=dtype,
-        plus=get_empty_faceonesidemodel(nx, ny, dtype),
-        minus=get_empty_faceonesidemodel(nx, ny, dtype),
-        num_flux=get_empty_whuhvmodel(nx, ny, dtype)
-    )
-
-
-def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) FaceQuantityModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A FaceQuantityModel with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    return FaceQuantityModel(
-        nx=nx, ny=ny, dtype=dtype,
-        x=get_empty_facetwosidemodel(nx+1, ny, dtype),
-        y=get_empty_facetwosidemodel(nx, ny+1, dtype),
-    )
-
-
-def get_empty_slopes(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) Slopes.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A Slopes with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    return Slopes(
-        nx=nx, ny=ny, dtype=dtype,
-        x=get_empty_whuhvmodel(nx+2, ny, dtype), y=get_empty_whuhvmodel(nx, ny+2, dtype),
-    )
-
-
-def get_empty_states(nx: int, ny: int, ngh: int, dtype: str):
-    """Get an empty (i.e., zero arrays) States.
-
-    Arguments
-    ---------
-    nx, ny : int
-    ngh : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A States with zero arrays.
-    """
-    dtype = DummyDtype.validator(dtype)
-    return States(
-        nx=nx, ny=ny, ngh=ngh, dtype=dtype,
-        q=get_empty_whuhvmodel(nx+2*ngh, ny+2*ngh, dtype),
-        src=get_empty_whuhvmodel(nx, ny, dtype),
-        slp=get_empty_slopes(nx, ny, dtype),
-        rhs=get_empty_whuhvmodel(nx, ny, dtype),
-        face=get_empty_facequantitymodel(nx, ny, dtype)
-    )
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_all(cls, values):
+        nx = values["domain"].x.n
+        ny = values["domain"].x.n
+        ngh = values["ngh"]
+        dtype = values["domain"].x.dtype
+
+        assert values["q"].shape == (ny+2*ngh, nx+2*ngh), "q: incorrect shape"
+        assert values["src"].shape == (ny, nx), "src: incorrect shape"
+        assert values["slp"].x.shape == (ny, nx+2), "slp.x: incorrect shape"
+        assert values["slp"].y.shape == (ny+2, nx), "slp.y: incorrect shape"
+        assert values["rhs"].shape == (ny, nx), "slp.y: incorrect shape"
+        assert values["face"].x.plus.shape == (ny, nx+1), "face.x: incorrect shape"
+        assert values["face"].y.plus.shape == (ny+1, nx), "face.y: incorrect shape"
+
+        assert values["q"].dtype == dtype, "q: incorrect dtype"
+        assert values["src"].dtype == dtype, "src: incorrect dtype"
+        assert values["slp"].x.dtype == dtype, "slp.x: incorrect dtype"
+        assert values["slp"].y.dtype == dtype, "slp.y: incorrect dtype"
+        assert values["rhs"].dtype == dtype, "slp.y: incorrect dtype"
+        assert values["face"].x.plus.dtype == dtype, "face.x: incorrect dtype"
+        assert values["face"].y.plus.dtype == dtype, "face.y: incorrect dtype"
+
+        return values
+
+    def exchange_data(self):
+        """Exchange data with neighbor MPI process to update overlapped slices."""
+        # pylint: disable=too-many-locals
+
+        sbuf, sreq, rbuf, rreq = {}, {}, {}, {}
+
+        stags = {
+            "west": {"w": 31, "hu": 32, "hv": 33}, "east": {"w": 41, "hu": 42, "hv": 43},
+            "south": {"w": 51, "hu": 52, "hv": 53}, "north": {"w": 61, "hu": 62, "hv": 63},
+        }
+
+        rtags = {
+            "west": {"w": 41, "hu": 42, "hv": 43}, "east": {"w": 31, "hu": 32, "hv": 33},
+            "south": {"w": 61, "hu": 62, "hv": 63}, "north": {"w": 51, "hu": 52, "hv": 53},
+        }
+
+        sslcs = {
+            "west": (slice(self.ngh, -self.ngh), slice(self.ngh, 2*self.ngh)),
+            "east": (slice(self.ngh, -self.ngh), slice(-2*self.ngh, -self.ngh)),
+            "south": (slice(self.ngh, 2*self.ngh), slice(self.ngh, -self.ngh)),
+            "north": (slice(-2*self.ngh, -self.ngh), slice(self.ngh, -self.ngh)),
+        }
+
+        rslcs = {
+            "west": (slice(self.ngh, -self.ngh), slice(None, self.ngh)),
+            "east": (slice(self.ngh, -self.ngh), slice(-self.ngh, None)),
+            "south": (slice(None, self.ngh), slice(self.ngh, -self.ngh)),
+            "north": (slice(-self.ngh, None), slice(self.ngh, -self.ngh)),
+        }
+
+        # make an alias for convenience
+        proc = self.domain.process
+
+        ans = 0
+        for ornt in ["west", "east", "south", "north"]:
+            if proc[ornt] is not None:
+                for var in ["w", "hu", "hv"]:
+                    key = (ornt, var)
+                    sbuf[key] = self.q[var][sslcs[ornt]].copy()
+                    sreq[key] = proc.comm.Isend(sbuf[key], proc[ornt], stags[ornt][var])
+                    rbuf[key] = _nplike.zeros_like(self.q[var][rslcs[ornt]])
+                    rreq[key] = proc.comm.Irecv(rbuf[key], proc[ornt], rtags[ornt][var])
+                    ans += 1
+
+        tstart = _time.perf_counter()
+        done = 0
+        while done != ans and _time.perf_counter()-tstart < 5.:
+            for key, req in rreq.items():
+                if key in rbuf and req.Test():
+                    self.q[key[1]][rslcs[key[0]]] = rbuf[key]
+                    del rbuf[key]
+                    done += 1
+
+        # make sure if the while loop exited because of done == ans
+        if done != ans:
+            raise RuntimeError("Receiving data from neighbor timeout: {}".format(rbuf.keys()))
+
+        # only leave this function when send requests are also done
+        tstart = _time.perf_counter()
+        done = 0
+        while done != ans and _time.perf_counter()-tstart < 5.:
+            for key, req in sreq.items():
+                if key in sbuf and req.Test():
+                    del sbuf[key]
+                    done += 1
+
+        # make usre if the while loop exited because of done == ans
+        if done != ans:
+            raise RuntimeError("Sending data from neighbor timeout: {}".format(sbuf.keys()))
