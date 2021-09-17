@@ -89,7 +89,7 @@ def default_attrs(corner, delta):
     return attrs
 
 
-def read(fpath, data_keys, domain=None, **kwargs):
+def read(fpath, data_keys, extent=None, **kwargs):
     """Read data from a NetCDF file in CF convention (parallel version).
 
     The spatial data will have shape (ny, nx) or (ntime, ny, nx). For example, data[0, 0] is the
@@ -102,8 +102,8 @@ def read(fpath, data_keys, domain=None, **kwargs):
         Path to the input file.
     data_keys : a list/tuple of str
         The keys of data to read from the dataset
-    domain : a list/tuple of 4 floats, or None
-        Read data within the bounds (west, east, south, north) of the domain. If None, read all.
+    extent : a list/tuple of 4 floats, or None
+        The bounds (west, east, south, north) of data that will be read in. If None, read all.
     **kwargs :
         Arbitrary keyword arguments passed into netCDF4.Dataset.__init__.
 
@@ -118,8 +118,8 @@ def read(fpath, data_keys, domain=None, **kwargs):
 
     Notes
     -----
-    If domain bounds do not exactly fall on a gridline, the returned data blocks/slices will be
-    a little bit larger than the domain to cover the whole domain. Then, users can do interpolation
+    If extent do not exactly fall on a gridline, the returned data blocks/slices will be
+    a little bit larger than the extent to cover the whole domain. Then, users can do interpolation
     later by themselves.
     """
 
@@ -127,7 +127,7 @@ def read(fpath, data_keys, domain=None, **kwargs):
     fpath = _Path(fpath).expanduser().resolve()
 
     with _Dataset(fpath, **kwargs) as dset:
-        data, attrs = read_from_dataset(dset, data_keys, domain)
+        data, attrs = read_from_dataset(dset, data_keys, extent)
     return data, attrs
 
 

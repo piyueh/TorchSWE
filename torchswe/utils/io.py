@@ -188,34 +188,3 @@ def create_topography_file(fpath, axs, elevation, key="elevation", options=None,
 
     with _Dataset(fpath, "w", **kwargs) as dset:
         _write_to_dataset(dset, axs, {key: elevation}, options=_options)
-
-
-def read_topography_file(fpath, key, extent, **kwargs):
-    """Read the topograhy elevation data from a NetCDF DEM file with CF convention.
-
-    Arguments
-    ---------
-    fpath : str or PathLike
-        The path to the file.
-    key : str
-        The name/key of the elevation data in the NetCDF file.
-    extent : a tuple/list of 4 floats
-        The format is [west, east, south, north].
-    **kwargs
-        Other keyword arguments that will be supplied to open netCDF4.Dataset.
-
-    Returns
-    -------
-    x, y : 1D nplike.ndarray
-        The coordinates of where the returned elevations are defined at.
-    topo : 2D nplike.ndarray
-        The elevations. Its shape should be (y.size, x.size).
-
-    Notes
-    -----
-    Common keyword arguments used for parallel read are `parallel=True` and `comm=...`.
-    """
-
-    dem, _ = _ncread(fpath, [key], extent, **kwargs)
-    assert dem[key].shape == (dem["x"].size, dem["y"].size)
-    return dem["x"], dem["y"], dem[key]
