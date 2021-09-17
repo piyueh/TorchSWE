@@ -113,19 +113,19 @@ def outflow_factory(ngh: int, orientation: str):
     """
 
     def outflow_west(conserv_q):
-        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, ngh]
+        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, ngh:ngh+1]
         return conserv_q
 
     def outflow_east(conserv_q):
-        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, -ngh-1]
+        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, -ngh-1:-ngh]
         return conserv_q
 
     def outflow_south(conserv_q):
-        conserv_q[:ngh, ngh:-ngh] = conserv_q[ngh, ngh:-ngh]
+        conserv_q[:ngh, ngh:-ngh] = conserv_q[ngh:ngh+1, ngh:-ngh]
         return conserv_q
 
     def outflow_north(conserv_q):
-        conserv_q[-ngh:, ngh:-ngh] = conserv_q[-ngh-1, ngh:-ngh]
+        conserv_q[-ngh:, ngh:-ngh] = conserv_q[-ngh-1:-ngh, ngh:-ngh]
         return conserv_q
 
     candidates = {

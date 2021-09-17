@@ -394,7 +394,7 @@ def add_variables_to_dataset(dset, data, idx_bounds=None, options=None):
             continue
 
         # spatial slice object
-        slc = (slice(idx_bounds[3], idx_bounds[2]), slice(idx_bounds[1], idx_bounds[0]))
+        slc = (slice(idx_bounds[2], idx_bounds[3]), slice(idx_bounds[0], idx_bounds[1]))
 
         # modify slices based on temporal axis
         if len(val.shape) == 2:

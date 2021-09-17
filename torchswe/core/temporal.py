@@ -142,7 +142,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
-    soil_vol = topo.cntr.sum() * cell_area
+    soil_vol = topo.centers.sum() * cell_area
 
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
@@ -241,7 +241,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
-    soil_vol = topo.cntr.sum() * cell_area
+    soil_vol = topo.centers.sum() * cell_area
 
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
