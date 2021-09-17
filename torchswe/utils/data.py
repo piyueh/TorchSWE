@@ -26,7 +26,6 @@ from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
 from torchswe.utils.misc import DummyDtype as _DummyDtype
 
-
 _logger = _logging.getLogger("torchswe.utils.data")
 
 
@@ -228,7 +227,7 @@ class Gridline(_BaseConfig):
     """
 
     dtype: _DummyDtype
-    axis: _Literal["x", "y"]
+    axis: _Literal["x", "y"]  # noqa: F821
     gn: _conint(strict=True, gt=0)
     glower: float
     gupper: float
@@ -305,12 +304,15 @@ class Timeline(_BaseConfig):
     @_validator("values")
     def _val_values(cls, val):
         assert len(val) >= 2, "The length of values should >= 2"
-        pos = [(v2-v1)>0. for v1, v2 in zip(val[:-1], val[1:])]
+        pos = [(v2-v1) > 0. for v1, v2 in zip(val[:-1], val[1:])]
         assert all(pos), "Times are not in a monotonically increasing order."
         return val
 
     def __getitem__(self, key):
         return self.values.__getitem__(key)
+
+    def __len__(self):
+        return self.values.__len__()
 
 
 class Domain(_BaseConfig):
@@ -331,7 +333,7 @@ class Domain(_BaseConfig):
     x: Gridline
     y: Gridline
 
-    @_root_validator
+    @_root_validator(pre=False, skip_on_failure=True)
     def _val_range(cls, values):
 
         buff = [
@@ -385,6 +387,19 @@ class Domain(_BaseConfig):
                 assert ans[3] == buff[4], "North's jbg != my jed: {}, {}".format(ans[3], buff[4])
             else:  # should be redundant, but I prefer keep it
                 raise ValueError("Unrecoganized key: {}".format(key))
+
+        return values
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_delta(cls, values):
+
+        # check dx
+        dxs = values["process"].comm.allgather(values["x"].delta)
+        assert _nplike.allclose(dxs, values["x"].delta), "Not all processes have the same dx."
+
+        # check dy
+        dys = values["process"].comm.allgather(values["y"].delta)
+        assert _nplike.allclose(dys, values["y"].delta), "Not all processes have the same dy."
 
         return values
 
