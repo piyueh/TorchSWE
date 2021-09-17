@@ -8,15 +8,19 @@
 
 """Functions for initializing objects.
 """
-# pylint: disable=invalid-name
 import logging as _logging
 import copy as _copy
+import argparse as _argparse
+import pathlib as _pathlib
 from typing import List as _List
 from typing import Union as _Union
 from typing import Optional as _Optional
 
+import yaml as _yaml
 from mpi4py import MPI as _MPI
 from torchswe import nplike as _nplike
+from torchswe.utils.config import ICConfig as _ICConfig
+from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import Process as _Process
 from torchswe.utils.data import Gridline as _Gridline
 from torchswe.utils.data import Timeline as _Timeline
@@ -29,6 +33,7 @@ from torchswe.utils.data import FaceTwoSideModel as _FaceTwoSideModel
 from torchswe.utils.data import FaceQuantityModel as _FaceQuantityModel
 from torchswe.utils.data import Slopes as _Slopes
 from torchswe.utils.data import States as _States
+from torchswe.utils.netcdf import read as _ncread
 from torchswe.utils.misc import DummyDtype as _DummyDtype
 from torchswe.utils.misc import cal_num_procs as _cal_num_procs
 from torchswe.utils.misc import cal_proc_loc_from_rank as _cal_proc_loc_from_rank
@@ -54,7 +59,6 @@ def get_process(comm: _MPI.Comm, gnx: int, gny: int):
     -------
     An instance of `torchswe.utils.data.Process`.
     """
-    # pylint: disable=invalid-name
     data = {"comm": comm}
     data["pnx"], data["pny"] = _cal_num_procs(comm.Get_size(), gnx, gny)
     data["pi"], data["pj"] = _cal_proc_loc_from_rank(data["pnx"], comm.Get_rank())
@@ -140,19 +144,19 @@ def get_timeline(output_type: str, params: _List[_Union[int, float]], dt: _Optio
 
     # output every `every_seconds` seconds `multiple` times from `t_start`
     elif output_type == "t_start every_seconds multiple":
-        bg, delta, n = params
-        t = (_nplike.arange(0, n+1) * delta + bg).tolist()  # including saving t_start
+        begin, delta, n = params
+        t = (_nplike.arange(0, n+1) * delta + begin).tolist()  # including saving t_start
 
     # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
     elif output_type == "t_start every_steps multiple":
         assert dt is not None, "dt must be provided for \"t_start every_steps multiple\""
-        bg, steps, n = params
-        t = (_nplike.arange(0, n+1) * dt * steps + bg).tolist()  # including saving t_start
+        begin, steps, n = params
+        t = (_nplike.arange(0, n+1) * dt * steps + begin).tolist()  # including saving t_start
 
     # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
     elif output_type == "t_start t_end n_saves":
-        bg, ed, n = params
-        t = _nplike.linspace(bg, ed, n+1).tolist()  # including saving t_start
+        begin, end, n = params
+        t = _nplike.linspace(begin, end, n+1).tolist()  # including saving t_start
 
     # run simulation from `t_start` to `t_end` but not saving solutions at all
     elif output_type == "t_start t_end no save":
@@ -194,7 +198,7 @@ def get_domain(process: _Process, x: _Gridline, y: _Gridline):
 
 
 def get_topography(domain, elev, demx, demy):
-    """Get a Topography object from a config object.
+    """Get a Topography object.
     """
 
     # alias
@@ -373,3 +377,257 @@ def get_empty_states(domain: _Domain, ngh: int):
         rhs=get_empty_whuhvmodel(nx, ny, dtype),
         face=get_empty_facequantitymodel(nx, ny, dtype)
     )
+
+
+def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int):
+    """Get a States instance filled with initial conditions.
+
+    Arguments
+    ---------
+
+    Returns
+    -------
+    torchswe.utils.data.States
+
+    Notes
+    -----
+    When x and y axes have different resolutions from the x and y in the NetCDF file, an bi-cubic
+    spline interpolation will take place.
+    """
+
+    # get an empty states
+    states = get_empty_states(domain, ngh)
+
+    # special case: constant I.C.
+    if ic.values is not None:
+        states.q.w[ngh:-ngh, ngh:-ngh] = ic.values[0]
+        states.q.hu[ngh:-ngh, ngh:-ngh] = ic.values[1]
+        states.q.hv[ngh:-ngh, ngh:-ngh] = ic.values[2]
+        states.check()
+        return states
+
+    # otherwise, read data from a NetCDF file
+    icdata, _ = _ncread(
+        ic.file, ic.keys,
+        [domain.x.centers[0], domain.x.centers[-1], domain.y.centers[0], domain.y.centers[-1]],
+        parallel=True, comm=domain.process.comm
+    )
+
+    # see if we need to do interpolation
+    try:
+        interp = not (
+            _nplike.allclose(domain.x.centers, icdata["x"]) and
+            _nplike.allclose(domain.y.centers, icdata["y"])
+        )
+    except ValueError:  # assume thie excpetion means a shape mismatch
+        interp = True
+
+    # unfortunately, we need to do interpolation in such a situation
+    if interp:
+        _logger.warning("Grids do not match. Doing spline interpolation.")
+        w = _nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic.keys[0]].T, domain.x.centers, domain.y.centers
+            ).T
+        )
+
+        hu = _nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic.keys[1]].T, domain.x.centers, domain.y.centers
+            ).T
+        )
+
+        hv = _nplike.array(
+            _interpolate(
+                icdata["x"], icdata["y"], icdata[ic.keys[2]].T, domain.x.centers, domain.y.centers
+            ).T
+        )
+    else:
+        w = icdata[ic.keys[0]]
+        hu = icdata[ic.keys[1]]
+        hv = icdata[ic.keys[2]]
+
+    states.q.w[ngh:-ngh, ngh:-ngh] = w
+    states.q.hu[ngh:-ngh, ngh:-ngh] = hu
+    states.q.hv[ngh:-ngh, ngh:-ngh] = hv
+    states.check()
+
+    return states
+
+
+def get_cmd_arguments(argv: _Optional[_List[str]] = None):
+    """Parse and get CMD arguments.
+
+    Attributes
+    ----------
+    argv : list or None
+        By default, None means using `sys.argv`. Only explicitly use this argument for debug.
+
+    Returns
+    -------
+    args : argparse.Namespace
+        CMD arguments.
+    """
+
+    # parse command-line arguments
+    parser = _argparse.ArgumentParser(
+        prog="TorchSWE",
+        description="GPU shallow-water equation solver utilizing Legate",
+        epilog="Website: https://github.com/piyueh/TorchSWE",
+        formatter_class=_argparse.ArgumentDefaultsHelpFormatter,
+        allow_abbrev=False
+    )
+
+    parser.add_argument(
+        "case_folder", metavar="PATH", action="store", type=_pathlib.Path,
+        help="The path to a case folder."
+    )
+
+    parser.add_argument(
+        "--sp", action="store_true", dest="sp",
+        help="Use single precision instead of double precision floating numbers"
+    )
+
+    parser.add_argument(
+        "--tm", action="store", type=str, choices=["SSP-RK2", "SSP-RK3", "Euler"], default=None,
+        help="Overwrite the time-marching scheme. Default is to respect the setting in config.yaml."
+    )
+
+    parser.add_argument(
+        "--log-steps", action="store", type=int, default=None, metavar="STEPS",
+        help="How many steps to output a log message to stdout. Default is to respect config.yaml."
+    )
+
+    parser.add_argument(
+        "--log-level", action="store", type=str, default="normal", metavar="LEVEL",
+        choices=["debug", "normal", "quiet"],
+        help="Enabling logging debug messages."
+    )
+
+    parser.add_argument(
+        "--log-file", action="store", type=_pathlib.Path, default=None, metavar="FILE",
+        help="Saving log messages to a file instead of stdout."
+    )
+
+    args = parser.parse_args(argv)
+
+    # make sure the case folder path is absolute
+    if args.case_folder is not None:
+        args.case_folder = args.case_folder.expanduser().resolve()
+
+    # convert log level from string to corresponding Python type
+    level_options = {"quiet": _logging.ERROR, "normal": _logging.INFO, "debug": _logging.DEBUG}
+    args.log_level = level_options[args.log_level]
+
+    # make sure the file path is absolute
+    if args.log_file is not None:
+        args.log_file = args.log_file.expanduser().resolve()
+
+    return args
+
+
+def get_config(args: _argparse.Namespace):
+    """Get a Config object.
+
+    Arguments
+    ---------
+    args : argparse.Namespace
+        The result of parsing command-line arguments.
+
+    Returns
+    -------
+    config : torchswe.utils.config.Config
+    """
+
+    args.case_folder = args.case_folder.expanduser().resolve()
+    args.yaml = args.case_folder.joinpath("config.yaml")
+
+    # read yaml config file
+    with open(args.yaml, "r") as fobj:
+        config = _yaml.load(fobj, _yaml.Loader)
+
+    assert isinstance(config, _Config), \
+        "Failed to parse {} as an Config object. ".format(args.yaml) + \
+        "Check if `--- !Config` appears in the header of the YAML"
+
+    # add args to config
+    config.case = args.case_folder
+    config.dtype = "float32" if args.sp else "float64"
+
+    if args.log_steps is not None:
+        config.params.log_steps = args.log_steps
+
+    if args.tm is not None:  # overwrite the setting in config.yaml
+        config.temporal.scheme = args.tm
+
+    # if topo filepath is relative, change to abs path
+    config.topo.file = config.topo.file.expanduser()
+    if not config.topo.file.is_absolute():
+        config.topo.file = config.case.joinpath(config.topo.file).resolve()
+
+    # if ic filepath is relative, change to abs path
+    if config.ic.file is not None:
+        config.ic.file = config.ic.file.expanduser()
+        if not config.ic.file.is_absolute():
+            config.ic.file = config.case.joinpath(config.ic.file).resolve()
+
+    # if filepath of the prehook script is relative, change to abs path
+    if config.prehook is not None:
+        config.prehook = config.prehook.expanduser()
+        if not config.prehook.is_absolute():
+            config.prehook = config.case.joinpath(config.prehook).resolve()
+
+    # validate data again
+    config.check()
+
+    return config
+
+
+def get_initial_objects(comm: _MPI.Comm, config: _Config):
+    """Get initial topography and states based on a Config object.
+
+    Arguments
+    ---------
+    comm : mpi4py.MPI.Comm
+        The communicator used by this simulation.
+    config : torchswe.utils.config.Config
+        The configuration object holding simulation settings.
+
+    Returns
+    -------
+    topo : torchswe.utils.data.Topography
+        Topography data.
+    states : torchswe.utils.data.States
+        Simulation states, including solutions.
+    time : torchswe.utils.data.Timeline
+        Times for saving solution snapshots.
+    """
+
+    # get parallel process, x, y, and domain
+    process = get_process(comm, *config.spatial.discretization)
+
+    x = get_gridline(
+        "x", process.pnx, process.pi, config.spatial.discretization[0], config.spatial.domain[0],
+        config.spatial.domain[1], config.dtype
+    )
+
+    y = get_gridline(
+        "y", process.pny, process.pj, config.spatial.discretization[1], config.spatial.domain[2],
+        config.spatial.domain[3], config.dtype
+    )
+
+    domain = get_domain(process, x, y)
+
+    # get dem (digital elevation model)
+    dem, _ = _ncread(
+        fpath=config.topo.file, data_keys=[config.topo.key],
+        extent=(x.lower, x.upper, y.lower, y.upper), parallel=True, comm=comm
+    )
+    assert dem[config.topo.key].shape == (dem["x"].size, dem["y"].size)
+
+    # get topo, states, and timeline
+    topo = get_topography(domain, dem[config.topo.key], dem["x"], dem["y"])
+    states = get_initial_states(domain, config.ic, config.params.ngh)
+    time = get_timeline(config.temporal.output[0], config.temporal.output[1], config.temporal.dt)
+
+    return topo, states, time

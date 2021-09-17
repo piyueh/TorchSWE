@@ -11,122 +11,155 @@
 
 import time
 import logging
+
+from mpi4py import MPI
 from torchswe import nplike
+from torchswe.utils.init import get_cmd_arguments, get_config, get_initial_objects
 from torchswe.utils.misc import DummyDict
-from torchswe.utils.data import get_empty_states
+from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
-from torchswe.core.initializer import init, get_cmd_arguments
-from torchswe.core.fvm import fvm
 from torchswe.core.boundary_conditions import get_ghost_cell_updaters
 from torchswe.core.temporal import euler, ssprk2, ssprk3
+from torchswe.core.fvm import fvm
 
 # enforce print precision
 nplike.set_printoptions(precision=15, linewidth=200)
 
+# available time marching options
+MARCHING_OPTIONS = {"Euler": euler, "SSP-RK2": ssprk2, "SSP-RK3": ssprk3}  # available options
 
-def setup_logger(log_level, log_file):
-    """Setup logger."""
 
-    # just for our convenience
-    log_opts = {"quiet": logging.ERROR, "normal": logging.INFO, "debug": logging.DEBUG}
+def init(comm, args=None):
+    """Initialize a simulation and read configuration.
 
-    # setup the top-level logger
+    Attributes
+    ----------
+    comm : mpi4py.MPI.Comm
+        The communicator.
+    args : None or argparse.Namespace
+        By default, None means getting arguments from command-line.
+
+    Returns
+    -------
+    config : a torchswe.utils.config.Config
+        A Config instance holding a case's simulation configurations.
+    topo : torch.utils.data.Topography
+        Topography elevation data.
+    states : torch.utils.data.States
+        Solutions and associated domain information.
+    times : torchswe.utils.data.Timeline
+        Times for saving solution snapshot.
+    logger : logging.Logger
+        Python's logging utility object.
+    """
+
+    # MPI size & rank
+    size = comm.Get_size()
+    rank = comm.Get_rank()
+
+    # get cmd arguments
+    if args is None:
+        args = get_cmd_arguments()
+
+    # setup the top-level (i.e., package-level/torchswe) logger
     logger = logging.getLogger("torchswe")
-    logger.setLevel(log_opts[log_level])
 
-    if log_file is not None:
-        logger.addHandler(logging.FileHandler(log_file.expanduser().resolve(), "w"))
-        logger.handlers[-1].setFormatter(logging.Formatter(
-            "%(asctime)s %(name)s %(funcName)s [%(levelname)s] %(message)s", "%m-%d %H:%M:%S"))
+    if args.log_file is not None:
+        # different ranks write to different log files
+        if size != 1:
+            args.log_file = args.log_file.with_name(args.log_file.name+".proc.{:02d}".format(rank))
+
+        fmt = "%(asctime)s %(name)s %(funcName)s [%(levelname)s] %(message)s"  # format
+        logger.setLevel(args.log_level)
+        logger.addHandler(logging.FileHandler(args.log_file, "w"))
+        logger.handlers[-1].setFormatter(logging.Formatter(fmt, "%m-%d %H:%M:%S"))
     else:
-        logger.addHandler(logging.StreamHandler())
-        logger.handlers[-1].setFormatter(logging.Formatter("%(asctime)s %(message)s", "%H:%M:%S"))
+        if args.log_level == logging.INFO:
+            if rank == 0:
+                logger.setLevel(logging.INFO)
+            else:
+                logger.setLevel(logging.WARNING)
+        else:
+            logger.setLevel(args.log_level)
 
-    # return the logger for this file
+        fmt = "[Rank {}] %(asctime)s %(message)s".format(rank)
+        logger.addHandler(logging.StreamHandler())
+        logger.handlers[-1].setFormatter(logging.Formatter(fmt, "%H:%M:%S"))
+
+    # make the final & returned logger refer to this specific file (main function)
     logger = logging.getLogger("torchswe.main")
-    return logger
+
+    # set GPU id
+    if nplike.__name__ == "cupy":
+        set_device(comm)
+
+    # get configuration
+    config = get_config(args)
+
+    # spatial discretization + output time values
+    topo, states, times = get_initial_objects(comm, config)
+
+    # make sure initial depths are non-negative
+    states.q.w = nplike.maximum(topo.centers, states.q.w)
+
+    return config, topo, states, times, logger
 
 
 def main():
     """Main function."""
 
+    # mpi communicator
+    comm = MPI.COMM_WORLD
+
     # get CMD arguments
     args = get_cmd_arguments()
 
-    # setup loggier
-    logger = setup_logger(args.log_level, args.log_file)
-    logger.info("Done parsing CMD arguments and setting up the logging system.")
+    # initialize
+    config, topo, soln, times, logger = init(comm, args)
+    logger.info("Done initialization.")
     logger.info("The np-like backend is: %s", nplike.__name__)
 
-    if nplike.__name__ == "legate.numpy":
-        logger.info("Using nplike.where code path")
-    else:
-        logger.info("Using advanced-indexing code path")
-
-    # configuration and required data
-    config, grid, topo, ic_data = init(args)
-    logger.info("Done initializing.")
-
-    # runtime holding things not available in config.yaml or may change during runtime
+    # `runtime` holding things not available in config.yaml or may change during runtime
     runtime = DummyDict()  # it's just a dict and not a data model. so, no data validation
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
-    runtime.cur_t = grid.t[0]  # the current simulation time
+    runtime.cur_t = times[0]  # the current simulation time
     runtime.next_t = None  # next output time; will be set later
     runtime.counter = 0  # to count the current number of iterations
     runtime.epsilon = config.params.drytol**4  # tolerance when dealing almost-dry cells
     runtime.tol = 1e-12  # up to how big can be treated as zero
-
-    # function to calculate right-hand-side
-    runtime.rhs_updater = fvm
-
-    # get the callable to update ghost cells
-    runtime.ghost_updater = get_ghost_cell_updaters(
-        config.bc, *config.spatial.discretization, config.params.ngh, config.dtype, topo)
+    runtime.rhs_updater = fvm  # function to calculate right-hand-side
+    runtime.gh_updater = get_ghost_cell_updaters(config.bc, soln, topo)  # ghost cell updater
+    runtime.marching = MARCHING_OPTIONS[config.temporal.scheme]  # time marching scheme
+    runtime.outfile = config.case.joinpath("solutions.nc")  # solution file
     logger.info("Done setting runtime data.")
-
-    # initialize an empty solution/states object
-    soln = get_empty_states(
-        config.spatial.discretization[0], config.spatial.discretization[1],
-        config.params.ngh, config.dtype)
-    logger.info("Done creating an empty state holder.")
-
-    # copy initial data to the solution holder
-    slc = slice(config.params.ngh, -config.params.ngh)  # slice indicating the non-ghost cells
-    soln.q.w[slc, slc], soln.q.hu[slc, slc], soln.q.hv[slc, slc] = ic_data.w, ic_data.hu, ic_data.hv
-    logger.info("Done applying initial conditions.")
 
     # update ghost cells
     soln = runtime.ghost_updater(soln)
     logger.info("Done updating ghost cells.")
 
-    # select time marching function
-    marching = {"Euler": euler, "SSP-RK2": ssprk2, "SSP-RK3": ssprk3}  # available options
-    marching = marching[config.temporal.scheme]  # don't need the origianl dict anymore
-
     # create an NetCDF file and append I.C.
-    if not "no save" in config.temporal.output[0]:
-        outfile = config.case.joinpath("solutions.nc")  # initialize an empty solution file
-        create_empty_soln_file(outfile, grid)
-        write_soln_to_file(outfile, soln.q, grid.t[0], 0, soln.ngh)
+    if times.save:
+        create_empty_soln_file(runtime.outfile, soln.domain, times)
+        write_soln_to_file(runtime.outfile, soln.domain, soln.q, times[0], 0, soln.ngh)
         logger.info("Done writing the initial solution to the NetCDF file.")
     else:
         logger.info("No need to save data for \"no save\" method.")
 
-    # initialize counter and timing variable
+    # initialize counter and performance profiling variable
     perf_t0 = time.time()  # suppose to be wall time
     logger.info("Time marching starts at %s", time.ctime(perf_t0))
 
-    # start running time-march until each output time
-    for tidx, runtime.next_t in enumerate(grid.t[1:]):
+    # start running time marching until each output time
+    for tidx, runtime.next_t in zip(range(1, len(times)), times[1:]):
         logger.info("Marching from T=%s to T=%s", runtime.cur_t, runtime.next_t)
-        soln = marching(soln, grid, topo, config, runtime)
+        soln = runtime.marching(soln, soln.domain, topo, config, runtime)
 
         # sanity check for the current time
         assert abs(runtime.next_t-runtime.cur_t) < 1e-10
 
         # append to the NetCDF file
-        if not "no save" in config.temporal.output[0]:
-            write_soln_to_file(outfile, soln.q, runtime.next_t, tidx+1, soln.ngh)
+        if times.save:
+            write_soln_to_file(runtime.outfile, soln.domain, soln.q, runtime.next_t, tidx, soln.ngh)
             logger.info("Done writing the solution at T=%s to the NetCDF file.", runtime.next_t)
 
     logger.info("Done time marching.")
