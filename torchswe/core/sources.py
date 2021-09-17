@@ -8,10 +8,11 @@
 
 """Source terms.
 """
-from torchswe.utils.data import States, Topography
+from torchswe.utils.data import States as _States
+from torchswe.utils.data import Topography as _Topography
 
 
-def topography_gradient(states: States, topo: Topography, gravity: float) -> States:
+def topography_gradient(states: _States, topo: _Topography, gravity: float) -> _States:
     """Momentim sources due to topographic changes.
 
     Arguments
@@ -30,11 +31,11 @@ def topography_gradient(states: States, topo: Topography, gravity: float) -> Sta
     """
 
     internal = slice(states.ngh, -states.ngh)
-    gravity_depth = - gravity * (states.q.w[internal, internal] - topo.cntr)
+    gravity_depth = - gravity * (states.q.w[internal, internal] - topo.centers)
 
     states.src.w[...] = 0.  # update in-place instead of assigning a new object to w
     states.src.hu = topo.xgrad * gravity_depth  # assign a new object rather than update in-place
     states.src.hv = topo.ygrad * gravity_depth  # assign a new object rather than update in-place
-    # we could also to states.src.hu[...] = ..., but I'm not sure about the performance
+    # we could also do states.src.hu[...] = ..., but I'm not sure about the performance
 
     return states

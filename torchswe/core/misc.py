@@ -8,8 +8,10 @@
 
 """Miscellaneous functions.
 """
-from torchswe import nplike
-from torchswe.utils.data import WHUHVModel, States, Topography
+from torchswe import nplike as _nplike
+from torchswe.utils.data import WHUHVModel as _WHUHVModel
+from torchswe.utils.data import States as _States
+from torchswe.utils.data import Topography as _Topography
 
 
 class CFLWarning(Warning):
@@ -17,7 +19,7 @@ class CFLWarning(Warning):
     pass  # pylint: disable=unnecessary-pass
 
 
-def decompose_variables(states: States, topo: Topography, epsilon: float) -> States:
+def decompose_variables(states: _States, topo: _Topography, epsilon: float) -> _States:
     """Decompose conservative variables an the both sides of cell faces to dpeth and velocity.
 
     Arguments
@@ -37,15 +39,15 @@ def decompose_variables(states: States, topo: Topography, epsilon: float) -> Sta
 
     def get_uv(h, hu, hv):
         # pylint: disable=invalid-name
-        h4 = nplike.power(h, 4)
-        coeff = h * sqrt2 / nplike.sqrt(h4+nplike.maximum(h4, nplike.array(epsilon)))
+        h4 = _nplike.power(h, 4)
+        coeff = h * sqrt2 / _nplike.sqrt(h4+_nplike.maximum(h4, _nplike.array(epsilon)))
         return coeff * hu, coeff * hv
 
     # all dpeths
-    states.face.x.minus.h = states.face.x.minus.w - topo.xface
-    states.face.x.plus.h = states.face.x.plus.w - topo.xface
-    states.face.y.minus.h = states.face.y.minus.w - topo.yface
-    states.face.y.plus.h = states.face.y.plus.w - topo.yface
+    states.face.x.minus.h = states.face.x.minus.w - topo.xfcenters
+    states.face.x.plus.h = states.face.x.plus.w - topo.xfcenters
+    states.face.y.minus.h = states.face.y.minus.w - topo.yfcenters
+    states.face.y.plus.h = states.face.y.plus.w - topo.yfcenters
 
     # hu & hv on the minus side of x-faces
     states.face.x.minus.u, states.face.x.minus.v = get_uv(
@@ -66,7 +68,7 @@ def decompose_variables(states: States, topo: Topography, epsilon: float) -> Sta
     return states
 
 
-def get_local_speed(states: States, gravity: float) -> States:
+def get_local_speed(states: _States, gravity: float) -> _States:
     """Calculate local speeds on the two sides of cell faces.
 
     Arguments
@@ -82,32 +84,32 @@ def get_local_speed(states: States, gravity: float) -> States:
     """
 
     # faces normal to x-direction
-    sqrt_gh_plus = nplike.sqrt(gravity*states.face.x.plus.h)
-    sqrt_gh_minus = nplike.sqrt(gravity*states.face.x.minus.h)
+    sqrt_gh_plus = _nplike.sqrt(gravity*states.face.x.plus.h)
+    sqrt_gh_minus = _nplike.sqrt(gravity*states.face.x.minus.h)
 
     # for convenience
-    zero = nplike.array(0.)
+    zero = _nplike.array(0.)
 
-    states.face.x.plus.a = nplike.maximum(nplike.maximum(
+    states.face.x.plus.a = _nplike.maximum(_nplike.maximum(
         states.face.x.plus.u+sqrt_gh_plus, states.face.x.minus.u+sqrt_gh_minus), zero)
 
-    states.face.x.minus.a = nplike.minimum(nplike.minimum(
+    states.face.x.minus.a = _nplike.minimum(_nplike.minimum(
         states.face.x.plus.u-sqrt_gh_plus, states.face.x.minus.u-sqrt_gh_minus), zero)
 
     # faces normal to y-direction
-    sqrt_gh_plus = nplike.sqrt(gravity*states.face.y.plus.h)
-    sqrt_gh_minus = nplike.sqrt(gravity*states.face.y.minus.h)
+    sqrt_gh_plus = _nplike.sqrt(gravity*states.face.y.plus.h)
+    sqrt_gh_minus = _nplike.sqrt(gravity*states.face.y.minus.h)
 
-    states.face.y.plus.a = nplike.maximum(nplike.maximum(
+    states.face.y.plus.a = _nplike.maximum(_nplike.maximum(
         states.face.y.plus.v+sqrt_gh_plus, states.face.y.minus.v+sqrt_gh_minus), zero)
 
-    states.face.y.minus.a = nplike.minimum(nplike.minimum(
+    states.face.y.minus.a = _nplike.minimum(_nplike.minimum(
         states.face.y.plus.v-sqrt_gh_plus, states.face.y.minus.v-sqrt_gh_minus), zero)
 
     return states
 
 
-def write_states(states: States, fname: str):
+def write_states(states: _States, fname: str):
     """Write flatten states to a .npz file for debug."""
 
     keys = ["w", "hu", "hv"]
@@ -134,10 +136,10 @@ def write_states(states: States, fname: str):
     data.update({"face_y_num_flux_{}".format(k): states.face.y.num_flux[k] for k in keys})
     data.update({"rhs_{}".format(k): states.rhs[k] for k in keys})
 
-    nplike.savez(fname, **data)
+    _nplike.savez(fname, **data)
 
 
-def remove_rounding_errors(whuhv: WHUHVModel, tol: float):
+def remove_rounding_errors(whuhv: _WHUHVModel, tol: float) -> _WHUHVModel:
     """Removing rounding errors from states.
 
     Arguments
@@ -149,42 +151,42 @@ def remove_rounding_errors(whuhv: WHUHVModel, tol: float):
     """
 
     # remove rounding errors
-    zero_ji = nplike.nonzero(nplike.logical_and(whuhv.w > -tol, whuhv.w < tol))
+    zero_ji = _nplike.nonzero(_nplike.logical_and(whuhv.w > -tol, whuhv.w < tol))
     whuhv.w[zero_ji] = 0.
 
-    zero_ji = nplike.nonzero(nplike.logical_and(whuhv.hu > -tol, whuhv.hu < tol))
+    zero_ji = _nplike.nonzero(_nplike.logical_and(whuhv.hu > -tol, whuhv.hu < tol))
     whuhv.hu[zero_ji] = 0.
 
-    zero_ji = nplike.nonzero(nplike.logical_and(whuhv.hv > -tol, whuhv.hv < tol))
+    zero_ji = _nplike.nonzero(_nplike.logical_and(whuhv.hv > -tol, whuhv.hv < tol))
     whuhv.hv[zero_ji] = 0.
 
     return whuhv
 
 
-def states_assertions(states):
+def states_assertions(states: _States):
     """A naive assertions for NaN."""
 
     for item in ["q", "src", "rhs"]:
-        for k in  ["w", "hu", "hv"]:
+        for k in ["w", "hu", "hv"]:
             msg = "NaN found in {}.{}".format(item, k)
-            assert not nplike.any(nplike.isnan(states[item][k])), msg
+            assert not _nplike.any(_nplike.isnan(states[item][k])), msg
 
     for axis in ["x", "y"]:
-        for k in  ["w", "hu", "hv"]:
+        for k in ["w", "hu", "hv"]:
             msg = "NaN found in slp.{}.{}".format(axis, k)
-            assert not nplike.any(nplike.isnan(states.slp[axis][k])), msg
+            assert not _nplike.any(_nplike.isnan(states.slp[axis][k])), msg
 
             msg = "NaN found in face.{}.num_flux.{}".format(axis, k)
-            assert not nplike.any(nplike.isnan(states.face[axis].num_flux[k])), msg
+            assert not _nplike.any(_nplike.isnan(states.face[axis].num_flux[k])), msg
 
     for axis in ["x", "y"]:
         for side in ["minus", "plus"]:
             for k in ["w", "hu", "hv", "h", "u", "v", "a"]:
                 msg = "NaN found in face.{}.{}.{}".format(axis, side, k)
-                assert not nplike.any(nplike.isnan(states.face[axis][side][k])), msg
+                assert not _nplike.any(_nplike.isnan(states.face[axis][side][k])), msg
 
     for axis in ["x", "y"]:
         for side in ["minus", "plus"]:
             for k in ["w", "hu", "hv"]:
                 msg = "NaN found in face.{}.{}.flux.{}".format(axis, side, k)
-                assert not nplike.any(nplike.isnan(states.face[axis][side].flux[k])), msg
+                assert not _nplike.any(_nplike.isnan(states.face[axis][side].flux[k])), msg

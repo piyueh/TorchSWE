@@ -8,11 +8,12 @@
 
 """Linear reconstruction.
 """
-from torchswe import nplike
-from torchswe.utils.data import States, Gridlines, Topography
+from torchswe import nplike as _nplike
+from torchswe.utils.data import States as _States
+from torchswe.utils.data import Topography as _Topography
 
 
-def correct_negative_depth(states: States, topo: Topography) -> States:
+def correct_negative_depth(states: _States, topo: _Topography) -> _States:
     """Fix negative depth on the both sides of cell faces.
 
     Arguments
@@ -26,42 +27,45 @@ def correct_negative_depth(states: States, topo: Topography) -> States:
         The same object as the input. Changed inplace. Returning it just for coding style.
     """
 
+    # aliases
+    ngh = states.ngh
+
     # fix the case when the left depth of an interface is negative
-    j, i = nplike.nonzero(states.face.x.minus.w < topo.xface)
-    states.face.x.minus.w[j, i] = topo.xface[j, i]
+    j, i = _nplike.nonzero(states.face.x.minus.w < topo.xfcenters)
+    states.face.x.minus.w[j, i] = topo.xfcenters[j, i]
     j, i = j[i != 0], i[i != 0]  # to avoid those i - 1 = -1
-    states.face.x.plus.w[j, i-1] = 2 * states.q.w[j+states.ngh, i-1+states.ngh] - topo.xface[j, i]
+    states.face.x.plus.w[j, i-1] = 2 * states.q.w[j+ngh, i-1+ngh] - topo.xfcenters[j, i]
 
     # fix the case when the right depth of an interface is negative
-    j, i = nplike.nonzero(states.face.x.plus.w < topo.xface)
-    states.face.x.plus.w[j, i] = topo.xface[j, i]
+    j, i = _nplike.nonzero(states.face.x.plus.w < topo.xfcenters)
+    states.face.x.plus.w[j, i] = topo.xfcenters[j, i]
     j, i = j[i != states.nx], i[i != states.nx]  # to avoid i + 1 = nx + 1
-    states.face.x.minus.w[j, i+1] = 2 * states.q.w[j+states.ngh, i+states.ngh] - topo.xface[j, i]
+    states.face.x.minus.w[j, i+1] = 2 * states.q.w[j+ngh, i+ngh] - topo.xfcenters[j, i]
 
     # fix rounding errors in x.minus.w caused by the last calculation above
-    j, i = nplike.nonzero(states.face.x.minus.w < topo.xface)
-    states.face.x.minus.w[j, i] = topo.xface[j, i]
+    j, i = _nplike.nonzero(states.face.x.minus.w < topo.xfcenters)
+    states.face.x.minus.w[j, i] = topo.xfcenters[j, i]
 
     # fix the case when the bottom depth of an interface is negative
-    j, i = nplike.nonzero(states.face.y.minus.w < topo.yface)
-    states.face.y.minus.w[j, i] = topo.yface[j, i]
+    j, i = _nplike.nonzero(states.face.y.minus.w < topo.yfcenters)
+    states.face.y.minus.w[j, i] = topo.yfcenters[j, i]
     j, i = j[j != 0], i[j != 0]  # to avoid j - 1 = -1
-    states.face.y.plus.w[j-1, i] = 2 * states.q.w[j-1+states.ngh, i+states.ngh] - topo.yface[j, i]
+    states.face.y.plus.w[j-1, i] = 2 * states.q.w[j-1+ngh, i+ngh] - topo.yfcenters[j, i]
 
     # fix the case when the top depth of an interface is negative
-    j, i = nplike.nonzero(states.face.y.plus.w < topo.yface)
-    states.face.y.plus.w[j, i] = topo.yface[j, i]
+    j, i = _nplike.nonzero(states.face.y.plus.w < topo.yfcenters)
+    states.face.y.plus.w[j, i] = topo.yfcenters[j, i]
     j, i = j[j != states.ny], i[j != states.ny]  # to avoid j + 1 = Ny + 1
-    states.face.y.minus.w[j+1, i] = 2 * states.q.w[j+states.ngh, i+states.ngh] - topo.yface[j, i]
+    states.face.y.minus.w[j+1, i] = 2 * states.q.w[j+ngh, i+ngh] - topo.yfcenters[j, i]
 
     # fix rounding errors in y.minus.w caused by the last calculation above
-    j, i = nplike.nonzero(states.face.y.minus.w < topo.yface)
-    states.face.y.minus.w[j, i] = topo.yface[j, i]
+    j, i = _nplike.nonzero(states.face.y.minus.w < topo.yfcenters)
+    states.face.y.minus.w[j, i] = topo.yfcenters[j, i]
 
     return states
 
 
-def get_discontinuous_cnsrv_q(states: States, grid: Gridlines):
+def get_discontinuous_cnsrv_q(states: _States):
     """Distinuous conservative quantity on both sides of cell faces in both x- and y-direction.
 
     Arguments
@@ -84,8 +88,8 @@ def get_discontinuous_cnsrv_q(states: States, grid: Gridlines):
     im1 = slice(states.ngh-1, -states.ngh)  # length ny+1 or nx+1
     ip1 = slice(states.ngh, -states.ngh+1)  # length ny+1 or nx+1
 
-    delta_x_half = grid.x.delta / 2.
-    delta_y_half = grid.y.delta / 2.
+    delta_x_half = states.domain.x.delta / 2.
+    delta_y_half = states.domain.y.delta / 2.
 
     states.face.x.minus.w = states.q.w[i, im1] + states.slp.x.w[:, :-1] * delta_x_half
     states.face.x.minus.hu = states.q.hu[i, im1] + states.slp.x.hu[:, :-1] * delta_x_half
