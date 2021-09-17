@@ -2,7 +2,7 @@ TorchSWE: GPU shallow-water equation solver
 ===========================================
 
 A simple SWE solver on GPU using several different backends, including CuPy,
-PyTorch, and [Legate NumPy](https://github.com/nv-legate/legate.numpy). It can
+PyTorch, and [Legate NumPy](https://github.com/nv-legate/legate.numpy)†. It can
 also run on CPU through PyTorch, vanilla NumPy, or Legate NumPy.
 
 A naive implementation for distributed-memory system is also available through
@@ -13,6 +13,13 @@ exchange data in overlapped cells (i.e., ghost cells) between processes.
 Currently, for distributed-memory system, only MPI + NumPy and MPI + CuPy have
 been tested.
 
+**Note**  
+† Legate NumPy backend has been removed from the master branch due to
+incompatibility with MPI. Also, Legate NumPy lacks some required features at its
+current stage, making it non-trivial to maintain Legate-compatible code.
+Therefore, the last version supporting Legate NumPy has been archived
+to release [v0.1](https://github.com/piyueh/TorchSWE/releases/tag/v0.1).
+
 ### Installation
 ----------------
 
@@ -22,15 +29,20 @@ Everything is WIP, including documentation. But basically, to install:
 $ pip install .
 ```
 
-It installs two executables, `TorchSWE.py` and `TorchSWEMPI.py` to your `bin`
-path. Which `bin` path it installs to depends on your `pip`.
+It installs an executable, `TorchSWE.py` to your `bin` path. Which `bin` path it
+installs to depends on your `pip`.
 
 After installing through `pip`, only NumPy backend is available. To use other
 backends, you may need to install them manually. Both PyTorch and CuPy can be
 found from PyPI and Anaconda. Legate NumPy has to be installed manually
 currently.
 
-MPI (OpenMPI or MPICH) and *mpi4py* are available in Anaconda.
+MPI (OpenMPI or MPICH) and *mpi4py* are available in Anaconda. Also, the
+`netcdf4` must be compiled with MPI support. If using Anaconda, the easiest way
+to get it is through `conda install -c conda-forge "netcdf4=*=mpi_openmpi*"` or
+`conda install -c conda-forge "netcdf4=*=mpi_mpich*"`.
+
+Please refer to requirements for other dependencies.
 
 
 ### Usage
@@ -42,55 +54,15 @@ To see help
 $ TorchSWE.py --help
 ```
 
-#### Non-MPI version
---------------------
+To run a case:
 
-- To run a case with vanilla NumPy, go to a case folder and execute:
+- using MPI + NumPy (assuming already in a case folder)
   ```
-  $ TorchSWE.py ./
+  $ mpiexec -n <number of processes> TorchSWE.py ./
   ```
-
-- To run with CuPy:
+- using MPI + CuPy (assuming already in a case folder)
   ```
-  $ USE_CUPY=1 TorchSWE.py ./
-  ```
-
-- To run with PyTorch on a GPU:
-  ```
-  $ USE_TORCH=1 TorchSWE.py ./
-  ```
-
-- To run with PyTorch on CPU:
-  ```
-  $ USE_TORCH=1 TORCH_USE_CPU=1 TorchSWE.py ./
-  ```
-
-- To run with Legate:
-  ```
-  $ legate <flags> $(which TorchSWE.py) ./
-  ```
-  
-  For Legate, use its flags to control the target hardware. See Legate's
-  documentation. Legate does not know where to find the main Python script of
-  the solver, so we use `$(which ...)` to provide the full path of `TorchSWE.py`.
-
-#### MPI version
-----------------
-
-The MPI version requires either OpenMPI or MPICH and `mpi4py`. Also, the
-`netcdf4` must be compiled with MPI support. If using Anaconda, the easiest way
-to get it is through `conda install -c conda-forge "netcdf4=*=mpi_openmpi*"`.
-This installs both OpenMPI and MPI-enabled NetCDF4.
-
-Didn't test with MPICH, so I'm not sure if MPICH works with CUDA.
-
-- To run a case using MPI + NumPy (assuming already in a case folder)
-  ```
-  $ mpiexec -n <number of processes> TorchSWEMPI.py ./
-  ```
-- To run a case using MPI + CuPy (assuming already in a case folder)
-  ```
-  $ USE_CUPY=1 mpiexec -n <number of processes> TorchSWEMPI.py ./
+  $ USE_CUPY=1 mpiexec -n <number of processes> TorchSWE.py ./
   ```
   When multiple GPUs are availabe on a compute node, the code assigns GPUs based
   on local ranks (local to the compute node; not the global rank). Note
@@ -108,6 +80,18 @@ Didn't test with MPICH, so I'm not sure if MPICH works with CUDA.
   Also, if using the OpenMPI from Anaconda, you need to add an extra flag
   `--mca opal_cuda_support 1` to the `mpiexec` command because this build
   disables the CUDA suppory by default.
+
+- using MPI + PyTorch (assuming already in a case folder)
+  ```
+  $ USE_TORCH=1 mpiexec -n <number of processes> TorchSWE.py ./
+  ```
+  The GPU selecting function for PyTorch has not be implemented. So either use
+  the same number of GPUs and MPI processes, or use CuPy backend.
+
+- using PyTorch's shared-memory CPU backend 
+  ```
+  $ USE_TORCH=1 TORCH_USE_CPU=1 TorchSWE.py ./
+  ```
 
 ### Note
 --------

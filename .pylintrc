@@ -3,7 +3,7 @@ extension-pkg-whitelist=pydantic
 jobs=0
 
 [BASIC]
-good-names=i, j, k, m, n, t, x, y, z, w, hu, hv
+good-names=h, i, j, k, m, n, t, u, v, x, y, z, w, hu, hv, ic, bc, pn, pi, pj, gn, dt, dx, dy, nx, ny
 
 [FORMAT]
 max-line-length=100
