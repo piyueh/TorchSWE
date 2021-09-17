@@ -7,47 +7,46 @@
 # Distributed under terms of the BSD 3-Clause license.
 """Functions related to updating ghost cells, i.e., boundary conditions.
 """
+from operator import itemgetter as _itemgetter
 from torchswe import nplike as _nplike
-from torchswe.utils.misc import DummyDtype as _DummyDtype
-# pylint: disable=fixme
+from torchswe.utils.config import BCConfig as _BCConfig
+from torchswe.utils.data import Topography as _Topography
+from torchswe.utils.data import States as _States
+from torchswe.utils.misc import cal_rank_from_proc_loc as _cal_rank_from_proc_loc
 
 _extrap_seq = {
-    "west": lambda n, ngh, dtype: _nplike.tile(
-        _nplike.arange(ngh, 0, -1, dtype=dtype), (n, 1)),
-    "east": lambda n, ngh, dtype: _nplike.tile(
-        _nplike.arange(1, ngh+1, dtype=dtype), (n, 1)),
-    "north": lambda n, ngh, dtype: _nplike.tile(
-        _nplike.arange(1, ngh+1, dtype=dtype).reshape((ngh, 1)), (1, n)),
-    "south": lambda n, ngh, dtype: _nplike.tile(
-        _nplike.arange(ngh, 0, -1, dtype=dtype).reshape((ngh, 1)), (1, n))
+    "west": lambda ngh, dtype: _nplike.arange(ngh, 0, -1, dtype=dtype).reshape((1, ngh)),
+    "east": lambda ngh, dtype: _nplike.arange(1, ngh+1, dtype=dtype).reshape((1, ngh)),
+    "north": lambda ngh, dtype: _nplike.arange(1, ngh+1, dtype=dtype).reshape((ngh, 1)),
+    "south": lambda ngh, dtype: _nplike.arange(ngh, 0, -1, dtype=dtype).reshape((ngh, 1))
 }
 
 _extrap_anchor = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh, ngh+1)),
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-1, -ngh)),
-    "north": lambda ngh: (slice(-ngh-1, -ngh), slice(ngh, -ngh)),
-    "south": lambda ngh: (slice(ngh, ngh+1), slice(ngh, -ngh))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh, ngh+1)),      # shape (n, 1)
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-1, -ngh)),    # shape (n, 1)
+    "north": lambda ngh: (slice(-ngh-1, -ngh), slice(ngh, -ngh)),   # shape (1, n)
+    "south": lambda ngh: (slice(ngh, ngh+1), slice(ngh, -ngh))      # shape (1, n)
 }
 
 _extrap_delta_slc = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh+1, ngh+2)),
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-2, -ngh-1)),
-    "north": lambda ngh: (slice(-ngh-2, -ngh-1), slice(ngh, -ngh)),
-    "south": lambda ngh: (slice(ngh+1, ngh+2), slice(ngh, -ngh))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh+1, ngh+2)),        # shape (n, 1)
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-2, -ngh-1)),      # shape (n, 1)
+    "north": lambda ngh: (slice(-ngh-2, -ngh-1), slice(ngh, -ngh)),     # shape (1, n)
+    "south": lambda ngh: (slice(ngh+1, ngh+2), slice(ngh, -ngh))        # shape (1, n)
 }
 
 _extrap_slc = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(0, ngh)),
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh, None)),
-    "north": lambda ngh: (slice(-ngh, None), slice(ngh, -ngh)),
-    "south": lambda ngh: (slice(0, ngh), slice(ngh, -ngh))
+    "west": lambda ngh: (slice(ngh, -ngh), slice(0, ngh)),          # shape (n, ngh)
+    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh, None)),      # shape (n, ngh)
+    "north": lambda ngh: (slice(-ngh, None), slice(ngh, -ngh)),     # shape (ngh, n)
+    "south": lambda ngh: (slice(0, ngh), slice(ngh, -ngh))          # shape (ngh, n)
 }
 
 _inflow_topo_key = {
-    "west": "xface",
-    "east": "xface",
-    "north": "yface",
-    "south": "yface"
+    "west": "xfcenters",
+    "east": "xfcenters",
+    "north": "yfcenters",
+    "south": "yfcenters"
 }
 
 _inflow_topo_slc = {
@@ -71,7 +70,7 @@ def periodic_factory(ngh: int, orientation: str):
     Returns
     -------
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
-    arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
+    arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
     def periodic_west(conserv_q):
@@ -110,28 +109,23 @@ def outflow_factory(ngh: int, orientation: str):
     Returns
     -------
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
-    arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
+    arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
-    # TODO: Legate hasn't supported implict broadcasting; chage the code once they support it
 
     def outflow_west(conserv_q):
-        for i in range(ngh):
-            conserv_q[ngh:-ngh, i] = conserv_q[ngh:-ngh, ngh]
+        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, ngh]
         return conserv_q
 
     def outflow_east(conserv_q):
-        for i in range(1, ngh+1):
-            conserv_q[ngh:-ngh, -i] = conserv_q[ngh:-ngh, -ngh-1]
+        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, -ngh-1]
         return conserv_q
 
     def outflow_south(conserv_q):
-        for i in range(ngh):
-            conserv_q[i, ngh:-ngh] = conserv_q[ngh, ngh:-ngh]
+        conserv_q[:ngh, ngh:-ngh] = conserv_q[ngh, ngh:-ngh]
         return conserv_q
 
     def outflow_north(conserv_q):
-        for i in range(1, ngh+1):
-            conserv_q[-i, ngh:-ngh] = conserv_q[-ngh-1, ngh:-ngh]
+        conserv_q[-ngh:, ngh:-ngh] = conserv_q[-ngh-1, ngh:-ngh]
         return conserv_q
 
     candidates = {
@@ -141,14 +135,12 @@ def outflow_factory(ngh: int, orientation: str):
     return candidates[orientation]
 
 
-def linear_extrap_factory(n, n_ghost, orientation, dtype):
+def linear_extrap_factory(ngh, orientation, dtype):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    n : int
-        Number of non-ghost cells along the target boundary.
-    n_ghost : int
+    ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
@@ -158,20 +150,20 @@ def linear_extrap_factory(n, n_ghost, orientation, dtype):
     Returns
     -------
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
-    arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
+    arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    seq = _extrap_seq[orientation](n, n_ghost, dtype)
-    anchor = _extrap_anchor[orientation](n_ghost)
-    delta_slc = _extrap_delta_slc[orientation](n_ghost)
-    slc = _extrap_slc[orientation](n_ghost)
+    seq = _extrap_seq[orientation](ngh, dtype)
+    anchor = _extrap_anchor[orientation](ngh)
+    delta_slc = _extrap_delta_slc[orientation](ngh)
+    slc = _extrap_slc[orientation](ngh)
 
     def linear_extrap(conserv_q):
         """Update the ghost cells with outflow BC using linear extrapolation.
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
+        conserv_q : a (3, ny+2*ngh, nx+2*ngh) nplike.ndarray
 
         Returns
         -------
@@ -189,16 +181,14 @@ def linear_extrap_factory(n, n_ghost, orientation, dtype):
     return linear_extrap
 
 
-def constant_bc_factory(const, n, n_ghost, orientation, dtype):
+def constant_bc_factory(const, ngh, orientation, dtype):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    n : int
-        Number of non-ghost cells along the target boundary.
     const : float
         The constant of either w, hu, or hv, depending the values in component.
-    n_ghost : int
+    ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
@@ -208,19 +198,19 @@ def constant_bc_factory(const, n, n_ghost, orientation, dtype):
     Returns
     -------
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
-    arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
+    arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    seq = _extrap_seq[orientation](n, n_ghost, dtype)
-    anchor = _extrap_anchor[orientation](n_ghost)
-    slc = _extrap_slc[orientation](n_ghost)
+    seq = _extrap_seq[orientation](ngh, dtype)
+    anchor = _extrap_anchor[orientation](ngh)
+    slc = _extrap_slc[orientation](ngh)
 
     def constant_bc(conserv_q):
         """Update the ghost cells with constant BC using linear extrapolation.
 
         Arguments
         ---------
-        conserv_q : a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
+        conserv_q : a (3, ny+2*ngh, nx+2*ngh) nplike.ndarray
 
         Returns
         -------
@@ -238,16 +228,14 @@ def constant_bc_factory(const, n, n_ghost, orientation, dtype):
     return constant_bc
 
 
-def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
+def inflow_bc_factory(const, ngh, orientation, topo, component, dtype):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    n : int
-        Number of non-ghost cells along the target boundary.
     const : float
         The constant of either h, u, or v, depending the values in component.
-    n_ghost : int
+    ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
     orientation : str
         A string of one of the following orientation: "west", "east", "north", or "south".
@@ -261,15 +249,15 @@ def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
     Returns
     -------
     A function with a signature of f(nplike.ndarray) -> nplike.ndarray. Both the input and output
-    arrays have a shape of (3, Ny+2*n_ghost, Nx+2*n_ghost).
+    arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    seq = _extrap_seq[orientation](n, n_ghost, dtype)
-    anchor = _extrap_anchor[orientation](n_ghost)
-    slc = _extrap_slc[orientation](n_ghost)
+    seq = _extrap_seq[orientation](ngh, dtype)
+    anchor = _extrap_anchor[orientation](ngh)
+    slc = _extrap_slc[orientation](ngh)
     topo_cache = topo[_inflow_topo_key[orientation]]
     bcslc = _inflow_topo_slc[orientation]
-    w_idx = _extrap_anchor[orientation](n_ghost)
+    w_idx = _extrap_anchor[orientation](ngh)
 
     def inflow_bc_depth(conserv_q):
         delta = (const + topo_cache[bcslc] - conserv_q[anchor]) * 2
@@ -305,7 +293,7 @@ def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
 
     Arguments
     ---------
-    conserv_q: a (3, Ny+2*n_ghost, Nx+2*n_ghost) nplike.ndarray
+    conserv_q: a (3, ny+2*ngh, nx+2*ngh) nplike.ndarray
 
     Returns
     -------
@@ -318,74 +306,121 @@ def inflow_bc_factory(const, n, n_ghost, orientation, topo, component, dtype):
     return inflow_bc_velocity
 
 
-def get_ghost_cell_updaters(bcs, nx, ny, ngh, dtype, topo=None):  # pylint: disable=invalid-name
-    """Get a function that updates all ghost cells.
-
-    This is a function factory. The return of this funciton is a function with signature:
-        torchswe.utils.data.States = func(torchswe.utils.data.States)
-    The update happens in-place, so the return of this function is not important. We return it
-    just to comform the coding style.
+def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography = None):
+    """A function factory returning a function that updates all ghost cells.
 
     Arguments
     ---------
     bcs : torchswe.utils.config.BCConfig
         The configuration instance of boundary conditions.
-    nx, ny : int
-        Numbers of non-ghost cells along x and y directions.
-    ngh : int
-        Number of ghost cell layers outside each boundary.
-    dtype : str, nplike.float32, or nplike.float64
-        Floating number precision.
+    states : torchswe.mpi.data.States
+        The States instance that will be updated in the simulation.
     topo : torchswe.tuils.data.Topography
         Topography instance. Some boundary conditions require topography elevations.
 
     Returns
     -------
     A callable with signature `torchswe.utils.data.States = func(torchswe.utils.data.States)`.
+
+    Notes
+    -----
+    The resulting functions modify the values in solution in-place. The return of this function is
+    the same object as the one in input arguments. We return it just to comform the coding style.
     """
 
     bcs.check()
-    dtype = _DummyDtype.validator(dtype)
+    funcs = {}
+    orientations = ["west", "east", "south", "north"]
 
-    nngh = {"west": ny, "east": ny, "south": nx, "north": nx}
-    funcs = {"w": {}, "hu": {}, "hv": {}}
+    for ornt, bc in zip(orientations, _itemgetter(orientations)(bcs)):
 
-    for i, key in enumerate(["w", "hu", "hv"]):
-        for ornt in ["west", "east", "south", "north"]:
-            # periodic BC
-            if bcs[ornt].types[i] == "periodic":
-                funcs[key][ornt] = periodic_factory(ngh, ornt)
+        # not on the physical boundary: skip
+        # ----------------------------------
+        if states.domain.process[ornt] is not None:
+            continue
+
+        # special case: periodic BC
+        # -------------------------
+        # In MPI cases, periodic boundaries will be handled by internal exchange stage
+        if bc.types[0] == "periodic":
+            states = _find_periodic_neighbor(states, ornt)
+            continue  # no need to continue this iteration as other components should be periodic
+
+        # all other types of BCs
+        # ----------------------
+        funcs[ornt] = {}  # initialize the dictionary for this orientation
+        for i, (key, bctp, bcv) in enumerate(zip(["w", "hu", "hv"], bc.types, bc.values)):
 
             # constant extrapolation BC (outflow)
-            elif bcs[ornt].types[i] == "outflow":
-                funcs[key][ornt] = outflow_factory(ngh, ornt)
+            if bctp == "outflow":
+                funcs[ornt][key] = outflow_factory(states.ngh, ornt)
 
             # linear extrapolation BC
-            elif bcs[ornt].types[i] == "extrap":
-                funcs[key][ornt] = linear_extrap_factory(nngh[ornt], ngh, ornt, dtype)
+            elif bctp == "extrap":
+                funcs[ornt][key] = linear_extrap_factory(states.ngh, ornt, states.q.dtype)
 
             # constant, i.e., Dirichlet
-            elif bcs[ornt].types[i] == "const":
-                funcs[key][ornt] = constant_bc_factory(
-                    bcs[ornt].values[i], nngh[ornt], ngh, ornt, dtype)
+            elif bctp == "const":
+                funcs[ornt][key] = constant_bc_factory(bcv, states.ngh, ornt, states.q.dtype)
 
             # inflow, i.e., constant non-conservative variables
-            elif bcs[ornt].types[i] == "inflow":
+            elif bctp == "inflow":
                 topo.check()
-                funcs[key][ornt] = inflow_bc_factory(
-                    bcs[ornt].values[i], nngh[ornt], ngh, ornt, topo, i, dtype)
+                funcs[ornt][key] = inflow_bc_factory(bcv, states.ngh, ornt, topo, i, states.q.dtype)
 
             # this shouldn't happen because pydantic should have catched the error
             else:
-                raise ValueError("{} is not recognized.".format(bcs[ornt].types[i]))
+                raise ValueError("{} is not recognized.".format(bctp))
 
-    def updater(soln):
-        for key in ["w", "hu", "hv"]:
-            for ornt in ["west", "east", "south", "north"]:
-                soln.q[key] = funcs[key][ornt](soln.q[key])
+    # check the data model in case neighbors changed due to periodic BC
+    states.check()
+
+    # this is the function that will be retuned by this function factory
+    def updater(soln: _States):
+        for func in funcs.values():  # if funcs is an empty dictionary, this will skip it
+            for key in ["w", "hu", "hv"]:
+                soln.q[key] = func[key](soln.q[key])
+
+        # exchange data on internal boundaries between MPI processes (also periodic BCs)
+        soln.exchange_data()
         return soln
 
     # store the functions as an attribute for debug
     updater.funcs = funcs
 
     return updater
+
+
+def _find_periodic_neighbor(states: _States, orientation: str):
+    """Find the neighbor MPI process rank corresponding to periodic boundary."""
+    # pylint: disable=invalid-name
+
+    # aliases
+    pny, pnx = states.domain.process.proc_shape
+    pj, pi = states.domain.process.proc_loc
+
+    # self.proc_loc = (pj, 0), target: (pj, pnx-1)
+    if orientation == "west":
+        assert pi == 0
+        states.west = _cal_rank_from_proc_loc(pnx, pnx-1, pj)
+
+    # self.proc_loc = (pj, pnx-1), target: (pj, 0)
+    elif orientation == "east":
+        assert pi == pnx - 1
+        states.east = _cal_rank_from_proc_loc(pnx, 0, pj)
+
+    # self.proc_loc = (0, pi), target: (pny-1, pi)
+    elif orientation == "south":
+        assert pj == 0
+        states.south = _cal_rank_from_proc_loc(pnx, pi, pny-1)
+
+    # self.proc_loc = (pny-1, pi), target: (0, pi)
+    elif orientation == "north":
+        assert pj == pny - 1
+        states.north = _cal_rank_from_proc_loc(pnx, pi, 0)
+
+    else:
+        raise ValueError("\"orientation\" shold be one of: west, east, south, north.")
+
+    # states should have been modified in-place; retrun it for coding style
+    return states
