@@ -100,7 +100,9 @@ def init(comm, args=None):
     topo, states, times = get_initial_objects(comm, config)
 
     # make sure initial depths are non-negative
-    states.q.w = nplike.maximum(topo.centers, states.q.w)
+    states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh] = nplike.maximum(
+        topo.centers, states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh])
+    states.check()
 
     return config, topo, states, times, logger
 
@@ -134,7 +136,7 @@ def main():
     logger.info("Done setting runtime data.")
 
     # update ghost cells
-    soln = runtime.ghost_updater(soln)
+    soln = runtime.gh_updater(soln)
     logger.info("Done updating ghost cells.")
 
     # create an NetCDF file and append I.C.
@@ -152,7 +154,7 @@ def main():
     # start running time marching until each output time
     for tidx, runtime.next_t in zip(range(1, len(times)), times[1:]):
         logger.info("Marching from T=%s to T=%s", runtime.cur_t, runtime.next_t)
-        soln = runtime.marching(soln, soln.domain, topo, config, runtime)
+        soln = runtime.marching(soln, topo, config, runtime)
 
         # sanity check for the current time
         assert abs(runtime.next_t-runtime.cur_t) < 1e-10

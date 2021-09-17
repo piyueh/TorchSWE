@@ -367,7 +367,7 @@ def get_empty_states(domain: _Domain, ngh: int):
     A States with zero arrays.
     """
     nx = domain.x.n
-    ny = domain.x.n
+    ny = domain.y.n
     dtype = domain.x.dtype
     return _States(
         domain=domain, ngh=ngh,
@@ -623,11 +623,11 @@ def get_initial_objects(comm: _MPI.Comm, config: _Config):
         fpath=config.topo.file, data_keys=[config.topo.key],
         extent=(x.lower, x.upper, y.lower, y.upper), parallel=True, comm=comm
     )
-    assert dem[config.topo.key].shape == (dem["x"].size, dem["y"].size)
+    assert dem[config.topo.key].shape == (dem["y"].size, dem["x"].size)
 
     # get topo, states, and timeline
     topo = get_topography(domain, dem[config.topo.key], dem["x"], dem["y"])
     states = get_initial_states(domain, config.ic, config.params.ngh)
-    time = get_timeline(config.temporal.output[0], config.temporal.output[1], config.temporal.dt)
+    time = get_timeline(config.temporal.output[0], config.temporal.output[1:], config.temporal.dt)
 
     return topo, states, time

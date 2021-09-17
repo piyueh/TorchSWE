@@ -29,6 +29,7 @@ def correct_negative_depth(states: _States, topo: _Topography) -> _States:
 
     # aliases
     ngh = states.ngh
+    nx, ny = states.domain.x.n, states.domain.y.n
 
     # fix the case when the left depth of an interface is negative
     j, i = _nplike.nonzero(states.face.x.minus.w < topo.xfcenters)
@@ -39,7 +40,7 @@ def correct_negative_depth(states: _States, topo: _Topography) -> _States:
     # fix the case when the right depth of an interface is negative
     j, i = _nplike.nonzero(states.face.x.plus.w < topo.xfcenters)
     states.face.x.plus.w[j, i] = topo.xfcenters[j, i]
-    j, i = j[i != states.nx], i[i != states.nx]  # to avoid i + 1 = nx + 1
+    j, i = j[i != nx], i[i != nx]  # to avoid i + 1 = nx + 1
     states.face.x.minus.w[j, i+1] = 2 * states.q.w[j+ngh, i+ngh] - topo.xfcenters[j, i]
 
     # fix rounding errors in x.minus.w caused by the last calculation above
@@ -55,7 +56,7 @@ def correct_negative_depth(states: _States, topo: _Topography) -> _States:
     # fix the case when the top depth of an interface is negative
     j, i = _nplike.nonzero(states.face.y.plus.w < topo.yfcenters)
     states.face.y.plus.w[j, i] = topo.yfcenters[j, i]
-    j, i = j[j != states.ny], i[j != states.ny]  # to avoid j + 1 = Ny + 1
+    j, i = j[j != ny], i[j != ny]  # to avoid j + 1 = Ny + 1
     states.face.y.minus.w[j+1, i] = 2 * states.q.w[j+ngh, i+ngh] - topo.yfcenters[j, i]
 
     # fix rounding errors in y.minus.w caused by the last calculation above

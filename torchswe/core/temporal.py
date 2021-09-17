@@ -81,7 +81,7 @@ def euler(states: _States, topo: _Topography, config: _Config, runtime: _DummyDi
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
 
         # synchronize dt from all processes
-        runtime.dt = states.comm.allreduce(runtime.dt, _MPI.MIN)
+        runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # make sure cur_t + dt won't exceed next_t
         runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
@@ -99,7 +99,7 @@ def euler(states: _States, topo: _Topography, config: _Config, runtime: _DummyDi
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
-            fluid_vol = states.comm.allreduce(fluid_vol, _MPI.SUM)
+            fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
@@ -163,7 +163,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
 
         # synchronize dt from all processes
-        runtime.dt = states.comm.allreduce(runtime.dt, _MPI.MIN)
+        runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # make sure cur_t + dt won't exceed next_t
         runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
@@ -193,7 +193,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.q.w[nongh, nongh].sum() * cell_area - soil_vol
-            fluid_vol = states.comm.allreduce(fluid_vol, _MPI.SUM)
+            fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
@@ -262,7 +262,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
 
         # synchronize dt from all processes
-        runtime.dt = states.comm.allreduce(runtime.dt, _MPI.MIN)
+        runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # make sure cur_t + dt won't exceed next_t
         runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
@@ -307,7 +307,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.q.w[nongh, nongh].sum() * cell_area - soil_vol
-            fluid_vol = states.comm.allreduce(fluid_vol, _MPI.SUM)
+            fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop

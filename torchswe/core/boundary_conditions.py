@@ -332,7 +332,7 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
     funcs = {}
     orientations = ["west", "east", "south", "north"]
 
-    for ornt, bc in zip(orientations, _itemgetter(orientations)(bcs)):
+    for ornt, bc in zip(orientations, _itemgetter(*orientations)(bcs)):
 
         # not on the physical boundary: skip
         # ----------------------------------

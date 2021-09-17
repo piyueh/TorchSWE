@@ -698,7 +698,7 @@ class States(_BaseConfig):
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):
         nx = values["domain"].x.n
-        ny = values["domain"].x.n
+        ny = values["domain"].y.n
         ngh = values["ngh"]
         dtype = values["domain"].x.dtype
 

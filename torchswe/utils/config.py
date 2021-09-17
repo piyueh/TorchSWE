@@ -11,7 +11,6 @@
 import pathlib
 from typing import Literal, Tuple, Union, Optional
 
-import yaml
 from pydantic import BaseModel, Field, validator, root_validator, conint, confloat, validate_model
 
 
@@ -322,19 +321,3 @@ class Config(BaseConfig):
     prehook: Optional[pathlib.Path]
     case: Optional[pathlib.Path]
     dtype: Literal["float32", "float64"] = "float64"
-
-
-# register the Config class in yaml with tag !Config
-yaml.add_constructor(
-    u'!Config',
-    lambda loader, node: Config(**loader.construct_mapping(node, deep=True))
-)
-
-yaml.add_representer(
-    Config,
-    lambda dumper, data: dumper.represent_mapping(
-        tag=u"!Config", mapping=yaml.load(
-            data.json(by_alias=True), Loader=yaml.Loader),
-        flow_style=True
-    )
-)
