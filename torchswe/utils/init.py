@@ -623,7 +623,7 @@ def get_initial_objects(comm: _MPI.Comm, config: _Config):
         fpath=config.topo.file, data_keys=[config.topo.key],
         extent=(x.lower, x.upper, y.lower, y.upper), parallel=True, comm=comm
     )
-    assert dem[config.topo.key].shape == (dem["y"].size, dem["x"].size)
+    assert dem[config.topo.key].shape == (len(dem["y"]), len(dem["x"]))
 
     # get topo, states, and timeline
     topo = get_topography(domain, dem[config.topo.key], dem["x"], dem["y"])

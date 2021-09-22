@@ -261,9 +261,9 @@ class Gridline(_BaseConfig):
 
         # check dtype and increment
         for v in _itemgetter("vertices", "centers", "xfcenters", "yfcenters")(values):
-            diff = v[1:] - v[:-1]
-            assert _nplike.all(diff > 0), "Not in monotonically increasing order."
-            assert _nplike.allclose(diff, values["delta"], atol=1e-10), "Delta does not match."
+            diffs = v[1:] - v[:-1]
+            assert all(diff > 0 for diff in diffs), "Not in monotonically increasing order."
+            assert all(abs(diff-values["delta"])<=1e-10 for diff in diffs), "Delta does not match."
             assert v.dtype == values["dtype"], "Floating-number types mismatch"
 
         # check vertices
@@ -395,11 +395,11 @@ class Domain(_BaseConfig):
 
         # check dx
         dxs = values["process"].comm.allgather(values["x"].delta)
-        assert _nplike.allclose(dxs, values["x"].delta), "Not all processes have the same dx."
+        assert all(dx == values["x"].delta for dx in dxs), "Not all processes have the same dx."
 
         # check dy
         dys = values["process"].comm.allgather(values["y"].delta)
-        assert _nplike.allclose(dys, values["y"].delta), "Not all processes have the same dy."
+        assert all(dy == values["y"].delta for dy in dys), "Not all processes have the same dy."
 
         return values
 
