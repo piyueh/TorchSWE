@@ -75,7 +75,7 @@ def default_attrs(corner, delta):
             "calendar": "standard",
         },
         "mercator": {
-            "GeoTransform": "{} {} 0 {} 0 {}".format(corner[0], delta[0], corner[1], -delta[1]),
+            "GeoTransform": f"{corner[0]} {delta[0]} 0 {corner[1]} 0 -{delta[1]}",
             "grid_mapping_name": "mercator",
             "long_name": "CRS definition",
             "longitude_of_projection_origin": 0.0,
@@ -183,26 +183,24 @@ def read_from_dataset(dset, data_keys, domain=None):
         ibg, ied, jbg, jed = None, None, None, None  # standard slicing: None:None means all
     else:
         # make sure the whole raster covers the required domain
-        assert extent[0] <= domain[0], "{}, {}".format(extent[0], domain[0])
-        assert extent[1] >= domain[1], "{}, {}".format(extent[1], domain[1])
-        assert extent[2] <= domain[2], "{}, {}".format(extent[2], domain[2])
-        assert extent[3] >= domain[3], "{}, {}".format(extent[3], domain[3])
+        assert extent[0] <= domain[0], f"{extent[0]}, {domain[0]}"
+        assert extent[1] >= domain[1], f"{extent[1]}, {domain[1]}"
+        assert extent[2] <= domain[2], f"{extent[2]}, {domain[2]}"
+        assert extent[3] >= domain[3], f"{extent[3]}, {domain[3]}"
 
         # find the start and end indices containing the provided domain
-        ibg = int(_nplike.searchsorted(data["x"], domain[0]))
-        ied = int(_nplike.searchsorted(data["x"], domain[1]))
-        jbg = int(_nplike.searchsorted(data["y"], domain[2]))
-        jed = int(_nplike.searchsorted(data["y"], domain[3]))
+        ibg, ied = _nplike.searchsorted(data["x"], _nplike.array(domain[:2]))
+        jbg, jed = _nplike.searchsorted(data["y"], _nplike.array(domain[2:]))
 
         # torch's searchsorted signature differs, so no right search; manual adjustment instead
         ied = len(data["x"]) - 1 if ied >= len(data["x"]) else ied
         jed = len(data["y"]) - 1 if jed >= len(data["y"]) else jed
 
         # make sure the target domain is big enough for interpolation, except for edge cases
-        ibg = ibg - 1 if data["x"][ibg] > domain[0] and ibg != 0 else ibg
-        ied = ied + 1 if data["x"][ied] < domain[1] and ied < len(data["x"])-2 else ied
-        jbg = jbg - 1 if data["y"][jbg] > domain[2] and jbg != 0 else jbg
-        jed = jed + 1 if data["y"][jed] < domain[3] and jed < len(data["y"])-2 else jed
+        ibg = int(ibg-1) if data["x"][ibg] > domain[0] and ibg != 0 else int(ibg)
+        ied = int(ied+1) if data["x"][ied] < domain[1] and ied < len(data["x"])-2 else int(ied)
+        jbg = int(jbg-1) if data["y"][jbg] > domain[2] and jbg != 0 else int(jbg)
+        jed = int(jed+1) if data["y"][jed] < domain[3] and jed < len(data["y"])-2 else int(jed)
 
         # the end has to shift one for slicing
         ied += 1
@@ -403,7 +401,7 @@ def add_variables_to_dataset(dset, data, idx_bounds=None, options=None):
         elif len(val.shape) == 3:
             slc = (slice(None),) + slc
         else:
-            raise ValueError("\"{}\" should be either 2D or 3D.".format(key))
+            raise ValueError(f"\"{key}\" should be either 2D or 3D.")
 
         _copy_data(dset[key], val, slc)
 
@@ -488,8 +486,8 @@ def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, opti
     idx_bounds = [None, None] if idx_bounds is None else idx_bounds
     options = {} if options is None else options
 
-    dset.createDimension("n{}".format(name), global_n)
-    dset.createVariable(name, "f8", ("n{}".format(name),))
+    dset.createDimension(f"n{name}", global_n)
+    dset.createVariable(name, "f8", (f"n{name}",))
     dset[name].setncatts(options)
 
     try:
