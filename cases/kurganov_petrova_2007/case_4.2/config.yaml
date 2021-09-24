@@ -4,7 +4,7 @@
 # spatial information
 spatial:
   domain: [-1.0, 1.0, -1.0, 1.0]
-  discretization: [1000, 1000]
+  discretization: [400, 400]
 
 # temporal control, including writting result during a simulation
 temporal:

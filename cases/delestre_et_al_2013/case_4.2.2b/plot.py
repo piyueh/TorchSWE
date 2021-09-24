@@ -103,7 +103,6 @@ for i in range(8):
     axs[i].set_aspect("equal", adjustable="box")
     axs[i].set_xlim(0.4, 3.6)
     axs[i].set_ylim(0.4, 3.6)
-    print(sim_data["h"].shape)
     cs[i] = axs[i].contourf(sim_data["x"], sim_data["y"], sim_data["h"][i+1], lvs)
 
 for i in range(4):

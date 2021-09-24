@@ -14,7 +14,8 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.data import get_gridlines, get_empty_whuhvmodel
+from mpi4py import MPI
+from torchswe.utils.init import get_empty_whuhvmodel, get_process, get_gridline, get_domain
 from torchswe.utils.io import create_topography_file, create_soln_snapshot_file
 
 
@@ -22,32 +23,41 @@ def main():
     """Main function"""
     # pylint: disable=invalid-name
 
+    size = MPI.COMM_WORLD.Get_size()
+    assert size == 1, "This script expects non-parallel execution environment."
+
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
-    with open(case.joinpath("config.yaml"), 'r') as f:
+    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    # gridlines; ignore temporal axis
-    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
+    # gridlines
+    spatial = config.spatial
+    domain = get_domain(
+        process=get_process(MPI.COMM_WORLD, *spatial.discretization),
+        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.dtype),
+        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.dtype)
+    )
 
     # create 1D version of B first and then tile it to 2D
-    B = numpy.zeros_like(grid.x.vert)
-    B = numpy.where(numpy.abs(grid.x.vert-750.) <= 1500./8., 8, B)
-    B = numpy.tile(B, (grid.y.n+1, 1))
+    B = numpy.zeros_like(domain.x.vertices)
+    B = numpy.where(numpy.abs(domain.x.vertices-750.) <= 1500./8., 8, B)
+    B = numpy.tile(B, (domain.y.n+1, 1))
 
     # write topography file
-    create_topography_file(case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert], B)
+    create_topography_file(
+        case.joinpath(config.topo.file), [domain.x.vertices, domain.y.vertices], B)
 
     # initialize i.c., all zeros
     ic = get_empty_whuhvmodel(*config.spatial.discretization, config.dtype)
 
     # i.c.: w
-    Xc, _ = numpy.meshgrid(grid.x.cntr, grid.y.cntr)
+    Xc, _ = numpy.meshgrid(domain.x.centers, domain.y.centers)
     ic.w = numpy.where(Xc <= 750., 20., 15.)
 
     # write I.C. file
     ic.check()
-    create_soln_snapshot_file(case.joinpath(config.ic.file), grid, ic)
+    create_soln_snapshot_file(case.joinpath(config.ic.file), domain, ic)
 
     return 0
 

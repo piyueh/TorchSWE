@@ -1,0 +1,96 @@
+{
+    "name": "custom",
+    "background": [1.0, 1.0, 1.0],
+    "jupyter_backend": "ipyvtklink",
+    "full_screen": false,
+    "window_size": [1024, 768],
+    "camera": {
+        "position": [-8.18843106, -2.81950292,  5], 
+        "viewup": [0, 0, 1]
+    }, 
+    "font": {
+        "family": "times", 
+        "size": 18, 
+        "title_size": 20, 
+        "label_size": 18, 
+        "color": [0.0, 0.0, 0.0], 
+        "fmt": null
+    }, 
+    "auto_close": true, 
+    "cmap": "viridis", 
+    "color": [0.8235294117647058, 0.7058823529411765, 0.5490196078431373], 
+    "nan_color": [0.6627450980392157, 0.6627450980392157, 0.6627450980392157], 
+    "edge_color": [0.0, 0.0, 0.0], 
+    "outline_color": [0.0, 0.0, 0.0], 
+    "floor_color": [0.5019607843137255, 0.5019607843137255, 0.5019607843137255], 
+    "colorbar_orientation": "vertical", 
+    "colorbar_horizontal": {
+        "width": 0.6, 
+        "height": 0.08, 
+        "position_x": 0.35, 
+        "position_y": 0.05
+    },
+    "colorbar_vertical": {
+        "width": 0.08,
+        "height": 0.75,
+        "position_x": 0.89,
+        "position_y": 0.125
+    },
+    "show_scalar_bar": false,
+    "show_edges": false,
+    "lighting": true,
+    "interactive": false,
+    "render_points_as_spheres": false,
+    "transparent_background": false,
+    "title": "PyVista",
+    "axes": {
+        "x_color": [1.0, 0.38823529411764707, 0.2784313725490196],
+        "y_color": [0.1803921568627451, 0.5450980392156862, 0.3411764705882353],
+        "z_color": [0.0, 0.0, 1.0],
+        "box": false,
+        "show": true
+    },
+    "multi_samples": 8,
+    "multi_rendering_splitting_position": null,
+    "volume_mapper": "smart",
+    "smooth_shading": false,
+    "depth_peeling": {
+        "number_of_peels": 4,
+        "occlusion_ratio": 0.0,
+        "enabled": false
+    },
+    "silhouette": {
+        "color": [0.0, 0.0, 0.0],
+        "line_width": 2,
+        "opacity": 1.0,
+        "feature_angle": null,
+        "decimate": 0.9
+    },
+    "slider_styles": {
+        "classic": {
+            "name": "classic",
+            "slider_length": 0.02,
+            "slider_width": 0.04,
+            "slider_color": [0.5, 0.5, 0.5],
+            "tube_width": 0.005,
+            "tube_color": [1, 1, 1],
+            "cap_opacity": 1.0,
+            "cap_length": 0.01,
+            "cap_width": 0.02
+        },
+        "modern": {
+            "name": "modern",
+            "slider_length": 0.02,
+            "slider_width": 0.04,
+            "slider_color": [0.43137255, 0.44313725, 0.45882353],
+            "tube_width": 0.04,
+            "tube_color": [0.69803922, 0.70196078, 0.70980392],
+            "cap_opacity": 0.0,
+            "cap_length": 0.01,
+            "cap_width": 0.02
+        }
+    },
+    "return_cpos": true,
+    "hidden_line_removal": true,
+    "antialiasing": true
+}

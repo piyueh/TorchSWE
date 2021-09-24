@@ -4,6 +4,7 @@ cases/**/*.npz
 cases/**/*.npy
 cases/**/*.nc
 cases/**/*.nc.aux.xml
+cases/**/postprocessing.ipynb
 comparisons/geoclaw/**/*.data
 comparisons/geoclaw/**/_output
 comparisons/geoclaw/**/.output

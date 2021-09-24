@@ -14,7 +14,8 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.data import get_empty_whuhvmodel, get_gridlines
+from mpi4py import MPI
+from torchswe.utils.init import get_empty_whuhvmodel, get_process, get_gridline, get_domain
 from torchswe.utils.io import create_soln_snapshot_file, create_topography_file
 
 
@@ -45,24 +46,32 @@ def main():
     """Main function"""
     # pylint: disable=invalid-name
 
+    size = MPI.COMM_WORLD.Get_size()
+    assert size == 1, "This script expects non-parallel execution environment."
+
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r') as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    # gridlines; ignore temporal axis
-    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
+    # gridlines
+    spatial = config.spatial
+    domain = get_domain(
+        process=get_process(MPI.COMM_WORLD, *spatial.discretization),
+        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.dtype),
+        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.dtype)
+    )
 
     # topography, defined on cell vertices
     create_topography_file(
-        case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert],
-        topo(*numpy.meshgrid(grid.x.vert, grid.y.vert)))
+        case.joinpath(config.topo.file), [domain.x.vertices, domain.y.vertices],
+        topo(*numpy.meshgrid(domain.x.vertices, domain.y.vertices)))
 
     # initial conditions, defined on cell centers
     ic = get_empty_whuhvmodel(*config.spatial.discretization, config.dtype)
-    ic.w, ic.hu, ic.hv = exact_soln(*numpy.meshgrid(grid.x.cntr, grid.y.cntr), 0.)
+    ic.w, ic.hu, ic.hv = exact_soln(*numpy.meshgrid(domain.x.centers, domain.y.centers), 0.)
     ic.check()
-    create_soln_snapshot_file(case.joinpath(config.ic.file), grid, ic)
+    create_soln_snapshot_file(case.joinpath(config.ic.file), domain, ic)
 
     return 0
 

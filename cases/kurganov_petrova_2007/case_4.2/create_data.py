@@ -14,7 +14,8 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.data import get_empty_whuhvmodel, get_gridlines
+from mpi4py import MPI
+from torchswe.utils.init import get_empty_whuhvmodel, get_process, get_gridline, get_domain
 from torchswe.utils.io import create_soln_snapshot_file, create_topography_file
 # pylint: disable=invalid-name, too-many-locals
 
@@ -39,20 +40,30 @@ def topo(x, y):
 def main():
     """Main function"""
 
+    size = MPI.COMM_WORLD.Get_size()
+    assert size == 1, "This script expects non-parallel execution environment."
+
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
-    with open(case.joinpath("config.yaml"), 'r') as f:
+    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    # gridlines; ignore temporal axis
-    grid = get_gridlines(*config.spatial.discretization, *config.spatial.domain, [], config.dtype)
+    # gridlines
+    spatial = config.spatial
+    domain = get_domain(
+        process=get_process(MPI.COMM_WORLD, *spatial.discretization),
+        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.dtype),
+        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.dtype)
+    )
 
     # topography, defined on cell vertices
-    B = topo(*numpy.meshgrid(grid.x.vert, grid.y.vert))
-    create_topography_file(case.joinpath(config.topo.file), [grid.x.vert, grid.y.vert], B)
+    B = topo(*numpy.meshgrid(domain.x.vertices, domain.y.vertices))
+
+    create_topography_file(
+        case.joinpath(config.topo.file), [domain.x.vertices, domain.y.vertices], B)
 
     # topography elevation at cell centers
-    _, Yc = numpy.meshgrid(grid.x.cntr, grid.y.cntr)
+    _, Yc = numpy.meshgrid(domain.x.centers, domain.y.centers)
     Bc = (B[:-1, :-1] + B[1:, :-1] + B[:-1, 1:] + B[1:, 1:]) / 4.
 
     # i.c., all zeros
@@ -67,7 +78,7 @@ def main():
 
     # initial conditions, defined on cell centers
     ic.check()
-    create_soln_snapshot_file(case.joinpath(config.ic.file), grid, ic)
+    create_soln_snapshot_file(case.joinpath(config.ic.file), domain, ic)
 
 
 if __name__ == "__main__":

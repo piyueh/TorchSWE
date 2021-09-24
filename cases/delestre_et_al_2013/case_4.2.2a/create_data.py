@@ -57,7 +57,7 @@ def main():
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
-    with open(case.joinpath("config.yaml"), 'r') as f:
+    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
     # gridlines
