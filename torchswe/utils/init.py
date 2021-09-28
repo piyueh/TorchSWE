@@ -171,7 +171,7 @@ def get_timeline(output_type: str, params: _List[_Union[int, float]], dt: _Optio
 
     # should never reach this branch because pydantic has detected any invalid arguments
     else:
-        raise ValueError("{} is not an allowed output method.".format(output_type))
+        raise ValueError(f"{output_type} is not an allowed output method.")
 
     return _Timeline(values=t, save=save)
 
@@ -543,11 +543,11 @@ def get_config(args: _argparse.Namespace):
     args.yaml = args.case_folder.joinpath("config.yaml")
 
     # read yaml config file
-    with open(args.yaml, "r") as fobj:
+    with open(args.yaml, "r", encoding="utf-8") as fobj:
         config = _yaml.load(fobj, _yaml.Loader)
 
     assert isinstance(config, _Config), \
-        "Failed to parse {} as an Config object. ".format(args.yaml) + \
+        f"Failed to parse {args.yaml} as an Config object. " + \
         "Check if `--- !Config` appears in the header of the YAML"
 
     # add args to config
@@ -618,7 +618,7 @@ def get_initial_objects(comm: _MPI.Comm, config: _Config):
 
     domain = get_domain(process, x, y)
 
-    # get dem (digital elevation model)
+    # get dem (digital elevation model); assume dem values defined at cell centers
     dem, _ = _ncread(
         fpath=config.topo.file, data_keys=[config.topo.key],
         extent=(x.lower, x.upper, y.lower, y.upper), parallel=True, comm=comm
