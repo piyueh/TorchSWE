@@ -8,6 +8,7 @@
 
 """Lower leve functions related to NetCDF I/O with the CF convention.
 """
+import logging as _logging
 from pathlib import Path as _Path
 from datetime import datetime as _datetime, timezone as _timezone
 
@@ -15,6 +16,9 @@ import numpy as _vanilla_np
 from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
 from torchswe import nplike as _nplike
 from torchswe.utils.misc import DummyDict as _DummyDict
+
+
+_logger = _logging.getLogger("torchswe.utils.init")
 
 
 def default_attrs(corner, delta):
@@ -167,44 +171,56 @@ def read_from_dataset(dset, data_keys, domain=None):
     data["x"] = _nplike.array(dset["x"][:])
     data["y"] = _nplike.array(dset["y"][:])
 
-    try:  # the raster data could be defined at cell centers, i.e., extent is different
-        transform = dset["mercator"].GeoTransform.split()
-        extent = [
-            float(transform[0]), float(transform[0]) + float(transform[1]) * len(data["x"]),
-            float(transform[3]) + float(transform[5]) * len(data["y"]), float(transform[3])
-        ]
+    try:  # note: the raster data are assumed to be defined at cell centers
+        extent = dset["mercator"].GeoTransform.split()  # will re-use this variable next line
+        extent = (
+            float(extent[0]), float(extent[0]) + float(extent[1]) * len(data["x"]),
+            float(extent[3]) + float(extent[5]) * len(data["y"]), float(extent[3])
+        )
+        _logger.debug("Transform found. Use its extent: %s", extent)
     except IndexError as err:
-        if "mercator not found" in str(err):  # otherwise, use x, y data for extent
-            extent = [data["x"][0], data["x"][-1], data["y"][0], data["y"][-1]]
-        raise
+        if "mercator not found" in str(err):  # otherwise, use x, y data to calculate extent
+            extent = ((data[k][-1] - data[k][0]) / (len(data[k]) - 1) for k in ["x", "y"])
+            extent = (
+                data["x"][0] - extent[0] / 2., data["x"][-1] + extent[0] / 2.,
+                data["y"][0] - extent[1] / 2., data["y"][-1] + extent[1] / 2.
+            )
+            _logger.debug("Transform not found. Extent was calculated using x & y: %s", extent)
+        else:
+            raise
 
     # determine the target domain in the index space
     if domain is None:
         ibg, ied, jbg, jed = None, None, None, None  # standard slicing: None:None means all
     else:
         # make sure the whole raster covers the required domain
-        assert extent[0] <= domain[0], f"{extent[0]}, {domain[0]}"
-        assert extent[1] >= domain[1], f"{extent[1]}, {domain[1]}"
-        assert extent[2] <= domain[2], f"{extent[2]}, {domain[2]}"
-        assert extent[3] >= domain[3], f"{extent[3]}, {domain[3]}"
+        for i in (0, 2):
+            assert extent[i] <= domain[i], f"{extent[i]}, {domain[i]}"
+            assert extent[i+1] >= domain[i+1], f"{extent[i+1]}, {domain[i+1]}"
 
-        # find the start and end indices containing the provided domain
-        ibg, ied = _nplike.searchsorted(data["x"], _nplike.array(domain[:2]))
-        jbg, jed = _nplike.searchsorted(data["y"], _nplike.array(domain[2:]))
+        # left-search the start/end indices containing the provided domain (with rounding errors)
+        ibg, ied = _nplike.searchsorted(data["x"]+1e-12, _nplike.array(domain[:2]))
+        jbg, jed = _nplike.searchsorted(data["y"]+1e-12, _nplike.array(domain[2:]))
 
         # torch's searchsorted signature differs, so no right search; manual adjustment instead
         ied = len(data["x"]) - 1 if ied >= len(data["x"]) else ied
         jed = len(data["y"]) - 1 if jed >= len(data["y"]) else jed
 
         # make sure the target domain is big enough for interpolation, except for edge cases
-        ibg = int(ibg-1) if data["x"][ibg] > domain[0] and ibg != 0 else int(ibg)
-        ied = int(ied+1) if data["x"][ied] < domain[1] and ied < len(data["x"])-2 else int(ied)
-        jbg = int(jbg-1) if data["y"][jbg] > domain[2] and jbg != 0 else int(jbg)
-        jed = int(jed+1) if data["y"][jed] < domain[3] and jed < len(data["y"])-2 else int(jed)
+        ibg = int(ibg-1) if data["x"][ibg]-1e-12 > domain[0] else int(ibg)
+        ied = int(ied+1) if data["x"][ied]+1e-12 < domain[1] else int(ied)
+        jbg = int(jbg-1) if data["y"][jbg]-1e-12 > domain[2] else int(jbg)
+        jed = int(jed+1) if data["y"][jed]+1e-12 < domain[3] else int(jed)
+
+        assert ibg >= 0, f"{data['x'][0]} not smaller enough to cover {domain[0]}"
+        assert ied < len(data["x"]), f"{data['x'][-1]} not big enough to cover {domain[1]}"
+        assert jbg >= 0, f"{data['y'][0]} not smaller enough to cover {domain[2]}"
+        assert jed < len(data["y"]), f"{data['y'][-1]} not big enough to cover {domain[3]}"
 
         # the end has to shift one for slicing
         ied += 1
         jed += 1
+        _logger.debug("Indices ranges: %d, %d, %d, %d", ibg, ied, jbg, jed)
 
         # save only the local gridlines to the output dictionary
         data["x"] = data["x"][ibg:ied]
@@ -317,8 +333,8 @@ def write_to_dataset(
     # default values
     global_n = [len(axs[0]), len(axs[1])] if global_n is None else global_n
     idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
-    corner = (axs[0][0], axs[1][-1]) if corner is None else corner
-    deltas = (axs[0][1]-axs[0][0], axs[1][1]-axs[1][0]) if deltas is None else deltas
+    deltas = (axs[0][1] - axs[0][0], axs[1][1] - axs[1][0]) if deltas is None else deltas
+    corner = (axs[0][0] - deltas[0]/2., axs[1][-1] + deltas[1]/2.) if corner is None else corner
 
     # get default options
     options = {} if options is None else options
