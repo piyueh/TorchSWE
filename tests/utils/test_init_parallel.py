@@ -91,3 +91,18 @@ def test_get_empty_states(tmp_path):
 
 def _assert_wrapper(fobj, pre, msg):
     fobj.write(pre+"assert {}, \"from rank {{}}\".format(rank)\n".format(msg))
+
+
+def test_states(tmp_path):
+    """Test states in parallel."""
+
+    shutil.copyfile(data_dir.joinpath("test_states.script"), tmp_path.joinpath("test.py"))
+
+    try:
+        subprocess.run(
+            ["mpiexec", "-n", "2", "python", str(tmp_path.joinpath("test.py"))],
+            check=True, capture_output=True, timeout=30)
+    except subprocess.CalledProcessError as err:
+        raise AssertionError(
+            "The MPI test reports the following error:\n{}".format(err.stderr.decode("utf-8"))
+        ) from err
