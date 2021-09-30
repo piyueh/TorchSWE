@@ -26,7 +26,7 @@ Dependencies can be installed using Anaconda. For example, to create a new
 Anaconda environment that is called `torchswe` and has all backends (assuming
 now we are under the top-level directory of this repository):
 ```
-$ conda env create -n torchswe -f conda/everything.yml
+$ conda env create -n torchswe -f conda/torchswe.yml
 ```
 Next, source into the environment:
 ```
@@ -49,6 +49,11 @@ to build MPICH from scratch. (The MPICH package from Anaconda's
 `conda-forge` channel does not support CUDA.) Also, to use MPICH, it's necessary
 to use MPICH-compatible `netcd4`. (For example, if using Anaconda, do
 `$ conda install -c conda-forge "netcdf4=*=mpi_mpich*"`.)
+
+The Anaconda environment created using `torchswe.yml` does not have dependencies
+for post-processing/visualizing the results of example cases. These dependencies
+include `matplotlib` and `pyvista`. Users can install them separately or,
+alternatively, create the Anaconda environment with `development.yml`.
 
 ### Example cases
 -----------------
