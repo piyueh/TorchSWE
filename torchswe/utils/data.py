@@ -33,7 +33,7 @@ def _pydantic_val_dtype(val: _nplike.ndarray, values: dict) -> _nplike.ndarray:
     """Validates that a given ndarray has a matching dtype; used by pydantic."""
     try:
         assert val.dtype == values["dtype"], \
-            "float number type mismatch. Should be {}, got {}".format(values["dtype"], val.dtype)
+            f"float number type mismatch. Should be {values['dtype']}, got {val.dtype}"
     except KeyError as err:
         raise AssertionError("Validation failed due to other validation failures.") from err
     return val
@@ -47,16 +47,16 @@ def _pydantic_val_arrays(val, values):
     except KeyError as err:
         raise AssertionError("Validation failed due to other validation failures.") from err
 
-    assert val.dtype == dtype, "Dtype mismatch. Should be {}, got {}".format(dtype, val.dtype)
-    assert val.shape == shape, "Shape mismatch. Should be {}, got {}".format(shape, val.shape)
+    assert val.dtype == dtype, f"Dtype mismatch. Should be {dtype}, got {val.dtype}"
+    assert val.shape == shape, f"Shape mismatch. Should be {shape}, got {val.shape}"
 
     return val
 
 
 def _pydantic_val_nan_inf(val, field):
     """Validates if any elements are NaN or inf."""
-    assert not _nplike.any(_nplike.isnan(val)), "Got NaN in {}".format(field.name)
-    assert not _nplike.any(_nplike.isinf(val)), "Got Inf in {}".format(field.name)
+    assert not _nplike.any(_nplike.isnan(val)), f"Got NaN in {field.name}"
+    assert not _nplike.any(_nplike.isinf(val)), f"Got Inf in {field.name}"
     return val
 
 
@@ -73,7 +73,7 @@ def _shape_val_factory(shift: _Union[_Tuple[int, int], int]):
         except KeyError as err:
             raise AssertionError("Validation failed due to other validation failures.") from err
 
-        assert val.shape == target, "Shape mismatch. Should be {}, got {}".format(target, val.shape)
+        assert val.shape == target, f"Shape mismatch. Should be {target}, got {val.shape}"
         return val
 
     return _core_func
@@ -155,27 +155,27 @@ class Process(_BaseConfig):
 
         for key, state, ans in zip(ready.keys(), ready.values(), reply.values()):
             # first make sure we got message from this neighbor
-            assert state, "Neighbor in {} (rank {}) did not answer.".format(key, values[key])
+            assert state, f"Neighbor in {key} (rank {values[key]}) did not answer."
 
             # second make sure the neighbor has the same topology as we do
-            assert ans[0] == buff[0], "Err: pnx, {}, {}, {}".format(key, ans[0], buff[0])
-            assert ans[1] == buff[1], "Err: pny, {}, {}, {}".format(key, ans[1], buff[1])
+            assert ans[0] == buff[0], f"Err: pnx, {key}, {ans[0]}, {buff[0]}"
+            assert ans[1] == buff[1], f"Err: pny, {key}, {ans[1]}, {buff[1]}"
 
             # lastly, check this neighbor's pi and pj
             if key == "west":
-                assert ans[2] == buff[2] - 1, "West's pi: {}, my pi: {}".format(ans[2], buff[2])
-                assert ans[3] == buff[3], "West's pj: {}, my pj: {}".format(ans[3], buff[3])
+                assert ans[2] == buff[2] - 1, f"West's pi: {ans[2]}, my pi: {buff[2]}"
+                assert ans[3] == buff[3], f"West's pj: {ans[3]}, my pj: {buff[3]}"
             elif key == "east":
-                assert ans[2] == buff[2] + 1, "East's pi: {}, my pi: {}".format(ans[2], buff[2])
-                assert ans[3] == buff[3], "East's pj: {}, my pj: {}".format(ans[3], buff[3])
+                assert ans[2] == buff[2] + 1, f"East's pi: {ans[2]}, my pi: {buff[2]}"
+                assert ans[3] == buff[3], f"East's pj: {ans[3]}, my pj: {buff[3]}"
             elif key == "south":
-                assert ans[2] == buff[2], "South's pi: {}, my pi: {}".format(ans[2], buff[2])
-                assert ans[3] == buff[3] - 1, "South's pj: {}, my pj: {}".format(ans[3], buff[3])
+                assert ans[2] == buff[2], f"South's pi: {ans[2]}, my pi: {buff[2]}"
+                assert ans[3] == buff[3] - 1, f"South's pj: {ans[3]}, my pj: {buff[3]}"
             elif key == "north":
-                assert ans[2] == buff[2], "North's pi: {}, my pi: {}".format(ans[2], buff[2])
-                assert ans[3] == buff[3] + 1, "North's pj: {}, my pj: {}".format(ans[3], buff[3])
+                assert ans[2] == buff[2], f"North's pi: {ans[2]}, my pi: {buff[2]}"
+                assert ans[3] == buff[3] + 1, f"North's pj: {ans[3]}, my pj: {buff[3]}"
             else:  # should be redundant, but I prefer keep it
-                raise ValueError("Unrecoganized key: {}".format(key))
+                raise ValueError(f"Unrecoganized key: {key}")
 
         return values
 
@@ -248,16 +248,16 @@ class Gridline(_BaseConfig):
 
         # coordinate ranges
         gbg, ged, bg, ed = _itemgetter("glower", "gupper", "lower", "upper")(values)
-        assert gbg < ged, "Global lower bound >= global upper bound: {}, {}".format(gbg, ged)
-        assert bg < ed, "Local lower bound >= local upper bound: {}, {}".format(bg, ed)
-        assert bg >= gbg, "Local lower bound < global lower bound: {}, {}".format(bg, gbg)
-        assert ed <= ged, "Local upper bound > global upper bound: {}, {}".format(ed, ged)
+        assert gbg < ged, f"Global lower bound >= global upper bound: {gbg}, {ged}"
+        assert bg < ed, f"Local lower bound >= local upper bound: {bg}, {ed}"
+        assert bg >= gbg, f"Local lower bound < global lower bound: {bg}, {gbg}"
+        assert ed <= ged, f"Local upper bound > global upper bound: {ed}, {ged}"
 
         # index range
         gn, n, ibg, ied = _itemgetter("gn", "n", "ibegin", "iend")(values)
-        assert n <= gn, "Local cell number > global cell number: {}, {}".format(gn, n)
+        assert n <= gn, f"Local cell number > global cell number: {gn}, {n}"
         assert n == (ied - ibg), "Local cell number != index difference"
-        assert ibg < ied, "Begining index >= end index: {}, {}".format(ibg, ied)
+        assert ibg < ied, f"Begining index >= end index: {ibg}, {ied}"
 
         # check dtype and increment
         for v in _itemgetter("vertices", "centers", "xfcenters", "yfcenters")(values):
@@ -363,30 +363,29 @@ class Domain(_BaseConfig):
 
         for key, state, ans in zip(ready.keys(), ready.values(), reply.values()):
             # first make sure we got message from this neighbor
-            assert state, "Neighbor in {} (rank {}) did not answer.".format(key, values[key])
+            assert state, f"Neighbor in {key} (rank {values[key]}) did not answer."
             # second make sure this is the correct neighbor (is this redundant?)
-            assert ans[0] == values["process"][key], \
-                "{}: {}, {}".format(key, ans[0], values["process"][key])
+            assert ans[0] == values["process"][key], f"{key}: {ans[0]}, {values['process'][key]}"
 
             # check the indices from the neighbor in the west
             if key == "west":
-                assert ans[2] == buff[1], "West's ied != my ibg: {}, {}".format(ans[2], buff[1])
-                assert ans[3] == buff[3], "West's jbg != my jbg: {}, {}".format(ans[3], buff[3])
-                assert ans[4] == buff[4], "West's jed != my jed: {}, {}".format(ans[4], buff[4])
+                assert ans[2] == buff[1], f"West's ied != my ibg: {ans[2]}, {buff[1]}"
+                assert ans[3] == buff[3], f"West's jbg != my jbg: {ans[3]}, {buff[3]}"
+                assert ans[4] == buff[4], f"West's jed != my jed: {ans[4]}, {buff[4]}"
             elif key == "east":
-                assert ans[1] == buff[2], "East's ibg != my ied: {}, {}".format(ans[1], buff[2])
-                assert ans[3] == buff[3], "East's jbg != my jbg: {}, {}".format(ans[3], buff[3])
-                assert ans[4] == buff[4], "East's jed != my jed: {}, {}".format(ans[4], buff[4])
+                assert ans[1] == buff[2], f"East's ibg != my ied: {ans[1]}, {buff[2]}"
+                assert ans[3] == buff[3], f"East's jbg != my jbg: {ans[3]}, {buff[3]}"
+                assert ans[4] == buff[4], f"East's jed != my jed: {ans[4]}, {buff[4]}"
             elif key == "south":
-                assert ans[1] == buff[1], "South's ibg != my ibg: {}, {}".format(ans[1], buff[1])
-                assert ans[2] == buff[2], "South's ied != my ied: {}, {}".format(ans[2], buff[2])
-                assert ans[4] == buff[3], "South's jed != my jbg: {}, {}".format(ans[4], buff[3])
+                assert ans[1] == buff[1], f"South's ibg != my ibg: {ans[1]}, {buff[1]}"
+                assert ans[2] == buff[2], f"South's ied != my ied: {ans[2]}, {buff[2]}"
+                assert ans[4] == buff[3], f"South's jed != my jbg: {ans[4]}, {buff[3]}"
             elif key == "north":
-                assert ans[1] == buff[1], "North's ibg != my ibg: {}, {}".format(ans[1], buff[1])
-                assert ans[2] == buff[2], "North's ied != my ied: {}, {}".format(ans[2], buff[2])
-                assert ans[3] == buff[4], "North's jbg != my jed: {}, {}".format(ans[3], buff[4])
+                assert ans[1] == buff[1], f"North's ibg != my ibg: {ans[1]}, {buff[1]}"
+                assert ans[2] == buff[2], f"North's ied != my ied: {ans[2]}, {buff[2]}"
+                assert ans[3] == buff[4], f"North's jbg != my jed: {ans[3]}, {buff[4]}"
             else:  # should be redundant, but I prefer keep it
-                raise ValueError("Unrecoganized key: {}".format(key))
+                raise ValueError(f"Unrecoganized key: {key}")
 
         return values
 
@@ -440,7 +439,7 @@ class Topography(_BaseConfig):
         arrays = ["vertices", "centers", "xfcenters", "yfcenters", "xgrad", "ygrad"]
         target = values["domain"].x.dtype
         for k, v in zip(arrays, _itemgetter(*arrays)(values)):
-            assert v.dtype == target, "{}: dtype does not match".format(k)
+            assert v.dtype == target, f"{k}: dtype does not match"
 
         # check shapes
         msg = "shape does not match."
@@ -764,6 +763,20 @@ class States(_BaseConfig):
                     rreq[key] = proc.comm.Irecv(rbuf[key], proc[ornt], rtags[ornt][var])
                     ans += 1
 
+        # make sure send requests are done
+        tstart = _time.perf_counter()
+        done = 0
+        while done != ans and _time.perf_counter()-tstart < 5.:
+            for key, req in sreq.items():
+                if key in sbuf and req.Test():
+                    del sbuf[key]
+                    done += 1
+
+        # make sure if the while loop exited because of done == ans
+        if done != ans:
+            raise RuntimeError(f"Sending data to neighbor timeout: {sbuf.keys()}")
+
+        # receive data from neighbors
         tstart = _time.perf_counter()
         done = 0
         while done != ans and _time.perf_counter()-tstart < 5.:
@@ -775,17 +788,4 @@ class States(_BaseConfig):
 
         # make sure if the while loop exited because of done == ans
         if done != ans:
-            raise RuntimeError("Receiving data from neighbor timeout: {}".format(rbuf.keys()))
-
-        # only leave this function when send requests are also done
-        tstart = _time.perf_counter()
-        done = 0
-        while done != ans and _time.perf_counter()-tstart < 5.:
-            for key, req in sreq.items():
-                if key in sbuf and req.Test():
-                    del sbuf[key]
-                    done += 1
-
-        # make usre if the while loop exited because of done == ans
-        if done != ans:
-            raise RuntimeError("Sending data from neighbor timeout: {}".format(sbuf.keys()))
+            raise RuntimeError(f"Receiving data from neighbor timeout: {rbuf.keys()}")
