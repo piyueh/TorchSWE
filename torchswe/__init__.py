@@ -26,7 +26,7 @@ def _dummy_function(*args, **kwargs):  #pylint: disable=unused-argument, useless
     - the member of the context manager: errstate
     - set_printoptions
     """
-    _logger.debug("_dummy_function is called by CuPy.")
+    _logger.debug("_dummy_function is called.")
     return None
 
 
@@ -46,6 +46,7 @@ elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     import cupyx  # pylint: disable=import-error
     nplike.errstate = _DummyErrState
     nplike.set_printoptions = _dummy_function
+    nplike.sync = nplike.cuda.get_current_stream().synchronize
 elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     import torch as nplike  # pylint: disable=import-error
     nplike.errstate = _DummyErrState
@@ -54,7 +55,8 @@ elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     nplike.array = nplike.tensor
     nplike.nonzero = _functools.partial(nplike.nonzero, as_tuple=True)
     nplike.power = nplike.pow
-    nplike.ndarray.__str__ = lambda self: "{}".format(self.item())
+    nplike.ndarray.__str__ = lambda self: f"{self.item()}"
+    nplike.sync = nplike.cuda.synchronize
 
     if "TORCH_USE_CPU" in _os.environ and _os.environ["TORCH_USE_CPU"] == "1":
         nplike.set_default_tensor_type('torch.FloatTensor')
@@ -62,3 +64,4 @@ elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
         nplike.set_default_tensor_type('torch.cuda.FloatTensor')
 else:
     import numpy as nplike
+    nplike.sync = _dummy_function

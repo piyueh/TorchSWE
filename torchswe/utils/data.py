@@ -758,8 +758,10 @@ class States(_BaseConfig):
                 for var in ["w", "hu", "hv"]:
                     key = (ornt, var)
                     sbuf[key] = self.q[var][sslcs[ornt]].copy()
+                    _nplike.sync()  # make sure the copy is done before sending the data
                     sreq[key] = proc.comm.Isend(sbuf[key], proc[ornt], stags[ornt][var])
                     rbuf[key] = _nplike.zeros_like(self.q[var][rslcs[ornt]])
+                    _nplike.sync()  # make sure the buffer is ready before receiving the data
                     rreq[key] = proc.comm.Irecv(rbuf[key], proc[ornt], rtags[ornt][var])
                     ans += 1
 
