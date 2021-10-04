@@ -276,6 +276,8 @@ class ParamConfig(BaseConfig):
         Dry tolerance in meters. Default: 1.0e-4.
     ngh : int
         Number of ghost cell layers per boundary. At least 2 required.
+    dtype : str
+        The floating number type. Either "float32" or "float64". Default: "float64"
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
@@ -284,6 +286,7 @@ class ParamConfig(BaseConfig):
     drytol: confloat(ge=0.) = 1.0e-4
     ngh: conint(ge=2) = 2
     log_steps: conint(ge=1) = 100
+    dtype: Literal["float32", "float64"] = "float64"
 
 
 class Config(BaseConfig):
@@ -307,8 +310,6 @@ class Config(BaseConfig):
         The path to a Python script that will be executed before running a simulation.
     case : path-like
         The path to the case folder.
-    dtype : str
-        The floating number type. Either "float32" or "float64". Default: "float64"
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
@@ -320,4 +321,3 @@ class Config(BaseConfig):
     params: ParamConfig = Field(..., alias="parameters")
     prehook: Optional[pathlib.Path]
     case: Optional[pathlib.Path]
-    dtype: Literal["float32", "float64"] = "float64"

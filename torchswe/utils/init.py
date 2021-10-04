@@ -552,9 +552,10 @@ def get_config(args: _argparse.Namespace):
 
     # add args to config
     config.case = args.case_folder
-    config.dtype = "float32" if args.sp else "float64"
 
-    if args.log_steps is not None:
+    config.dtype = "float32" if args.sp else config.dtype  # overwrite dtype if needed
+
+    if args.log_steps is not None:  # overwrite log_steps if needed
         config.params.log_steps = args.log_steps
 
     if args.tm is not None:  # overwrite the setting in config.yaml

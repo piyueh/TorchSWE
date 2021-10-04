@@ -1,0 +1,147 @@
+# This is a template comtaining all required & optional options.
+--- !Config
+
+# =============================================================================
+# spatial information
+# =============================================================================
+spatial:
+
+  # computaional domain's bounds: [west, east, south, north]
+  # ---------------------------------------------------------------------------
+  domain: [0.0, 1.0, 0.0, 1.0]
+
+  # number of cells in each direction: [west<->east, north<->south]
+  # ---------------------------------------------------------------------------
+  discretization: [10, 10]
+
+# =============================================================================
+# temporal control, including writting result during a simulation
+# =============================================================================
+temporal:
+
+  # optional; the initial time step size if using adaptive time stepping.
+  # ---------------------------------------------------------------------------
+  dt: 1e-3
+
+  # optional; indicates whether to use adaptive time stepping.
+  # ---------------------------------------------------------------------------
+  adaptive: true
+
+  # required; choose from one of the following formats
+  #     1. ["at", [float, float, float, float...]]
+  #     2. ["t_start every_seconds multiple", float, float, int]
+  #     3. ["t_start every_steps multiple", float, int, int]
+  #     4. ["t_start t_end n_saves", float, float, int]
+  #     5. ["t_start t_end no save", float, float]
+  #     6. ["t_start n_steps no save", float, int]
+  # ---------------------------------------------------------------------------
+  output: ["t_start t_end n_saves", 0., 1., 10]
+
+  # optional; maximum number of iteration in each saving interval
+  # ---------------------------------------------------------------------------
+  max_iters: 1000000
+
+  # required; temporal scheme; available options: Euler, SSP-RK2, SSP-RK4
+  # ---------------------------------------------------------------------------
+  scheme: "SSP-RK2"
+
+# =============================================================================
+# boundary conditions
+# =============================================================================
+boundary:
+
+  # required; boundry conditions for w, hu, and hv at the west bound
+  # ---------------------------------------------------------------------------
+  west:
+
+    # required; available types: periodic, extrap, const, inflow, outflow
+    types: ["extrap", "extrap", "extrap"]
+
+    # optional; only needed when having const and inflow BCs.
+    values: [null, null, null]
+
+  # required; boundry conditions for w, hu, and hv at the east bound
+  # ---------------------------------------------------------------------------
+  east:
+
+    # required; available types: periodic, extrap, const, inflow, outflow
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+
+  # required; boundry conditions for w, hu, and hv at the north bound
+  # ---------------------------------------------------------------------------
+  north:
+
+    # required; available types: periodic, extrap, const, inflow, outflow
+    types: ["extrap", "extrap", "extrap"]
+
+    # optional; only needed when having const and inflow BCs.
+    values: [null, null, null]
+
+  # required; boundry conditions for w, hu, and hv at the south bound
+  # ---------------------------------------------------------------------------
+  south:
+
+    # required; available types: periodic, extrap, const, inflow, outflow
+    types: ["extrap", "extrap", "extrap"]
+
+    # optional; only needed when having const and inflow BCs.
+    values: [null, null, null]
+
+# =============================================================================
+# initial condition
+# =============================================================================
+initial:
+
+  # required; the file name/path to a CF-compliant NetCDF file for I.C.
+  # ---------------------------------------------------------------------------
+  file: "initial.nc"
+
+  # required; the names/keys of w, hu, and hv datasets in the the NetCDF file.
+  # ---------------------------------------------------------------------------
+  keys: [w, hu, hv]
+
+  # an alternative to setting `file` and `keys`; used when having constant I.C.
+  # ---------------------------------------------------------------------------
+  values: null
+
+# =============================================================================
+# topography
+# =============================================================================
+topography:
+
+  # required; the file name/path to a CF-compliant NetCDF file for topography
+  # ---------------------------------------------------------------------------
+  file: "topo.nc"
+
+  # required; the name/key for the elevation dataset in the the NetCDF file.
+  # ---------------------------------------------------------------------------
+  key: elevation
+
+# =============================================================================
+# other parameters
+# =============================================================================
+parameters:
+
+  # optional; gravitational acceleration
+  gravity: 9.81
+
+  # optional; a numerical parameter controlling numerical dissipation
+  theta: 1.0
+
+  # optional; indicates the upper bound of depths to be considered dry
+  drytol: 1.0e-4
+
+  # optional; number of ghost cells; current schemes only need 2 ghost cells
+  ngh: 2
+
+  # optional; after how many steps to print simulation info on screen/stdout
+  log_steps: 100
+
+  # optional; floating point precision; either "float32" or "float64"
+  dtype: "float64"
+
+# =============================================================================
+# any Python script that should be executed prior running the solver
+# =============================================================================
+prehook: null
