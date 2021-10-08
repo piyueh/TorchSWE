@@ -27,8 +27,8 @@ def main():
 
     # gridlines
     spatial = config.spatial
-    x = numpy.linspace(*spatial.domain[:2], spatial.discretization[0]+1, dtype=config.dtype)
-    y = numpy.linspace(*spatial.domain[2:], spatial.discretization[1]+1, dtype=config.dtype)
+    x = numpy.linspace(*spatial.domain[:2], spatial.discretization[0]+1, dtype=config.params.dtype)
+    y = numpy.linspace(*spatial.domain[2:], spatial.discretization[1]+1, dtype=config.params.dtype)
 
     # create 1D version of B first
     topo_vert = numpy.zeros_like(x)

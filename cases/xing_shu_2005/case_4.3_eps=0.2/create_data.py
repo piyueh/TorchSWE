@@ -35,8 +35,8 @@ def main():
     spatial = config.spatial
     domain = get_domain(
         process=get_process(MPI.COMM_WORLD, *spatial.discretization),
-        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.dtype),
-        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.dtype)
+        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.params.dtype),
+        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.params.dtype)
     )
 
     # create 1D version of B first
@@ -50,7 +50,7 @@ def main():
         case.joinpath(config.topo.file), [domain.x.vertices, domain.y.vertices], B)
 
     # initialize i.c., all zeros
-    ic = get_empty_whuhvmodel(*config.spatial.discretization, config.dtype)
+    ic = get_empty_whuhvmodel(*config.spatial.discretization, config.params.dtype)
 
     # i.c.: w
     Xc, _ = numpy.meshgrid(domain.x.centers, domain.y.centers)
