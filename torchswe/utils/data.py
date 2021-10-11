@@ -791,3 +791,40 @@ class States(_BaseConfig):
         # make sure if the while loop exited because of done == ans
         if done != ans:
             raise RuntimeError(f"Receiving data from neighbor timeout: {rbuf.keys()}")
+
+
+class PointSource(_BaseConfig):
+    """An object representing a point source and its flow rate profile.
+
+    Attributes
+    ----------
+    x, y : floats
+        The x and y coordinates of the point source.
+    i, j : int
+        The local cell indices in the current rank's domain.
+    times : a tuple of floats
+        Times to change flow rates.
+    rates : a tiple of floats
+        Depth increment rates during given time intervals. Unit: m / sec.
+    irate : int
+        The index of the current flow rate among those in `rates`.
+    """
+    x: _confloat(strict=True)
+    y: _confloat(strict=True)
+    i: _conint(strict=True, ge=0)
+    j: _conint(strict=True, ge=0)
+    times: _Tuple[_confloat(strict=True), ...]
+    rates: _Tuple[_confloat(strict=True, ge=0.), ...]
+    irate: _conint(strict=True, ge=0)
+    active: bool = True
+
+    @_validator("irate")
+    def _val_irate(cls, val, values):
+        """Validate irate."""
+        try:
+            target = values["rates"]
+        except KeyError as err:
+            raise AssertionError("Correct `rates` first.") from err
+
+        assert val < len(target), f"`irate` (={val}) should be smaller than {len(target)}"
+        return val

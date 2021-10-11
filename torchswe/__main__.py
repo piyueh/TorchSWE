@@ -19,12 +19,13 @@ from torchswe.utils.init import get_config
 from torchswe.utils.init import get_timeline
 from torchswe.utils.init import get_initial_states_from_config
 from torchswe.utils.init import get_topography_from_file
+from torchswe.utils.init import get_pointsource
 from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.core.boundary_conditions import get_ghost_cell_updaters
 from torchswe.core.temporal import euler, ssprk2, ssprk3
-from torchswe.core.fvm import fvm
+from torchswe.core.fvm import topo_only, topo_ptsource
 
 # enforce print precision
 nplike.set_printoptions(precision=15, linewidth=200)
@@ -157,9 +158,17 @@ def config_runtime(comm, config, logger):
     runtime.gh_updater = get_ghost_cell_updaters(config.bc, states, runtime.topo)
     logger.debug("Done setting ghost cell updaters")
 
-    runtime.rhs_updater = fvm
-    logger.debug(f"Source terms: {runtime.rhs_updater.__name__}")
+    if config.ptsource is None:
+        runtime.rhs_updater = topo_only
+        logger.debug("Source terms: topography only")
+    else:
+        runtime.rhs_updater = topo_ptsource
+        logger.debug("Source terms: topography, a point source")
 
+        runtime.ptsource = get_pointsource(
+            config.ptsource.loc[0], config.ptsource.loc[1], config.ptsource.times,
+            config.ptsource.rates, states.domain, 0)
+        logger.debug("Setting a point source: %s", runtime.ptsource)
 
     return states, runtime
 

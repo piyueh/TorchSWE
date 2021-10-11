@@ -123,6 +123,30 @@ topography:
   key: elevation
 
 # =============================================================================
+# Optional block: point source
+#
+# Note
+# ----
+# If this block presents, all the settings under this block must be set.
+# =============================================================================
+point source:
+
+  # required;the coordinates in x and y of the point source
+  # ---------------------------------------------------------------------------
+  loc: [0.5, 0.5]
+
+  # required; the times when to switch flow rates and the corresponding rates.
+  # `rates` must have a length one greater than that of `time`. For example,
+  # if `times` # is [1., 2., 3.], and `rates` is [1., 0.5, 0.1, 0.], this
+  # setting means that the rate between T=T0 (T0 determined based on `temporal`
+  # configuration) to T=1 seconds is 1.0 m^3/sec; the rate between T=1 to 2
+  # seconds is 0.5 m^3/sec; and the rate between T=2 to 3 seconds is 0.1
+  # m^3/sec. Finally, a zero flow rate applies to T >= 3.
+  # ---------------------------------------------------------------------------
+  times: [1., 2., 3.]
+  rates: [1., 0.5, 0.1, 0.]
+
+# =============================================================================
 # Optional block: other parameters
 # =============================================================================
 parameters:

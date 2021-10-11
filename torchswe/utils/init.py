@@ -13,6 +13,7 @@ import copy as _copy
 import argparse as _argparse
 import pathlib as _pathlib
 from typing import List as _List
+from typing import Tuple as _Tuple
 from typing import Optional as _Optional
 
 import yaml as _yaml
@@ -33,6 +34,7 @@ from torchswe.utils.data import FaceTwoSideModel as _FaceTwoSideModel
 from torchswe.utils.data import FaceQuantityModel as _FaceQuantityModel
 from torchswe.utils.data import Slopes as _Slopes
 from torchswe.utils.data import States as _States
+from torchswe.utils.data import PointSource as _PointSource
 from torchswe.utils.netcdf import read as _ncread
 from torchswe.utils.misc import DummyDtype as _DummyDtype
 from torchswe.utils.misc import cal_num_procs as _cal_num_procs
@@ -40,6 +42,7 @@ from torchswe.utils.misc import cal_proc_loc_from_rank as _cal_proc_loc_from_ran
 from torchswe.utils.misc import cal_neighbors as _cal_neighbors
 from torchswe.utils.misc import cal_local_gridline_range as _cal_local_gridline_range
 from torchswe.utils.misc import interpolate as _interpolate
+from torchswe.utils.misc import find_cell_index as _find_cell_index
 
 
 _logger = _logging.getLogger("torchswe.utils.init")
@@ -623,3 +626,48 @@ def get_config(args: _argparse.Namespace):
     config.check()
 
     return config
+
+
+def get_pointsource(
+    x: float, y: float, times: _Tuple[float, ...], rates: _Tuple[float, ...],
+    domain: _Domain, irate: int = 0
+):
+    """Get a PointSource instance.
+
+    Arguments
+    ---------
+    x, y : float
+        The x and y coordinates of this point source.
+    times : a tuple of floats
+        Times to change flow rates.
+    rates : a tiple of floats
+        Volumetrix flow rates to use during specified time intervals.
+    domain : torchswe.utils.data.Domain
+        The object describing grids and domain decomposition.
+    irate : int
+        The index of the current flow rate in the list of `rates`.
+
+    Returns
+    -------
+    None if the current MPI rank does not own this point source, otherwise an instance of
+    torchswe.utils.data.PointSource.
+
+    Notes
+    -----
+    The returned PointSource object will store depth increment rates, rather than volumetric flow
+    rates.
+    """
+    i = _find_cell_index(x, domain.x.lower, domain.x.upper, domain.x.delta)
+    j = _find_cell_index(y, domain.y.lower, domain.y.upper, domain.y.delta)
+
+    if i is None or j is None:
+        return None
+
+    # convert volumetric flow rates to depth increment rates; assuming constant/uniform dx & dy
+    rates = [rate / domain.x.delta / domain.y.delta for rate in rates]
+
+    # len(times) is 0, meaning one constant rate from the beginning to the end of a simulation
+    active = (not len(times) == 0)
+    _logger.debug("Point source initial `active`: %s", active)
+
+    return _PointSource(x=x, y=y, i=i, j=j, times=times, rates=rates, irate=irate, active=active)

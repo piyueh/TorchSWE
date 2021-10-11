@@ -290,3 +290,17 @@ def set_device(comm: _MPI.Comm):
     _logger.debug(
         "node name: %s; local size:%d; local rank: %d; gpu id: %d",
         local_name, local_size, local_rank, my_gpu)
+
+
+def find_cell_index(x, lower, upper, delta):
+    """Find the local index in 1D so that lower + i * delta <= x < lower + (i + 1) * delta.
+
+    Arguments
+    ---------
+    x : float
+        The target coordinate.
+
+    """
+    if x < lower or x >= upper:
+        return None
+    return int((x-lower)//delta)

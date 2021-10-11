@@ -263,6 +263,45 @@ class TopoConfig(BaseConfig):
     key: str
 
 
+class PointSourceConfig(BaseConfig):
+    """An object holding configuration of point sources.
+
+    Attributes
+    ----------
+    loc : a tuple of two floats
+        The coordinates of the point source.
+    times : a tuple of floats
+        Times to change flow rates.
+    rates : a tiple of floats
+        Flow rates to use during specified time intervals.
+    """
+    # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
+
+    loc: Tuple[confloat(strict=True), confloat(strict=True)]
+    times: Tuple[confloat(strict=True), ...]
+    rates: Tuple[confloat(strict=True, ge=0.), ...]
+
+    @validator("times")
+    def val_times(cls, val):
+        """Validate the tuple of times."""
+        for i in range(1, len(val)):
+            assert val[i] - val[i-1] > 0., f"{val[i]} is not greater than {val[i-1]}"
+        return val
+
+    @validator("rates")
+    def val_rates(cls, val, values):
+        """Validate the tuple of rates."""
+        try:
+            target = values["times"]
+        except KeyError as err:
+            raise AssertionError("must correct `times` first") from err
+
+        assert len(val) == len(target) + 1, \
+            f"the length of rates ({len(val)}) does not match that of times ({len(target)})"
+
+        return val
+
+
 class ParamConfig(BaseConfig):
     """An object holding configuration of miscellaneous parameters.
 
@@ -319,5 +358,6 @@ class Config(BaseConfig):
     ic: ICConfig = Field(..., alias="initial")
     topo: TopoConfig = Field(..., alias="topography")
     params: ParamConfig = Field(ParamConfig(), alias="parameters")
+    ptsource: Optional[PointSourceConfig] = Field(None, alias="point source")
     prehook: Optional[pathlib.Path]
     case: Optional[pathlib.Path]
