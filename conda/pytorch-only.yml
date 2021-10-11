@@ -5,10 +5,10 @@ channels:
 dependencies:
   - cudatoolkit=11.2.72=h2bc3f7f_0
   - mpi4py=3.1.1=py39hc649577_0
-  - netcdf4=1.5.7=mpi_openmpi_py39h957639f_2
+  - netcdf4=1.5.7=mpi_openmpi_py39h1edfdff_1
   - numpy=1.21.2=py39hdbf815f_0
   - pydantic=1.8.2=py39h3811e60_0
-  - python=3.9.7=hb7a2778_1_cpython
-  - pytorch=1.9.0=cuda112py39hbeb36f3_1
+  - python=3.9.7=hb7a2778_3_cpython
+  - pytorch=1.9.1=cpu_py39hc5866cc_3
   - pyyaml=5.4.1=py39h3811e60_1
   - scipy=1.7.1=py39hee8e79c_0

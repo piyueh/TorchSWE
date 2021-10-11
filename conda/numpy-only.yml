@@ -3,9 +3,9 @@ channels:
   - defaults
 dependencies:
   - mpi4py=3.1.1=py39hc649577_0
-  - netcdf4=1.5.7=mpi_openmpi_py39h957639f_2
+  - netcdf4=1.5.7=mpi_openmpi_py39h1edfdff_1
   - numpy=1.21.2=py39hdbf815f_0
   - pydantic=1.8.2=py39h3811e60_0
-  - python=3.9.7=hb7a2778_1_cpython
+  - python=3.9.7=hb7a2778_3_cpython
   - pyyaml=5.4.1=py39h3811e60_1
   - scipy=1.7.1=py39hee8e79c_0
