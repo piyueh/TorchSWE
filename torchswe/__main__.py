@@ -14,7 +14,11 @@ import logging
 
 from mpi4py import MPI
 from torchswe import nplike
-from torchswe.utils.init import get_cmd_arguments, get_config, get_initial_objects
+from torchswe.utils.init import get_cmd_arguments
+from torchswe.utils.init import get_config
+from torchswe.utils.init import get_timeline
+from torchswe.utils.init import get_initial_states_from_config
+from torchswe.utils.init import get_topography_from_file
 from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
@@ -67,7 +71,7 @@ def init(comm, args=None):
     if args.log_file is not None:
         # different ranks write to different log files
         if size != 1:
-            args.log_file = args.log_file.with_name(args.log_file.name+".proc.{:02d}".format(rank))
+            args.log_file = args.log_file.with_name(args.log_file.name+f".proc.{rank:02d}")
 
         fmt = "%(asctime)s %(name)s %(funcName)s [%(levelname)s] %(message)s"  # format
         logger.setLevel(args.log_level)
@@ -82,12 +86,15 @@ def init(comm, args=None):
         else:
             logger.setLevel(args.log_level)
 
-        fmt = "[Rank {}] %(asctime)s %(message)s".format(rank)
+        fmt = f"[Rank {rank}] %(asctime)s %(message)s"
         logger.addHandler(logging.StreamHandler())
         logger.handlers[-1].setFormatter(logging.Formatter(fmt, "%H:%M:%S"))
 
     # make the final & returned logger refer to this specific file (main function)
     logger = logging.getLogger("torchswe.main")
+
+    # log the backend
+    logger.info("The np-like backend is: %s", nplike.__name__)
 
     # set GPU id
     if nplike.__name__ == "cupy":
@@ -96,15 +103,65 @@ def init(comm, args=None):
     # get configuration
     config = get_config(args)
 
-    # spatial discretization + output time values
-    topo, states, times = get_initial_objects(comm, config)
+    return config, logger
+
+
+def config_runtime(comm, config, logger):
+    """Configure a runtime object.
+    """
+
+    # get initial solution object
+    states = get_initial_states_from_config(comm, config)
+    logger.debug("Obtained an initial solution object")
+
+    # `runtime` holding things not available in config.yaml or may change during runtime
+    runtime = DummyDict()  # it's just a dict and not a data model. so, no data validation
+
+    # get temporal axis
+    runtime.times = get_timeline(config.temporal.output, config.temporal.dt)
+    logger.debug("Obtained a Timeline object")
+
+    # get dem (digital elevation model); assume dem values defined at cell centers
+    runtime.topo = get_topography_from_file(config.topo.file, config.topo.key, states.domain)
+    logger.debug("Obtained a Topography object")
 
     # make sure initial depths are non-negative
     states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh] = nplike.maximum(
-        topo.centers, states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh])
+        runtime.topo.centers, states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh])
     states.check()
 
-    return config, topo, states, times, logger
+    runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
+    logger.debug("Initial dt: %e", runtime.dt)
+
+    runtime.cur_t = runtime.times[0]  # the current simulation time
+    logger.debug("Initial t: %e", runtime.cur_t)
+
+    runtime.next_t = None  # next output time; will be set later
+    logger.debug("The next t: %s", runtime.next_t)
+
+    runtime.counter = 0  # to count the current number of iterations
+    logger.debug("The current iteration counter: %d", runtime.counter)
+
+    runtime.epsilon = config.params.drytol**4  # tolerance when dealing almost-dry cells
+    logger.debug("Epsilon: %e", runtime.epsilon)
+
+    runtime.tol = 1e-12  # up to how big can be treated as zero
+    logger.debug("Tolerance: %e", runtime.tol)
+
+    runtime.outfile = config.case.joinpath("solutions.nc")  # solution file
+    logger.debug("Output solution file: %s", str(runtime.outfile))
+
+    runtime.marching = MARCHING_OPTIONS[config.temporal.scheme]  # time marching scheme
+    logger.debug("Time marching scheme: %s", config.temporal.scheme)
+
+    runtime.gh_updater = get_ghost_cell_updaters(config.bc, states, runtime.topo)
+    logger.debug("Done setting ghost cell updaters")
+
+    runtime.rhs_updater = fvm
+    logger.debug(f"Source terms: {runtime.rhs_updater.__name__}")
+
+
+    return states, runtime
 
 
 def main():
@@ -117,32 +174,21 @@ def main():
     args = get_cmd_arguments()
 
     # initialize
-    config, topo, soln, times, logger = init(comm, args)
+    config, logger = init(comm, args)
     logger.info("Done initialization.")
-    logger.info("The np-like backend is: %s", nplike.__name__)
 
-    # `runtime` holding things not available in config.yaml or may change during runtime
-    runtime = DummyDict()  # it's just a dict and not a data model. so, no data validation
-    runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
-    runtime.cur_t = times[0]  # the current simulation time
-    runtime.next_t = None  # next output time; will be set later
-    runtime.counter = 0  # to count the current number of iterations
-    runtime.epsilon = config.params.drytol**4  # tolerance when dealing almost-dry cells
-    runtime.tol = 1e-12  # up to how big can be treated as zero
-    runtime.rhs_updater = fvm  # function to calculate right-hand-side
-    runtime.gh_updater = get_ghost_cell_updaters(config.bc, soln, topo)  # ghost cell updater
-    runtime.marching = MARCHING_OPTIONS[config.temporal.scheme]  # time marching scheme
-    runtime.outfile = config.case.joinpath("solutions.nc")  # solution file
-    logger.info("Done setting runtime data.")
+    # states and runtime data
+    soln, runtime = config_runtime(comm, config, logger)
+    logger.info("Done configuring runtime.")
 
     # update ghost cells
     soln = runtime.gh_updater(soln)
     logger.info("Done updating ghost cells.")
 
     # create an NetCDF file and append I.C.
-    if times.save:
-        create_empty_soln_file(runtime.outfile, soln.domain, times)
-        write_soln_to_file(runtime.outfile, soln.domain, soln.q, times[0], 0, soln.ngh)
+    if runtime.times.save:
+        create_empty_soln_file(runtime.outfile, soln.domain, runtime.times)
+        write_soln_to_file(runtime.outfile, soln.domain, soln.q, runtime.times[0], 0, soln.ngh)
         logger.info("Done writing the initial solution to the NetCDF file.")
     else:
         logger.info("No need to save data for \"no save\" method.")
@@ -152,15 +198,15 @@ def main():
     logger.info("Time marching starts at %s", time.ctime(perf_t0))
 
     # start running time marching until each output time
-    for tidx, runtime.next_t in zip(range(1, len(times)), times[1:]):
+    for tidx, runtime.next_t in zip(range(1, len(runtime.times)), runtime.times[1:]):
         logger.info("Marching from T=%s to T=%s", runtime.cur_t, runtime.next_t)
-        soln = runtime.marching(soln, topo, config, runtime)
+        soln = runtime.marching(soln, runtime, config)
 
         # sanity check for the current time
         assert abs(runtime.next_t-runtime.cur_t) < 1e-10
 
         # append to the NetCDF file
-        if times.save:
+        if runtime.times.save:
             write_soln_to_file(runtime.outfile, soln.domain, soln.q, runtime.next_t, tidx, soln.ngh)
             logger.info("Done writing the solution at T=%s to the NetCDF file.", runtime.next_t)
 

@@ -13,7 +13,6 @@ import copy as _copy
 import argparse as _argparse
 import pathlib as _pathlib
 from typing import List as _List
-from typing import Union as _Union
 from typing import Optional as _Optional
 
 import yaml as _yaml
@@ -21,6 +20,7 @@ from mpi4py import MPI as _MPI
 from torchswe import nplike as _nplike
 from torchswe.utils.config import ICConfig as _ICConfig
 from torchswe.utils.config import Config as _Config
+from torchswe.utils.config import OutputTypeHint as _OutputTypeHint
 from torchswe.utils.data import Process as _Process
 from torchswe.utils.data import Gridline as _Gridline
 from torchswe.utils.data import Timeline as _Timeline
@@ -119,7 +119,7 @@ def get_gridline(axis: str, pn: int, pi: int, gn: int, glower: float, gupper: fl
     return _Gridline(**data)
 
 
-def get_timeline(output_type: str, params: _List[_Union[int, float]], dt: _Optional[float] = None):
+def get_timeline(temporal_config: _OutputTypeHint, dt: _Optional[float] = None):
     """Generate a list of times when the solver should output solution snapshots.
 
     Arguments
@@ -137,6 +137,8 @@ def get_timeline(output_type: str, params: _List[_Union[int, float]], dt: _Optio
     """
 
     save = True  # default
+    output_type = temporal_config[0]
+    params = temporal_config[1:]
 
     # write solutions to a file at give times
     if output_type == "at":
@@ -237,6 +239,23 @@ def get_topography(domain, elev, demx, demy):
     return _Topography(
         domain=domain, vertices=vert, centers=cntr, xfcenters=xface,
         yfcenters=yface, xgrad=xgrad, ygrad=ygrad)
+
+
+def get_topography_from_file(file: _pathlib.Path, key: str, domain: _Domain):
+    """Read in CF-compliant NetCDF file for topography.
+    """
+
+    # get dem (digital elevation model); assume dem values defined at cell centers
+    dem, _ = _ncread(
+        fpath=file, data_keys=[key],
+        extent=(domain.x.lower, domain.x.upper, domain.y.lower, domain.y.upper),
+        parallel=True, comm=domain.process.comm
+    )
+
+    assert dem[key].shape == (len(dem["y"]), len(dem["x"]))
+
+    topo = get_topography(domain, dem[key], dem["x"], dem["y"])
+    return topo
 
 
 def get_empty_whuhvmodel(nx: int, ny: int, dtype: str):
@@ -377,6 +396,28 @@ def get_empty_states(domain: _Domain, ngh: int):
         rhs=get_empty_whuhvmodel(nx, ny, dtype),
         face=get_empty_facequantitymodel(nx, ny, dtype)
     )
+
+
+def get_initial_states_from_config(comm: _MPI.Comm, config: _Config):
+    """Get an initial states based on a configuration object.
+    """
+
+    # get parallel process, x, y, and domain
+    process = get_process(comm, *config.spatial.discretization)
+
+    x = get_gridline(
+        "x", process.pnx, process.pi, config.spatial.discretization[0],
+        config.spatial.domain[0], config.spatial.domain[1], config.params.dtype)
+
+    y = get_gridline(
+        "y", process.pny, process.pj, config.spatial.discretization[1],
+        config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
+
+    domain = get_domain(process, x, y)
+
+    # get states
+    states = get_initial_states(domain, config.ic, config.params.ngh)
+    return states
 
 
 def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int):
@@ -582,53 +623,3 @@ def get_config(args: _argparse.Namespace):
     config.check()
 
     return config
-
-
-def get_initial_objects(comm: _MPI.Comm, config: _Config):
-    """Get initial topography and states based on a Config object.
-
-    Arguments
-    ---------
-    comm : mpi4py.MPI.Comm
-        The communicator used by this simulation.
-    config : torchswe.utils.config.Config
-        The configuration object holding simulation settings.
-
-    Returns
-    -------
-    topo : torchswe.utils.data.Topography
-        Topography data.
-    states : torchswe.utils.data.States
-        Simulation states, including solutions.
-    time : torchswe.utils.data.Timeline
-        Times for saving solution snapshots.
-    """
-
-    # get parallel process, x, y, and domain
-    process = get_process(comm, *config.spatial.discretization)
-
-    x = get_gridline(
-        "x", process.pnx, process.pi, config.spatial.discretization[0], config.spatial.domain[0],
-        config.spatial.domain[1], config.dtype
-    )
-
-    y = get_gridline(
-        "y", process.pny, process.pj, config.spatial.discretization[1], config.spatial.domain[2],
-        config.spatial.domain[3], config.dtype
-    )
-
-    domain = get_domain(process, x, y)
-
-    # get dem (digital elevation model); assume dem values defined at cell centers
-    dem, _ = _ncread(
-        fpath=config.topo.file, data_keys=[config.topo.key],
-        extent=(x.lower, x.upper, y.lower, y.upper), parallel=True, comm=comm
-    )
-    assert dem[config.topo.key].shape == (len(dem["y"]), len(dem["x"]))
-
-    # get topo, states, and timeline
-    topo = get_topography(domain, dem[config.topo.key], dem["x"], dem["y"])
-    states = get_initial_states(domain, config.ic, config.params.ngh)
-    time = get_timeline(config.temporal.output[0], config.temporal.output[1:], config.temporal.dt)
-
-    return topo, states, time

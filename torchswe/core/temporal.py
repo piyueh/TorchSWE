@@ -12,7 +12,6 @@ import copy as _copy
 import logging as _logging
 from mpi4py import MPI as _MPI
 from torchswe.utils.data import States as _States
-from torchswe.utils.data import Topography as _Topography
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
 
@@ -50,7 +49,7 @@ def _dt_fixer(cur_t: float, next_t: float, delta_t: float):
     return delta_t
 
 
-def euler(states: _States, topo: _Topography, config: _Config, runtime: _DummyDict):
+def euler(states: _States, runtime: _DummyDict, config: _Config):
     """A simple 1st-order forward Euler time-marching."""
 
     if config.temporal.adaptive:
@@ -63,7 +62,7 @@ def euler(states: _States, topo: _Topography, config: _Config, runtime: _DummyDi
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
-    soil_vol = topo.centers.sum() * cell_area
+    soil_vol = runtime.topo.centers.sum() * cell_area
 
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
@@ -75,7 +74,7 @@ def euler(states: _States, topo: _Topography, config: _Config, runtime: _DummyDi
     for _ in range(config.temporal.max_iters):
 
         # Euler step
-        states, max_dt = runtime.rhs_updater(states, topo, config, runtime)
+        states, max_dt = runtime.rhs_updater(states, runtime, config)
 
         # adaptive dt
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
@@ -109,7 +108,7 @@ def euler(states: _States, topo: _Topography, config: _Config, runtime: _DummyDi
     return states
 
 
-def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyDict):
+def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     """An optimal 2-stage 2nd-order SSP-RK, a.k.a.m Heun's method.
 
     Notes
@@ -142,7 +141,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
-    soil_vol = topo.centers.sum() * cell_area
+    soil_vol = runtime.topo.centers.sum() * cell_area
 
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
@@ -157,7 +156,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
     for _ in range(config.temporal.max_iters):
 
         # stage 1: now states.rhs is RHS(u_{n})
-        states, max_dt = runtime.rhs_updater(states, topo, config, runtime)
+        states, max_dt = runtime.rhs_updater(states, runtime, config)
 
         # adaptive dt based on the CFL of 1st order Euler
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
@@ -175,7 +174,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
-        states, _ = runtime.rhs_updater(states, topo, config, runtime)
+        states, _ = runtime.rhs_updater(states, runtime, config)
 
         # calculate u_{n+1} = (u_{n} + u^1 + dt * RHS(u^1)) / 2.
         states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] + states.rhs.w * runtime.dt)
@@ -206,7 +205,7 @@ def ssprk2(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
     return states
 
 
-def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyDict):
+def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     """An optimal 3-stage 3rd-order SSP-RK.
 
     Notes
@@ -241,7 +240,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
-    soil_vol = topo.centers.sum() * cell_area
+    soil_vol = runtime.topo.centers.sum() * cell_area
 
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
@@ -256,7 +255,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
     for _ in range(config.temporal.max_iters):
 
         # stage 1: now states.rhs is RHS(u_{n})
-        states, max_dt = runtime.rhs_updater(states, topo, config, runtime)
+        states, max_dt = runtime.rhs_updater(states, runtime, config)
 
         # adaptive dt based on the CFL of 1st order Euler
         runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
@@ -274,7 +273,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
-        states, _ = runtime.rhs_updater(states, topo, config, runtime)
+        states, _ = runtime.rhs_updater(states, runtime, config)
 
         # now states.q = u^2 = (3 * u_{n} + u^1 + dt * RHS(u^1)) / 4
         states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] * 3. + states.rhs.w * runtime.dt)
@@ -286,7 +285,7 @@ def ssprk3(states: _States, topo: _Topography, config: _Config, runtime: _DummyD
         states = runtime.gh_updater(states)
 
         # stage 3: now states.rhs is RHS(u^2)
-        states, _ = runtime.rhs_updater(states, topo, config, runtime)
+        states, _ = runtime.rhs_updater(states, runtime, config)
 
         # now states.q = u_{n+1} = (u_{n} + 2 * u^2 + 2 * dt * RHS(u^1)) / 3
         states.q.w[nongh, nongh] *= 2  # 2 * u^2

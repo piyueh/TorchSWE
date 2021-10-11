@@ -11,7 +11,6 @@
 from torchswe import nplike as _nplike
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import States as _States
-from torchswe.utils.data import Topography as _Topography
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.core.sources import topography_gradient as _topography_gradient
 from torchswe.core.reconstruction import get_discontinuous_cnsrv_q as _get_discontinuous_cnsrv_q
@@ -24,16 +23,14 @@ from torchswe.core.misc import get_local_speed as _get_local_speed
 from torchswe.core.misc import remove_rounding_errors as _remove_rounding_errors
 
 
-def fvm(states: _States, topo: _Topography, config: _Config, runtime: _DummyDict):
+def fvm(states: _States, runtime: _DummyDict, config: _Config):
     """Get the right-hand-side of a time-marching step with finite volume method.
 
     Arguments
     ---------
     states : torchswe.utils.data.States
-    grid : torchswe.utils.data.Gridlines
-    topo : torchswe.utils.data.Topography
-    config : torchswe.utils.config.Config
     runtime : torchswe.utils.misc.DummyDict
+    config : torchswe.utils.config.Config
 
     Returns:
     --------
@@ -44,7 +41,7 @@ def fvm(states: _States, topo: _Topography, config: _Config, runtime: _DummyDict
     """
 
     # calculate source term contributed from topography gradients
-    states = _topography_gradient(states, topo, config.params.gravity)
+    states = _topography_gradient(states, runtime.topo, config.params.gravity)
 
     # calculate slopes of piecewise linear approximation
     states = _minmod_slope(states, config.params.theta, runtime.tol)
@@ -53,16 +50,16 @@ def fvm(states: _States, topo: _Topography, config: _Config, runtime: _DummyDict
     states = _get_discontinuous_cnsrv_q(states)
 
     # fix non-physical negative depth
-    states = _correct_negative_depth(states, topo)
+    states = _correct_negative_depth(states, runtime.topo)
 
     # get non-conservative variables at cell faces
-    states = _decompose_variables(states, topo, runtime.epsilon)
+    states = _decompose_variables(states, runtime.topo, runtime.epsilon)
 
     # get local speed at cell faces
     states = _get_local_speed(states, config.params.gravity)
 
     # get discontinuous PDE flux at cell faces
-    states = _get_discontinuous_flux(states, topo, config.params.gravity)
+    states = _get_discontinuous_flux(states, runtime.topo, config.params.gravity)
 
     # get common/continuous numerical flux at cell faces
     states = _central_scheme(states, runtime.tol)
