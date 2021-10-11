@@ -2,30 +2,22 @@
 --- !Config
 
 # =============================================================================
-# spatial information
+# Required block: spatial information
 # =============================================================================
 spatial:
 
-  # computaional domain's bounds: [west, east, south, north]
+  # required: computaional domain's bounds: [west, east, south, north]
   # ---------------------------------------------------------------------------
   domain: [0.0, 1.0, 0.0, 1.0]
 
-  # number of cells in each direction: [west<->east, north<->south]
+  # required: number of cells in each direction: [west<->east, north<->south]
   # ---------------------------------------------------------------------------
   discretization: [10, 10]
 
 # =============================================================================
-# temporal control, including writting result during a simulation
+# Required block: temporal control, including outputing unsteady solutions
 # =============================================================================
 temporal:
-
-  # optional; the initial time step size if using adaptive time stepping.
-  # ---------------------------------------------------------------------------
-  dt: 1e-3
-
-  # optional; indicates whether to use adaptive time stepping.
-  # ---------------------------------------------------------------------------
-  adaptive: true
 
   # required; choose from one of the following formats
   #     1. ["at", [float, float, float, float...]]
@@ -37,16 +29,24 @@ temporal:
   # ---------------------------------------------------------------------------
   output: ["t_start t_end n_saves", 0., 1., 10]
 
+  # optional; the initial time step size if using adaptive time stepping.
+  # ---------------------------------------------------------------------------
+  dt: 1e-3
+
+  # optional; indicates whether to use adaptive time stepping.
+  # ---------------------------------------------------------------------------
+  adaptive: true
+
   # optional; maximum number of iteration in each saving interval
   # ---------------------------------------------------------------------------
   max_iters: 1000000
 
-  # required; temporal scheme; available options: Euler, SSP-RK2, SSP-RK4
+  # optional; temporal scheme; available options: Euler, SSP-RK2, SSP-RK4
   # ---------------------------------------------------------------------------
   scheme: "SSP-RK2"
 
 # =============================================================================
-# boundary conditions
+# Required block: boundary conditions
 # =============================================================================
 boundary:
 
@@ -89,24 +89,28 @@ boundary:
     values: [null, null, null]
 
 # =============================================================================
-# initial condition
+# Required block: initial condition
+#
+# Note
+# ----
+# Must set either `file` plus `keys` or `values`.
 # =============================================================================
 initial:
 
-  # required; the file name/path to a CF-compliant NetCDF file for I.C.
+  # see note; the file name/path to a CF-compliant NetCDF file for I.C.
   # ---------------------------------------------------------------------------
   file: "initial.nc"
 
-  # required; the names/keys of w, hu, and hv datasets in the the NetCDF file.
+  # see note; the names/keys of w, hu, and hv datasets in the the NetCDF file.
   # ---------------------------------------------------------------------------
   keys: [w, hu, hv]
 
-  # an alternative to setting `file` and `keys`; used when having constant I.C.
+  # see note; choose this for constant I.C.
   # ---------------------------------------------------------------------------
   values: null
 
 # =============================================================================
-# topography
+# Required block: topography
 # =============================================================================
 topography:
 
@@ -119,29 +123,35 @@ topography:
   key: elevation
 
 # =============================================================================
-# other parameters
+# Optional block: other parameters
 # =============================================================================
 parameters:
 
   # optional; gravitational acceleration
+  # ---------------------------------------------------------------------------
   gravity: 9.81
 
   # optional; a numerical parameter controlling numerical dissipation
+  # ---------------------------------------------------------------------------
   theta: 1.0
 
   # optional; indicates the upper bound of depths to be considered dry
+  # ---------------------------------------------------------------------------
   drytol: 1.0e-4
 
   # optional; number of ghost cells; current schemes only need 2 ghost cells
+  # ---------------------------------------------------------------------------
   ngh: 2
 
   # optional; after how many steps to print simulation info on screen/stdout
+  # ---------------------------------------------------------------------------
   log_steps: 100
 
   # optional; floating point precision; either "float32" or "float64"
+  # ---------------------------------------------------------------------------
   dtype: "float64"
 
 # =============================================================================
-# any Python script that should be executed prior running the solver
+# Optional block: a Python script that should be executed prior a simulation
 # =============================================================================
 prehook: null

@@ -263,7 +263,7 @@ class Gridline(_BaseConfig):
         for v in _itemgetter("vertices", "centers", "xfcenters", "yfcenters")(values):
             diffs = v[1:] - v[:-1]
             assert all(diff > 0 for diff in diffs), "Not in monotonically increasing order."
-            assert all(abs(diff-values["delta"])<=1e-10 for diff in diffs), "Delta does not match."
+            assert all(abs(diff-values["delta"]) <= 1e-10 for diff in diffs), "Delta doesn't match."
             assert v.dtype == values["dtype"], "Floating-number types mismatch"
 
         # check vertices

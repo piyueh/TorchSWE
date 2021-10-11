@@ -370,7 +370,7 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
 
             # this shouldn't happen because pydantic should have catched the error
             else:
-                raise ValueError("{} is not recognized.".format(bctp))
+                raise ValueError(f"{bctp} is not recognized.")
 
     # check the data model in case neighbors changed due to periodic BC
     states.check()

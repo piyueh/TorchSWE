@@ -122,7 +122,7 @@ class TemporalConfig(BaseConfig):
 
         if v[0] == "at":
             msg = "Times are not monotonically increasing"
-            assert all(v[1][i]>v[1][i-1] for i in range(1, len(v[1]))), msg
+            assert all(v[1][i] > v[1][i-1] for i in range(1, len(v[1]))), msg
         elif v[0] in ["t_start every_steps multiple", "t_start n_steps no save"]:
             assert not values["adaptive"], "Needs \"adaptive=False\"."
         elif v[0] in ["t_start t_end n_saves", "t_start t_end no save"]:
@@ -174,7 +174,7 @@ class SingleBCConfig(BaseConfig):
         for bctype, bcval in zip(values["types"], v):
             if bctype in ("const", "inflow"):
                 assert isinstance(bcval, float), \
-                    "Using BC type \"{}\" requires setting a value.".format(bctype.value)
+                    f"Using BC type \"{bctype.value}\" requires setting a value."
         return v
 
 
@@ -318,6 +318,6 @@ class Config(BaseConfig):
     bc: BCConfig = Field(..., alias="boundary")
     ic: ICConfig = Field(..., alias="initial")
     topo: TopoConfig = Field(..., alias="topography")
-    params: ParamConfig = Field(..., alias="parameters")
+    params: ParamConfig = Field(ParamConfig(), alias="parameters")
     prehook: Optional[pathlib.Path]
     case: Optional[pathlib.Path]
