@@ -8,27 +8,39 @@
 
 """Objects holding simulation configuraions.
 """
-import pathlib
-from typing import Literal, Tuple, Union, Optional
-from pydantic import BaseModel, Field, validator, root_validator, conint, confloat, validate_model
+import pathlib as _pathlib
+from typing import Literal as _Literal
+from typing import Tuple as _Tuple
+from typing import Union as _Union
+from typing import Optional as _Optional
+from pydantic import BaseModel as _BaseModel
+from pydantic import Field as _Field
+from pydantic import validator as _validator
+from pydantic import root_validator as _root_validator
+from pydantic import conint as _conint
+from pydantic import confloat as _confloat
+from pydantic import validate_model as _validate_model
 
 
 # alias to type hints
-BCTypeHint = Literal["periodic", "extrap", "const", "inflow", "outflow"]
+BCTypeHint = _Literal["periodic", "extrap", "const", "inflow", "outflow"]
 
-OutputTypeHint = Union[
-    Tuple[Literal["at"], Tuple[confloat(ge=0), ...]],
-    Tuple[Literal["t_start every_seconds multiple"], confloat(ge=0), confloat(gt=0), conint(ge=1)],
-    Tuple[Literal["t_start every_steps multiple"], confloat(ge=0), conint(ge=1), conint(ge=1)],
-    Tuple[Literal["t_start t_end n_saves"], confloat(ge=0), confloat(gt=0), conint(ge=1)],
-    Tuple[Literal["t_start t_end no save"], confloat(ge=0), confloat(gt=0)],
-    Tuple[Literal["t_start n_steps no save"], confloat(ge=0), conint(ge=1)],
+OutputTypeHint = _Union[
+    _Tuple[_Literal["at"], _Tuple[_confloat(ge=0), ...]],
+    _Tuple[
+        _Literal["t_start every_seconds multiple"],
+        _confloat(ge=0), _confloat(gt=0), _conint(ge=1)
+    ],
+    _Tuple[_Literal["t_start every_steps multiple"], _confloat(ge=0), _conint(ge=1), _conint(ge=1)],
+    _Tuple[_Literal["t_start t_end n_saves"], _confloat(ge=0), _confloat(gt=0), _conint(ge=1)],
+    _Tuple[_Literal["t_start t_end no save"], _confloat(ge=0), _confloat(gt=0)],
+    _Tuple[_Literal["t_start n_steps no save"], _confloat(ge=0), _conint(ge=1)],
 ]
 
-TemporalTypeHint = Literal["Euler", "SSP-RK2", "SSP-RK3"]
+TemporalTypeHint = _Literal["Euler", "SSP-RK2", "SSP-RK3"]
 
 
-class BaseConfig(BaseModel):
+class BaseConfig(_BaseModel):
     """Extending pydantic.BaseModel with __getitem__ method."""
 
     class Config:  # pylint: disable=too-few-public-methods
@@ -46,7 +58,7 @@ class BaseConfig(BaseModel):
 
     def check(self):
         """Manually trigger the validation of the data in this instance."""
-        _, _, validation_error = validate_model(self.__class__, self.__dict__)
+        _, _, validation_error = _validate_model(self.__class__, self.__dict__)
 
         if validation_error:
             raise validation_error
@@ -68,10 +80,10 @@ class SpatialConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    domain: Tuple[float, float, float, float]
-    discretization: Tuple[conint(strict=True, gt=0), conint(strict=True, gt=0)]
+    domain: _Tuple[float, float, float, float]
+    discretization: _Tuple[_conint(strict=True, gt=0), _conint(strict=True, gt=0)]
 
-    @validator("domain")
+    @_validator("domain")
     def domain_direction(cls, v):
         """Validate the East >= West and North >= South.
         """
@@ -109,13 +121,13 @@ class TemporalConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    dt: confloat(gt=0.) = 1e-3
+    dt: _confloat(gt=0.) = 1e-3
     adaptive: bool = True
     output: OutputTypeHint
-    max_iters: conint(gt=0) = Field(1000000, alias="max iterations")
+    max_iters: _conint(gt=0) = _Field(1000000, alias="max iterations")
     scheme: TemporalTypeHint = "SSP-RK2"
 
-    @validator("output")
+    @_validator("output")
     def _val_output_method(cls, v, values):
         """Validate that end time > start time."""
 
@@ -129,7 +141,7 @@ class TemporalConfig(BaseConfig):
 
         return v
 
-    @validator("max_iters")
+    @_validator("max_iters")
     def _val_max_iters(cls, v, values):
         """Validate and modify max_iters."""
         if values["output"][0] in ["t_start every_steps multiple", "t_start n_steps no save"]:
@@ -153,17 +165,17 @@ class SingleBCConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    types: Tuple[BCTypeHint, BCTypeHint, BCTypeHint]
-    values: Tuple[Optional[float], Optional[float], Optional[float]] = [None, None, None]
+    types: _Tuple[BCTypeHint, BCTypeHint, BCTypeHint]
+    values: _Tuple[_Optional[float], _Optional[float], _Optional[float]] = [None, None, None]
 
-    @validator("types")
+    @_validator("types")
     def check_periodicity(cls, v):
         """If one component is periodic, all components should be periodic."""
         if any(t == "periodic" for t in v):
             assert all(t == "periodic" for t in v), "All components should be periodic."
         return v
 
-    @validator("values")
+    @_validator("values")
     def check_values(cls, v, values):
         """Check if values are set accordingly for some BC types.
         """
@@ -192,7 +204,7 @@ class BCConfig(BaseConfig):
     north: SingleBCConfig
     south: SingleBCConfig
 
-    @root_validator(pre=False)
+    @_root_validator(pre=False)
     def check_periodicity(cls, values):
         """Check whether periodic BCs match at corresponding boundary pairs."""
         if any((t not in values) for t in ["west", "east", "south", "north"]):
@@ -225,11 +237,11 @@ class ICConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    file: Optional[pathlib.Path]
-    keys: Optional[Tuple[str, str, str]]
-    values: Optional[Tuple[float, float, float]]
+    file: _Optional[_pathlib.Path]
+    keys: _Optional[_Tuple[str, str, str]]
+    values: _Optional[_Tuple[float, float, float]]
 
-    @root_validator(pre=True)
+    @_root_validator(pre=True)
     def check_mutually_exclusive_attrs(cls, values):
         """\"file\" and \"values" should be mutually exclusive.
         """
@@ -258,7 +270,7 @@ class TopoConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    file: pathlib.Path
+    file: _pathlib.Path
     key: str
 
 
@@ -276,18 +288,18 @@ class PointSourceConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    loc: Tuple[confloat(strict=True), confloat(strict=True)] = Field(..., alias="location")
-    times: Tuple[confloat(strict=True), ...]
-    rates: Tuple[confloat(strict=True, ge=0.), ...]
+    loc: _Tuple[_confloat(strict=True), _confloat(strict=True)] = _Field(..., alias="location")
+    times: _Tuple[_confloat(strict=True), ...]
+    rates: _Tuple[_confloat(strict=True, ge=0.), ...]
 
-    @validator("times")
+    @_validator("times")
     def val_times(cls, val):
         """Validate the tuple of times."""
         for i in range(1, len(val)):
             assert val[i] - val[i-1] > 0., f"{val[i]} is not greater than {val[i-1]}"
         return val
 
-    @validator("rates")
+    @_validator("rates")
     def val_rates(cls, val, values):
         """Validate the tuple of rates."""
         try:
@@ -319,12 +331,12 @@ class ParamConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    gravity: confloat(ge=0.) = 9.81
-    theta: confloat(ge=1., le=2.) = 1.3
-    drytol: confloat(ge=0.) = Field(1.0e-4, alias="dry tolerance")
-    ngh: conint(ge=2) = 2
-    log_steps: conint(ge=1) = Field(100, alias="print steps")
-    dtype: Literal["float32", "float64"] = "float64"
+    gravity: _confloat(ge=0.) = 9.81
+    theta: _confloat(ge=1., le=2.) = 1.3
+    drytol: _confloat(ge=0.) = _Field(1.0e-4, alias="dry tolerance")
+    ngh: _conint(ge=2) = 2
+    log_steps: _conint(ge=1) = _Field(100, alias="print steps")
+    dtype: _Literal["float32", "float64"] = "float64"
 
 
 class FluidPropsConfig(BaseConfig):
@@ -345,13 +357,13 @@ class FluidPropsConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    ref_mu: confloat(strict=True, gt=0.) = Field(None, alias="reference mu")
-    ref_temp: confloat(strict=True, gt=-273.15) = Field(None, alias="reference temperature")
-    amb_temp: confloat(strict=True, gt=-273.15) = Field(None, alias="ambient temperature")
-    rho: confloat(strict=True, gt=0.) = Field(..., alias="density")
-    nu : confloat(strict=True, gt=0.) = Field(None)
+    ref_mu: _confloat(strict=True, gt=0.) = _Field(None, alias="reference mu")
+    ref_temp: _confloat(strict=True, gt=-273.15) = _Field(None, alias="reference temperature")
+    amb_temp: _confloat(strict=True, gt=-273.15) = _Field(None, alias="ambient temperature")
+    rho: _confloat(strict=True, gt=0.) = _Field(..., alias="density")
+    nu : _confloat(strict=True, gt=0.) = _Field(None)
 
-    @validator("nu")
+    @_validator("nu")
     def val_nu(cls, val, values):
         """Validate nu."""
 
@@ -405,16 +417,16 @@ class Config(BaseConfig):
 
     spatial: SpatialConfig
     temporal: TemporalConfig
-    bc: BCConfig = Field(..., alias="boundary")
-    ic: ICConfig = Field(..., alias="initial")
-    topo: TopoConfig = Field(..., alias="topography")
-    ptsource: Optional[PointSourceConfig] = Field(None, alias="point source")
-    props: Optional[FluidPropsConfig] = Field(None, alias="fluid properties")
-    params: ParamConfig = Field(ParamConfig(), alias="parameters")
-    prehook: Optional[pathlib.Path]
-    case: Optional[pathlib.Path]
+    bc: BCConfig = _Field(..., alias="boundary")
+    ic: ICConfig = _Field(..., alias="initial")
+    topo: TopoConfig = _Field(..., alias="topography")
+    ptsource: _Optional[PointSourceConfig] = _Field(None, alias="point source")
+    props: _Optional[FluidPropsConfig] = _Field(None, alias="fluid properties")
+    params: ParamConfig = _Field(ParamConfig(), alias="parameters")
+    prehook: _Optional[_pathlib.Path]
+    case: _Optional[_pathlib.Path]
 
-    @validator("props")
+    @_validator("props")
     def val_props(cls, val, values):
         """Validate props."""
         try:
