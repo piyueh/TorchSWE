@@ -152,25 +152,30 @@ point source:
 # Note
 # ----
 # 1. This block matters only if point source, friction, or evaporation exist.
-# 2. Only specify either `reference mu` + `reference temperature` +
-#    `ambient temperature` or `nu`.
 # =============================================================================
 fluid properties:
 
   # required: density at the ambient temperature; unit: kg/m^3
+  # ---------------------------------------------------------------------------
   density: 926.6
 
-  # see note: reference dynamic viscosity; unit: mPa-s (= cP = 1e-3 kg/s/m)
+  # required: reference dynamic viscosity; unit: mPa-s (= cP = 1e-3 kg/s/m)
+  # ---------------------------------------------------------------------------
   reference mu: 332
 
-  # see note: temperature at which the reference mu is defined; unit: Celsius
+  # required: temperature at which the reference mu is defined; unit: Celsius
+  # ---------------------------------------------------------------------------
   rederence temperature: 15.
 
-  # see note: temperature at which the simulation runs; unit: Celsius
+  # required: temperature at which the simulation runs; unit: Celsius
+  # ---------------------------------------------------------------------------
   ambient temperature: 25.
 
-  # see note: the desired kinematic at the ambient temperature. Unit: m^2/s
-  nu: 1.799373e-4
+  # optional: the kinematic viscosity at the ambient temperature. Unit: m^2/s.
+  # Note: if `nu` is not set (default), the value will be calculated through
+  # the Lewis-Squires correlation.
+  # ---------------------------------------------------------------------------
+  nu: null
 
 # =============================================================================
 # Optional block: other parameters

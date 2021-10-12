@@ -357,25 +357,16 @@ class FluidPropsConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    ref_mu: _confloat(strict=True, gt=0.) = _Field(None, alias="reference mu")
-    ref_temp: _confloat(strict=True, gt=-273.15) = _Field(None, alias="reference temperature")
-    amb_temp: _confloat(strict=True, gt=-273.15) = _Field(None, alias="ambient temperature")
     rho: _confloat(strict=True, gt=0.) = _Field(..., alias="density")
-    nu : _confloat(strict=True, gt=0.) = _Field(None)
+    ref_mu: _confloat(strict=True, gt=0.) = _Field(..., alias="reference mu")
+    ref_temp: _confloat(strict=True, gt=-273.15) = _Field(..., alias="reference temperature")
+    amb_temp: _confloat(strict=True, gt=-273.15) = _Field(..., alias="ambient temperature")
+    nu : _Optional[_confloat(strict=True, gt=0.)] = _Field(None)
 
     @_validator("nu")
     def val_nu(cls, val, values):
         """Validate nu."""
-
-        if val is not None:
-            msg = "When `nu` presents, `{}` should not be used."
-            try:
-                assert values["ref_mu"] is None, msg.format("reference mu")
-                assert values["ref_temp"] is None, msg.format("reference temperature")
-                assert values["amb_temp"] is None, msg.format("ambient temperature")
-            except KeyError as err:
-                raise AssertionError("Failed due to other field's validation failure.") from err
-        else:
+        if val is None:
             # get dynamic viscosity at ambient temperature (unit: cP) (Lewis-Squires correlation)
             val = values["ref_mu"]**(-0.2661) + (values["amb_temp"] - values["ref_temp"]) / 233.
             val = val**(-1./0.2661) * 1e-3 # convert to kg / s / m
