@@ -10,7 +10,6 @@
 """
 import pathlib
 from typing import Literal, Tuple, Union, Optional
-
 from pydantic import BaseModel, Field, validator, root_validator, conint, confloat, validate_model
 
 
@@ -328,6 +327,54 @@ class ParamConfig(BaseConfig):
     dtype: Literal["float32", "float64"] = "float64"
 
 
+class FluidPropsConfig(BaseConfig):
+    """An object holding configuration of fluid properties.
+
+    Attributes
+    ----------
+    ref_mu : float
+        A reference dynamic viscosity in unit mPa-s (= cP = 1e-3 kg/s/m)
+    ref_temp : float
+        The reference temperature at which the `ref_mu` is defined. Unit: Celsius.
+    amb_temp : float
+        The ambiant temperature at which the simulation operates. Unit: Celsius.
+    rho : float
+        The density of fluid at `amb_temp`. Unit: kg/m^3
+    nu : float
+        The kinematic viscosity at `amb_temp`. Unit: m^2/s
+    """
+    # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
+
+    ref_mu: confloat(strict=True, gt=0.) = Field(None, alias="reference mu")
+    ref_temp: confloat(strict=True, gt=-273.15) = Field(None, alias="reference temperature")
+    amb_temp: confloat(strict=True, gt=-273.15) = Field(None, alias="ambient temperature")
+    rho: confloat(strict=True, gt=0.) = Field(..., alias="density")
+    nu : confloat(strict=True, gt=0.) = Field(None)
+
+    @validator("nu")
+    def val_nu(cls, val, values):
+        """Validate nu."""
+
+        if val is not None:
+            msg = "When `nu` presents, `{}` should not be used."
+            try:
+                assert values["ref_mu"] is None, msg.format("reference mu")
+                assert values["ref_temp"] is None, msg.format("reference temperature")
+                assert values["amb_temp"] is None, msg.format("ambient temperature")
+            except KeyError as err:
+                raise AssertionError("Failed due to other field's validation failure.") from err
+        else:
+            # get dynamic viscosity at ambient temperature (unit: cP) (Lewis-Squires correlation)
+            val = values["ref_mu"]**(-0.2661) + (values["amb_temp"] - values["ref_temp"]) / 233.
+            val = val**(-1./0.2661) * 1e-3 # convert to kg / s / m
+
+            try:
+                val /= values["rho"]  # kinematic viscosity (m^2 / s)
+            except KeyError as err:
+                raise AssertionError("Correct `density` (or `rho`) first.") from err
+        return val
+
+
 class Config(BaseConfig):
     """An object holding all configurations of a simulation case.
 
@@ -343,6 +390,10 @@ class Config(BaseConfig):
         Initial conditions.
     topo : TopoConfig
         Topography information.
+    ptsource : PointSourceConfig
+        Point source configuration.
+    props : FluidProps
+        Fluid properties.
     params : ParamConfig
         Miscellaneous parameters.
     prehook : None or path-like
@@ -357,7 +408,18 @@ class Config(BaseConfig):
     bc: BCConfig = Field(..., alias="boundary")
     ic: ICConfig = Field(..., alias="initial")
     topo: TopoConfig = Field(..., alias="topography")
-    params: ParamConfig = Field(ParamConfig(), alias="parameters")
     ptsource: Optional[PointSourceConfig] = Field(None, alias="point source")
+    props: Optional[FluidPropsConfig] = Field(None, alias="fluid properties")
+    params: ParamConfig = Field(ParamConfig(), alias="parameters")
     prehook: Optional[pathlib.Path]
     case: Optional[pathlib.Path]
+
+    @validator("props")
+    def val_props(cls, val, values):
+        """Validate props."""
+        try:
+            if values["ptsource"] is not None and val is None:
+                raise AssertionError("When `point source` presents, `fluid properties` must be set")
+        except KeyError as err:
+            raise AssertionError("must correct `point source` or `ptsource` first") from err
+        return val
