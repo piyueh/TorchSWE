@@ -113,7 +113,7 @@ class TemporalConfig(BaseConfig):
     dt: confloat(gt=0.) = 1e-3
     adaptive: bool = True
     output: OutputTypeHint
-    max_iters: conint(gt=0) = 1000000
+    max_iters: conint(gt=0) = Field(1000000, alias="max iterations")
     scheme: TemporalTypeHint = "SSP-RK2"
 
     @validator("output")
@@ -277,7 +277,7 @@ class PointSourceConfig(BaseConfig):
     """
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
 
-    loc: Tuple[confloat(strict=True), confloat(strict=True)]
+    loc: Tuple[confloat(strict=True), confloat(strict=True)] = Field(..., alias="location")
     times: Tuple[confloat(strict=True), ...]
     rates: Tuple[confloat(strict=True, ge=0.), ...]
 
@@ -322,9 +322,9 @@ class ParamConfig(BaseConfig):
 
     gravity: confloat(ge=0.) = 9.81
     theta: confloat(ge=1., le=2.) = 1.3
-    drytol: confloat(ge=0.) = 1.0e-4
+    drytol: confloat(ge=0.) = Field(1.0e-4, alias="dry tolerance")
     ngh: conint(ge=2) = 2
-    log_steps: conint(ge=1) = 100
+    log_steps: conint(ge=1) = Field(100, alias="print steps")
     dtype: Literal["float32", "float64"] = "float64"
 
 

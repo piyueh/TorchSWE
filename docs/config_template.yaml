@@ -39,7 +39,7 @@ temporal:
 
   # optional; maximum number of iteration in each saving interval
   # ---------------------------------------------------------------------------
-  max_iters: 1000000
+  max iterations: 1000000
 
   # optional; temporal scheme; available options: Euler, SSP-RK2, SSP-RK4
   # ---------------------------------------------------------------------------
@@ -133,7 +133,7 @@ point source:
 
   # required;the coordinates in x and y of the point source
   # ---------------------------------------------------------------------------
-  loc: [0.5, 0.5]
+  location: [0.5, 0.5]
 
   # required; the times when to switch flow rates and the corresponding rates.
   # `rates` must have a length one greater than that of `time`. For example,
@@ -161,7 +161,7 @@ parameters:
 
   # optional; indicates the upper bound of depths to be considered dry
   # ---------------------------------------------------------------------------
-  drytol: 1.0e-4
+  dry tolerance: 1.0e-4
 
   # optional; number of ghost cells; current schemes only need 2 ghost cells
   # ---------------------------------------------------------------------------
@@ -169,7 +169,7 @@ parameters:
 
   # optional; after how many steps to print simulation info on screen/stdout
   # ---------------------------------------------------------------------------
-  log_steps: 100
+  print steps: 100
 
   # optional; floating point precision; either "float32" or "float64"
   # ---------------------------------------------------------------------------

@@ -40,7 +40,7 @@ topography:
 parameters:
   gravity: 9.81   # gravity (m/s^2)
   theta: 1.0      # control numerical dissipation
-  drytol: 1.0e-4  # dry tolerance
+  dry tolerance: 1.0e-4  # dry tolerance
 
 # any Python script that should be executed prior running the solver
 prehook: null
