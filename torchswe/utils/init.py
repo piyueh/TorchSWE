@@ -376,7 +376,7 @@ def get_empty_slopes(nx: int, ny: int, dtype: str):
     )
 
 
-def get_empty_states(domain: _Domain, ngh: int):
+def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     """Get an empty (i.e., zero arrays) States.
 
     Arguments
@@ -396,6 +396,7 @@ def get_empty_states(domain: _Domain, ngh: int):
         q=get_empty_whuhvmodel(nx+2*ngh, ny+2*ngh, dtype),
         slp=get_empty_slopes(nx, ny, dtype),
         rhs=get_empty_whuhvmodel(nx, ny, dtype),
+        stiff=(get_empty_whuhvmodel(nx, ny, dtype) if use_stiff else None),
         face=get_empty_facequantitymodel(nx, ny, dtype)
     )
 
@@ -418,11 +419,11 @@ def get_initial_states_from_config(comm: _MPI.Comm, config: _Config):
     domain = get_domain(process, x, y)
 
     # get states
-    states = get_initial_states(domain, config.ic, config.params.ngh)
+    states = get_initial_states(domain, config.ic, config.params.ngh, (config.ptsource is not None))
     return states
 
 
-def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int):
+def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int, use_stiff: bool):
     """Get a States instance filled with initial conditions.
 
     Arguments
@@ -439,7 +440,7 @@ def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int):
     """
 
     # get an empty states
-    states = get_empty_states(domain, ngh)
+    states = get_empty_states(domain, ngh, use_stiff)
 
     # special case: constant I.C.
     if ic.values is not None:

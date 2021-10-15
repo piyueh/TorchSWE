@@ -672,9 +672,12 @@ class States(_BaseConfig):
         The domain associated to this state object.
     ngh : int
         Number of ghost cell layers.
-    q, rhs : torchswe.utils.data.WHUHVModel
-        The conservative quantities, source terms, and the right-hand-side terms. Defined at cell
-        centers.
+    q : torchswe.utils.data.WHUHVModel
+        The conservative quantities defined at cell centers.
+    rhs : torchswe.utils.data.WHUHVModel
+        The explicit right-hand-side terms when during time integration. Defined at cell centers.
+    stiff : torchswe.utils.data.WHUHVModel
+        The stiff right-hand-side term that require semi-implicit handling. Defined at cell centers.
     slp: torchswe.utils.data.Slopes
         The slopes for extrapolating cell-centered quantities to cell faces.
     face: torchswe.utils.data.FaceQuantityModel
@@ -691,6 +694,7 @@ class States(_BaseConfig):
     q: WHUHVModel
     slp: Slopes
     rhs: WHUHVModel
+    stiff: _Optional[WHUHVModel]
     face: FaceQuantityModel
 
     @_root_validator(pre=False, skip_on_failure=True)
