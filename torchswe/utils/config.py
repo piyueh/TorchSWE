@@ -378,6 +378,47 @@ class FluidPropsConfig(BaseConfig):
         return val
 
 
+class FrictionConfig(BaseConfig):
+    """An object holding configuration of bottom friction.
+
+    Attributes
+    ----------
+    file : path-like or None
+        The CF-compliant NetCDF file containing surface roughness data.
+    key : str or None
+        The key of the roughness data in the file.
+    value : float or None
+        A constant roughness for the whole computational domain. See notes.
+    model : str
+        The friction coefficient model. Currently, only "bellos_et_al_2018" is available.
+
+    Notes
+    -----
+    Only one of the `file`-`key` pair or `value` can be non-None at the same time.
+    """
+    # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
+    file: _Optional[_pathlib.Path] = _Field(None, alias="roughness file")
+    key: _Optional[str] = _Field(None, alias="roughness key")
+    value: _Optional[_confloat(strict=True, ge=0.)] = _Field(None, alias="roughness")
+    model: _Literal["bellos_et_al_2018"] = _Field("bellos_et_al_2018", alias="coefficient model")
+
+    @_validator("value")
+    def val_value(cls, val, values):
+        """Validate FrictionConfig.value"""
+        try:
+            if val is None:
+                msg = "when not using constant roughness, {} must be set"
+                assert values["file"] is not None, msg.format("roughness file")
+                assert values["key"] is not None, msg.format("roughness key")
+            else:
+                msg = "when using constant roughness, {} must not be set"
+                assert values["file"] is None, msg.format("roughness file")
+                assert values["key"] is None, msg.format("roughness key")
+        except KeyError as err:
+            raise AssertionError("Please fix other fields first.") from err
+        return val
+
+
 class Config(BaseConfig):
     """An object holding all configurations of a simulation case.
 
@@ -412,6 +453,7 @@ class Config(BaseConfig):
     ic: ICConfig = _Field(..., alias="initial")
     topo: TopoConfig = _Field(..., alias="topography")
     ptsource: _Optional[PointSourceConfig] = _Field(None, alias="point source")
+    friction: _Optional[FrictionConfig] = _Field(None, alias="friction")
     props: _Optional[FluidPropsConfig] = _Field(None, alias="fluid properties")
     params: ParamConfig = _Field(ParamConfig(), alias="parameters")
     prehook: _Optional[_pathlib.Path]
@@ -423,6 +465,8 @@ class Config(BaseConfig):
         try:
             if values["ptsource"] is not None and val is None:
                 raise AssertionError("When `point source` presents, `fluid properties` must be set")
+            if values["friction"] is not None and val is None:
+                raise AssertionError("When `friction` presents, `fluid properties` must be set")
         except KeyError as err:
-            raise AssertionError("must correct `point source` or `ptsource` first") from err
+            raise AssertionError("Please fix other fields first.") from err
         return val

@@ -131,7 +131,7 @@ topography:
 # =============================================================================
 point source:
 
-  # required;the coordinates in x and y of the point source
+  # required; the coordinates in x and y of the point source
   # ---------------------------------------------------------------------------
   location: [0.5, 0.5]
 
@@ -147,11 +147,36 @@ point source:
   rates: [1., 0.5, 0.1, 0.]
 
 # =============================================================================
+# Optional block: friction
+#
+# Note
+# ----
+# Either `roughness` or the `roughness file`-`roughness key` pair must be set.
+# =============================================================================
+friction:
+
+  # see note; a constant surface roughness over the whole domain
+  # ---------------------------------------------------------------------------
+  roughness: 0.0
+
+  # see note; a CF-compliant NetCDF file containing roughness data
+  # ---------------------------------------------------------------------------
+  roughness file: null
+
+  # see note; the key of the roughness data in the file
+  # ---------------------------------------------------------------------------
+  roughness key: null
+
+  # optional; the coefficient model. Only "bellos_et_al_2018" is available now.
+  # ---------------------------------------------------------------------------
+  coefficient model: "bellos_et_al_2018"
+
+# =============================================================================
 # Optional block: fluid properties
 #
 # Note
 # ----
-# 1. This block matters only if point source, friction, or evaporation exist.
+# This block matters only if point source, friction, or evaporation exist.
 # =============================================================================
 fluid properties:
 
