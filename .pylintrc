@@ -10,3 +10,6 @@ max-line-length=100
 
 [DESIGN]
 max-args=7
+
+[VARIABLES]
+ignored-argument-names=args|kwargs
