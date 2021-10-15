@@ -88,6 +88,9 @@ def default_attrs(corner, delta):
             "false_northing": 0.0,
             "spatial_ref": wkt,
         },
+        "w": {"units": "m"}, "hu": {"units": "m2 s-1"}, "hv": {"units": "m2 s-1"},
+        "h": {"units": "m"}, "u": {"units": "m s-1"}, "v": {"units": "m s-1"},
+        "elevation": {"units": "m"},
     }
 
     return attrs
