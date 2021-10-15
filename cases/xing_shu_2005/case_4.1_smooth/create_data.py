@@ -14,38 +14,31 @@ instead of cell centers.
 import pathlib
 import yaml
 import numpy
-from mpi4py import MPI
-from torchswe.utils.init import get_process, get_gridline, get_domain
-from torchswe.utils.io import create_topography_file
+from torchswe.utils.netcdf import write
 
 
 def main():
     """Main function"""
     # pylint: disable=invalid-name
 
-    size = MPI.COMM_WORLD.Get_size()
-    assert size == 1, "This script expects non-parallel execution environment."
-
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    # gridlines
-    spatial = config.spatial
-    domain = get_domain(
-        process=get_process(MPI.COMM_WORLD, *spatial.discretization),
-        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.params.dtype),
-        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.params.dtype)
-    )
+    # alias
+    nx, ny = config.spatial.discretization
+    dtype = config.params.dtype
+    xlim, ylim = config.spatial.domain[:2], config.spatial.domain[2:]
 
+    # gridlines at vertices
+    x = numpy.linspace(*xlim, nx+1, dtype=dtype)
+    y = numpy.linspace(*ylim, ny+1, dtype=dtype)
 
-    # topography, defined on cell vertices
-    create_topography_file(
-        case.joinpath(config.topo.file),
-        [domain.x.vertices, domain.y.vertices],
-        numpy.tile(5.*numpy.exp(-0.4*((domain.x.vertices-5.)**2)), (domain.y.n+1, 1))
-    )
+    # write topography
+    write(
+        case.joinpath(config.topo.file), (x, y),
+        {"elevation": numpy.tile(5.*numpy.exp(-0.4*((x-5.)**2)), (ny+1, 1))})
 
     return 0
 

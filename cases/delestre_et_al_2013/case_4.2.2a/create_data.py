@@ -14,9 +14,7 @@ instead of cell centers. But the I.C. is defined at cell centers.
 import pathlib
 import yaml
 import numpy
-from mpi4py import MPI
-from torchswe.utils.init import get_empty_whuhvmodel, get_process, get_gridline, get_domain
-from torchswe.utils.io import create_soln_snapshot_file, create_topography_file
+from torchswe.utils.netcdf import write
 
 
 def topo(x, y, h0=0.1, L=4., a=1.):
@@ -42,42 +40,42 @@ def exact_soln(x, y, t, g=9.81, h0=0.1, L=4., a=1., r0=0.8):
     h = h0 * (C1 - 1. - ((numpy.sqrt((x-L/2.)**2+(y-L/2.)**2) / a)**2) * (C2 - 1.)) - z
     h[h < 0.] = 0.
 
-    return \
-        h + z, \
-        h * 0.5 * omega * A * (x - L/2.) * numpy.sin(omega*t) / C0, \
-        h * 0.5 * omega * A * (y - L/2.) * numpy.sin(omega*t) / C0
+    return numpy.concatenate((
+        (h + z)[None, ...],
+        (h * 0.5 * omega * A * (x - L/2.) * numpy.sin(omega*t) / C0)[None, ...],
+        (h * 0.5 * omega * A * (y - L/2.) * numpy.sin(omega*t) / C0)[None, ...]
+    ), 0)
 
 
 def main():
     """Main function"""
     # pylint: disable=invalid-name
 
-    size = MPI.COMM_WORLD.Get_size()
-    assert size == 1, "This script expects non-parallel execution environment."
-
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
     with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
         config = yaml.load(f, Loader=yaml.Loader)
 
-    # gridlines
-    spatial = config.spatial
-    domain = get_domain(
-        process=get_process(MPI.COMM_WORLD, *spatial.discretization),
-        x=get_gridline("x", 1, 0, spatial.discretization[0], *spatial.domain[:2], config.params.dtype),
-        y=get_gridline("y", 1, 0, spatial.discretization[1], *spatial.domain[2:], config.params.dtype)
-    )
+    # alias
+    nx, ny = config.spatial.discretization
+    dtype = config.params.dtype
+    xlim, ylim = config.spatial.domain[:2], config.spatial.domain[2:]
 
-    # topography, defined on cell vertices
-    create_topography_file(
-        case.joinpath(config.topo.file), [domain.x.vertices, domain.x.vertices],
-        topo(*numpy.meshgrid(domain.x.vertices, domain.x.vertices)))
+    # gridlines at vertices
+    x = numpy.linspace(*xlim, nx+1, dtype=dtype)
+    y = numpy.linspace(*ylim, ny+1, dtype=dtype)
 
-    # initial conditions, defined on cell centers
-    ic = get_empty_whuhvmodel(*config.spatial.discretization, config.params.dtype)
-    ic.w, ic.hu, ic.hv = exact_soln(*numpy.meshgrid(domain.x.centers, domain.x.centers), 0.)
-    ic.check()
-    create_soln_snapshot_file(case.joinpath(config.ic.file), domain, ic)
+    # write topography
+    write(case.joinpath(config.topo.file), (x, y), {"elevation": topo(*numpy.meshgrid(x, y))})
+
+    # gridlines at cell centers
+    dx, dy = (xlim[1] - xlim[0]) / nx,  (ylim[1] - ylim[0]) / ny
+    x = numpy.linspace(xlim[0]+dx/2., xlim[1]-dx/2., nx, dtype=dtype)
+    y = numpy.linspace(ylim[0]+dy/2., ylim[1]-dy/2., ny, dtype=dtype)
+
+    # write initial conditions, defined on cell centers
+    ic = exact_soln(*numpy.meshgrid(x, y), 0.)
+    write(case.joinpath(config.ic.file), (x, y), {"w": ic[0], "hu": ic[1], "hv": ic[2]})
 
     return 0
 

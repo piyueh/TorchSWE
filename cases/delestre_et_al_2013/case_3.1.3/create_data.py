@@ -14,7 +14,7 @@ instead of cell centers.
 import pathlib
 import yaml
 import numpy
-from torchswe.utils.io import create_topography_file
+from torchswe.utils.netcdf import write
 
 
 def main():
@@ -22,13 +22,17 @@ def main():
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
-    with open(case.joinpath("config.yaml"), 'r') as fobj:
+    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as fobj:
         config = yaml.load(fobj, Loader=yaml.Loader)
 
-    # gridlines
-    spatial = config.spatial
-    x = numpy.linspace(*spatial.domain[:2], spatial.discretization[0]+1, dtype=config.params.dtype)
-    y = numpy.linspace(*spatial.domain[2:], spatial.discretization[1]+1, dtype=config.params.dtype)
+    # alias
+    nx, ny = config.spatial.discretization
+    dtype = config.params.dtype
+    xlim, ylim = config.spatial.domain[:2], config.spatial.domain[2:]
+
+    # gridlines at vertices
+    x = numpy.linspace(*xlim, nx+1, dtype=dtype)
+    y = numpy.linspace(*ylim, ny+1, dtype=dtype)
 
     # create 1D version of B first
     topo_vert = numpy.zeros_like(x)
@@ -39,7 +43,7 @@ def main():
     topo_vert = numpy.tile(topo_vert, (y.size, 1))
 
     # write topography file
-    create_topography_file(case.joinpath(config.topo.file), (x, y), topo_vert)
+    write(case.joinpath(config.topo.file), (x, y), {"elevation": topo_vert})
 
     return 0
 
