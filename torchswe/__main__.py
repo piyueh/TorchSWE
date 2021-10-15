@@ -113,18 +113,18 @@ def config_runtime(comm, config, logger):
 
     # get initial solution object
     states = get_initial_states_from_config(comm, config)
-    logger.debug("Obtained an initial solution object")
+    logger.info("Obtained an initial solution object")
 
     # `runtime` holding things not available in config.yaml or may change during runtime
     runtime = DummyDict()  # it's just a dict and not a data model. so, no data validation
 
     # get temporal axis
     runtime.times = get_timeline(config.temporal.output, config.temporal.dt)
-    logger.debug("Obtained a Timeline object")
+    logger.info("Obtained a Timeline object")
 
     # get dem (digital elevation model); assume dem values defined at cell centers
     runtime.topo = get_topography_from_file(config.topo.file, config.topo.key, states.domain)
-    logger.debug("Obtained a Topography object")
+    logger.info("Obtained a Topography object")
 
     # make sure initial depths are non-negative
     states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh] = nplike.maximum(
@@ -132,51 +132,52 @@ def config_runtime(comm, config, logger):
     states.check()
 
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
-    logger.debug("Initial dt: %e", runtime.dt)
+    logger.info("Initial dt: %e", runtime.dt)
 
     runtime.cfl = 0.95
-    logger.debug("dt adaptive ratio: %e", runtime.cfl)
+    logger.info("dt adaptive ratio: %e", runtime.cfl)
 
     runtime.dt_constraint = float("inf")
-    logger.debug("Initial dt constraint: %e", runtime.dt_constraint)
+    logger.info("Initial dt constraint: %e", runtime.dt_constraint)
 
     runtime.cur_t = runtime.times[0]  # the current simulation time
-    logger.debug("Initial t: %e", runtime.cur_t)
+    logger.info("Initial t: %e", runtime.cur_t)
 
     runtime.next_t = None  # next output time; will be set later
-    logger.debug("The next t: %s", runtime.next_t)
+    logger.info("The next t: %s", runtime.next_t)
 
     runtime.counter = 0  # to count the current number of iterations
-    logger.debug("The current iteration counter: %d", runtime.counter)
+    logger.info("The current iteration counter: %d", runtime.counter)
 
     runtime.epsilon = config.params.drytol**4  # tolerance when dealing almost-dry cells
-    logger.debug("Epsilon: %e", runtime.epsilon)
+    logger.info("Epsilon: %e", runtime.epsilon)
 
     runtime.tol = 1e-12  # up to how big can be treated as zero
-    logger.debug("Tolerance: %e", runtime.tol)
+    logger.info("Tolerance: %e", runtime.tol)
 
     runtime.outfile = config.case.joinpath("solutions.nc")  # solution file
-    logger.debug("Output solution file: %s", str(runtime.outfile))
+    logger.info("Output solution file: %s", str(runtime.outfile))
 
     runtime.marching = MARCHING_OPTIONS[config.temporal.scheme]  # time marching scheme
-    logger.debug("Time marching scheme: %s", config.temporal.scheme)
+    logger.info("Time marching scheme: %s", config.temporal.scheme)
 
     runtime.gh_updater = get_ghost_cell_updaters(config.bc, states, runtime.topo)
-    logger.debug("Done setting ghost cell updaters")
+    logger.info("Done setting ghost cell updaters")
 
     runtime.sources = [topography_gradient]
-    logger.debug("Explicit source term: topography gradients")
+    logger.info("Explicit source term: topography gradients")
 
     if config.ptsource is not None:
+        # add the function of calculating point source
+        runtime.sources.append(point_mass_source)
+        logger.info("Explicit source term: point source")
+
         # get a PointSource instance
         runtime.ptsource = get_pointsource(
             config.ptsource.loc[0], config.ptsource.loc[1], config.ptsource.times,
             config.ptsource.rates, states.domain, 0)
-        logger.debug("Setting a point source: %s", runtime.ptsource)
+        logger.info("Obtained a point source object: %s", runtime.ptsource)
 
-        # add the function of calculating point source
-        runtime.sources.append(point_mass_source)
-        logger.debug("Explicit source term: point source")
 
 
     return states, runtime
