@@ -20,6 +20,7 @@ from torchswe.utils.init import get_timeline
 from torchswe.utils.init import get_initial_states_from_config
 from torchswe.utils.init import get_topography_from_file
 from torchswe.utils.init import get_pointsource
+from torchswe.utils.init import get_friction_roughness
 from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
@@ -178,7 +179,9 @@ def config_runtime(comm, config, logger):
             config.ptsource.rates, states.domain, 0)
         logger.info("Obtained a point source object: %s", runtime.ptsource)
 
-
+    if config.friction is not None:
+        runtime.roughness = get_friction_roughness(states.domain, config.friction)
+        logger.info("Friction roughness used")
 
     return states, runtime
 

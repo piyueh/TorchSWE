@@ -20,6 +20,7 @@ import yaml as _yaml
 from mpi4py import MPI as _MPI
 from torchswe import nplike as _nplike
 from torchswe.utils.config import ICConfig as _ICConfig
+from torchswe.utils.config import FrictionConfig as _FrictionConfig
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.config import OutputTypeHint as _OutputTypeHint
 from torchswe.utils.data import Process as _Process
@@ -671,3 +672,51 @@ def get_pointsource(
     _logger.debug("Point source initial `active`: %s", active)
 
     return _PointSource(x=x, y=y, i=i, j=j, times=times, rates=rates, irate=irate, active=active)
+
+
+def get_friction_roughness(domain: _Domain, friction: _FrictionConfig):
+    """Get an array or a scalar holding the surface roughness.
+
+    Arguments
+    ---------
+    domain : torchswe.utils.data.Domain
+        The object describing grids and domain decomposition.
+    friction : torchswe.utils.config.FrictionConfig
+        The friction configuration.
+
+    Returns
+    -------
+    If constant roughness, returns a constant scalar. (Will rely on auto-broadcasting mechanism in
+    array operations.) Otherwise, returns an array by reading a file and interpolaing the values if
+    needed.
+    """
+
+    if friction.value is not None:
+        return friction.value
+
+    data, _ = _ncread(
+        fpath=friction.file, data_keys=[friction.key],
+        extent=(domain.x.lower, domain.x.upper, domain.y.lower, domain.y.upper),
+        parallel=True, comm=domain.process.comm
+    )
+
+    assert data[friction.key].shape == (len(data["y"]), len(data["x"]))
+
+    # see if we need to do interpolation
+    try:
+        interp = not (
+            _nplike.allclose(domain.x.centers, data["x"]) and
+            _nplike.allclose(domain.y.centers, data["y"])
+        )
+    except ValueError:  # assume thie excpetion means a shape mismatch
+        interp = True
+
+    if interp:  # unfortunately, we need to do interpolation in such a situation
+        _logger.warning("Grids do not match. Doing spline interpolation.")
+        cntr = _nplike.array(_interpolate(
+            data["x"], data["y"], data[friction.key].T,
+            domain.x.centers, domain.y.centers).T).astype(domain.x.dtype)
+    else:  # no need for interpolation
+        cntr = data[friction.key].astype(domain.x.dtype)
+
+    return cntr
