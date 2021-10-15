@@ -399,7 +399,7 @@ def add_variables_to_dataset(dset, data, idx_bounds=None, options=None):
     for key, val in data.items():
 
         # create the variable
-        shape = ("ntime", "ny", "nx") if "ntime" in dset.dimensions else ("ny", "nx")
+        shape = ("time", "y", "x") if "time" in dset.dimensions else ("y", "x")
         dset.createVariable(key, "f8", shape, fill_value=nan)  # all NaN in it right now
 
         # variable attributes
@@ -415,7 +415,7 @@ def add_variables_to_dataset(dset, data, idx_bounds=None, options=None):
 
         # modify slices based on temporal axis
         if len(val.shape) == 2:
-            if "ntime" in dset.dimensions:  # assume this is the first snapshot
+            if "time" in dset.dimensions:  # assume this is the first snapshot
                 slc = (0,) + slc
         elif len(val.shape) == 3:
             slc = (slice(None),) + slc
@@ -459,8 +459,8 @@ def add_time_data_to_dataset(dset, data, time, tidx=None, idx_bounds=None):
     idx_bounds = [None, None, None, None] if idx_bounds is None else idx_bounds
 
     if tidx is None:  # append to the variables
-        assert dset.dimensions["ntime"].isunlimited()
-        tidx = dset.dimensions["ntime"].size
+        assert dset.dimensions["time"].isunlimited()
+        tidx = dset.dimensions["time"].size
         dset["time"][tidx] = time
     else:
         assert abs(dset["time"][tidx]-time) < 1e-10, "Time does not match the dataset's record."
@@ -505,8 +505,8 @@ def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, opti
     idx_bounds = [None, None] if idx_bounds is None else idx_bounds
     options = {} if options is None else options
 
-    dset.createDimension(f"n{name}", global_n)
-    dset.createVariable(name, "f8", (f"n{name}",))
+    dset.createDimension(name, global_n)
+    dset.createVariable(name, "f8", (name,))
     dset[name].setncatts(options)
 
     try:
