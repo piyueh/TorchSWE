@@ -630,12 +630,12 @@ class States(_BaseConfig):
     A brief overview of the structure in this jumbo model (ignoring scalars):
     State: {
         q: {w: ndarray hu: ndarray hv: ndarray},            # shape: (ny+2*ngh, nx+2*ngh)
-        src: {w: ndarray hu: ndarray hv: ndarray},          # shape: (ny, nx)
         slp: {
             x: {w: ndarray hu: ndarray hv: ndarray},        # shape: (ny, nx+2)
             y: {w: ndarray hu: ndarray hv: ndarray},        # shape: (ny+2, nx)
         },
         rhs: {w: ndarray hu: ndarray hv: ndarray},          # shape: (ny, nx)
+        stiff: {w: ndarray hu: ndarray hv: ndarray},        # shape: (ny, nx)
         face: {
             x: {                                            # shape: (ny, nx+1)
                 plus: {
@@ -672,7 +672,7 @@ class States(_BaseConfig):
         The domain associated to this state object.
     ngh : int
         Number of ghost cell layers.
-    q, src, rhs : torchswe.utils.data.WHUHVModel
+    q, rhs : torchswe.utils.data.WHUHVModel
         The conservative quantities, source terms, and the right-hand-side terms. Defined at cell
         centers.
     slp: torchswe.utils.data.Slopes
@@ -689,7 +689,6 @@ class States(_BaseConfig):
 
     # quantities defined at cell centers and faces
     q: WHUHVModel
-    src: WHUHVModel
     slp: Slopes
     rhs: WHUHVModel
     face: FaceQuantityModel
@@ -702,7 +701,6 @@ class States(_BaseConfig):
         dtype = values["domain"].x.dtype
 
         assert values["q"].shape == (ny+2*ngh, nx+2*ngh), "q: incorrect shape"
-        assert values["src"].shape == (ny, nx), "src: incorrect shape"
         assert values["slp"].x.shape == (ny, nx+2), "slp.x: incorrect shape"
         assert values["slp"].y.shape == (ny+2, nx), "slp.y: incorrect shape"
         assert values["rhs"].shape == (ny, nx), "slp.y: incorrect shape"
@@ -710,7 +708,6 @@ class States(_BaseConfig):
         assert values["face"].y.plus.shape == (ny+1, nx), "face.y: incorrect shape"
 
         assert values["q"].dtype == dtype, "q: incorrect dtype"
-        assert values["src"].dtype == dtype, "src: incorrect dtype"
         assert values["slp"].x.dtype == dtype, "slp.x: incorrect dtype"
         assert values["slp"].y.dtype == dtype, "slp.y: incorrect dtype"
         assert values["rhs"].dtype == dtype, "slp.y: incorrect dtype"

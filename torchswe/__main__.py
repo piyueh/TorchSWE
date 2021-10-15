@@ -25,7 +25,7 @@ from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.core.boundary_conditions import get_ghost_cell_updaters
 from torchswe.core.temporal import euler, ssprk2, ssprk3
-from torchswe.core.fvm import topo_only, topo_ptsource
+from torchswe.core.sources import topography_gradient, point_mass_source
 
 # enforce print precision
 nplike.set_printoptions(precision=15, linewidth=200)
@@ -134,6 +134,12 @@ def config_runtime(comm, config, logger):
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
     logger.debug("Initial dt: %e", runtime.dt)
 
+    runtime.cfl = 0.95
+    logger.debug("dt adaptive ratio: %e", runtime.cfl)
+
+    runtime.dt_constraint = float("inf")
+    logger.debug("Initial dt constraint: %e", runtime.dt_constraint)
+
     runtime.cur_t = runtime.times[0]  # the current simulation time
     logger.debug("Initial t: %e", runtime.cur_t)
 
@@ -158,17 +164,20 @@ def config_runtime(comm, config, logger):
     runtime.gh_updater = get_ghost_cell_updaters(config.bc, states, runtime.topo)
     logger.debug("Done setting ghost cell updaters")
 
-    if config.ptsource is None:
-        runtime.rhs_updater = topo_only
-        logger.debug("Source terms: topography only")
-    else:
-        runtime.rhs_updater = topo_ptsource
-        logger.debug("Source terms: topography, a point source")
+    runtime.sources = [topography_gradient]
+    logger.debug("Explicit source term: topography gradients")
 
+    if config.ptsource is not None:
+        # get a PointSource instance
         runtime.ptsource = get_pointsource(
             config.ptsource.loc[0], config.ptsource.loc[1], config.ptsource.times,
             config.ptsource.rates, states.domain, 0)
         logger.debug("Setting a point source: %s", runtime.ptsource)
+
+        # add the function of calculating point source
+        runtime.sources.append(point_mass_source)
+        logger.debug("Explicit source term: point source")
+
 
     return states, runtime
 

@@ -11,6 +11,7 @@
 import copy as _copy
 import logging as _logging
 from mpi4py import MPI as _MPI
+from torchswe.core.fvm import prepare_rhs as _prepare_rhs
 from torchswe.utils.data import States as _States
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
@@ -18,7 +19,7 @@ from torchswe.utils.misc import DummyDict as _DummyDict
 _logger = _logging.getLogger("torchswe.core.temporal")
 
 
-def _dt_adapter(delta_t: float, max_dt: float, coeff: float = 0.95):
+def _cfl_dt_adapter(delta_t: float, max_dt: float, coeff: float):
     """Adapt dt according to max_dt and log it at debug level.
 
     Notes
@@ -32,7 +33,7 @@ def _dt_adapter(delta_t: float, max_dt: float, coeff: float = 0.95):
     return max_dt
 
 
-def _dt_adapter_log_only(delta_t: float, max_dt: float, coeff=None):
+def _cfl_dt_adapter_log_only(delta_t: float, max_dt: float, *args, **kwargs):
     """Log a warning if dt is greater than max_dt but don't do anything else."""
     # pylint: disable=unused-argument
     if delta_t > max_dt:
@@ -40,22 +41,11 @@ def _dt_adapter_log_only(delta_t: float, max_dt: float, coeff=None):
     return delta_t
 
 
-def _dt_fixer(cur_t: float, next_t: float, delta_t: float):
-    """Check if current time plus dt exceeds next_t and fix it if true."""
-    gap_dt = next_t - cur_t
-    if delta_t > gap_dt:
-        _logger.warning("Adjust dt from %e to %e to meet the target time.", delta_t, gap_dt)
-        return gap_dt
-    return delta_t
-
-
 def euler(states: _States, runtime: _DummyDict, config: _Config):
     """A simple 1st-order forward Euler time-marching."""
 
-    if config.temporal.adaptive:
-        adapter = _dt_adapter
-    else:
-        adapter = _dt_adapter_log_only
+    # adaptive time stepping
+    adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
     # non-ghost domain slice
     internal = slice(states.ngh, -states.ngh)
@@ -73,17 +63,20 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
+        # re-initialize time-step size constraint by not exceeding the next output time
+        runtime.dt_constraint = runtime.next_t - runtime.cur_t
+
         # Euler step
-        states, max_dt = runtime.rhs_updater(states, runtime, config)
+        states, max_dt = _prepare_rhs(states, runtime, config)
 
-        # adaptive dt
-        runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
+        # adaptive dt based on CFL condition
+        runtime.dt = adapter(runtime.dt, max_dt, runtime.cfl)  # may exceed next_t
 
-        # synchronize dt from all processes
+        # re-evaluate dt with other constraints; dt_constraint might be modified during _prepare_rhs
+        runtime.dt = min(runtime.dt, runtime.dt_constraint)
+
+        # synchronize dt across all processes
         runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
-
-        # make sure cur_t + dt won't exceed next_t
-        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
 
         # update
         states.q.w[internal, internal] += (states.rhs.w * runtime.dt)
@@ -131,10 +124,8 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     Discretization Methods. SIAM Review, 43(1), 89-112.
     """
 
-    if config.temporal.adaptive:
-        adapter = _dt_adapter
-    else:
-        adapter = _dt_adapter_log_only
+    # adaptive time stepping
+    adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
     # non-ghost domain slice
     nongh = slice(states.ngh, -states.ngh)
@@ -155,17 +146,20 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
+        # re-initialize time-step size constraint by not exceeding the next output time
+        runtime.dt_constraint = runtime.next_t - runtime.cur_t
+
         # stage 1: now states.rhs is RHS(u_{n})
-        states, max_dt = runtime.rhs_updater(states, runtime, config)
+        states, max_dt = _prepare_rhs(states, runtime, config)
 
         # adaptive dt based on the CFL of 1st order Euler
-        runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
+        runtime.dt = adapter(runtime.dt, max_dt, runtime.cfl)  # may exceed next_t
 
-        # synchronize dt from all processes
+        # re-evaluate dt with other constraints; dt_constraint might be modified during _prepare_rhs
+        runtime.dt = min(runtime.dt, runtime.dt_constraint)
+
+        # synchronize dt across all processes
         runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
-
-        # make sure cur_t + dt won't exceed next_t
-        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
@@ -174,7 +168,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
-        states, _ = runtime.rhs_updater(states, runtime, config)
+        states, _ = _prepare_rhs(states, runtime, config)
 
         # calculate u_{n+1} = (u_{n} + u^1 + dt * RHS(u^1)) / 2.
         states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] + states.rhs.w * runtime.dt)
@@ -230,10 +224,8 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     Discretization Methods. SIAM Review, 43(1), 89-112.
     """
 
-    if config.temporal.adaptive:
-        adapter = _dt_adapter
-    else:
-        adapter = _dt_adapter_log_only
+    # adaptive time stepping
+    adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
     # non-ghost domain slice
     nongh = slice(states.ngh, -states.ngh)
@@ -254,17 +246,20 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
+        # re-initialize time-step size constraint by not exceeding the next output time
+        runtime.dt_constraint = runtime.next_t - runtime.cur_t
+
         # stage 1: now states.rhs is RHS(u_{n})
-        states, max_dt = runtime.rhs_updater(states, runtime, config)
+        states, max_dt = _prepare_rhs(states, runtime, config)
 
         # adaptive dt based on the CFL of 1st order Euler
-        runtime.dt = adapter(runtime.dt, max_dt, 0.95)  # may exceed next_t
+        runtime.dt = adapter(runtime.dt, max_dt, runtime.cfl)  # may exceed next_t
 
-        # synchronize dt from all processes
+        # re-evaluate dt with other constraints; dt_constraint might be modified during _prepare_rhs
+        runtime.dt = min(runtime.dt, runtime.dt_constraint)
+
+        # synchronize dt across all processes
         runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
-
-        # make sure cur_t + dt won't exceed next_t
-        runtime.dt = _dt_fixer(runtime.cur_t, runtime.next_t, runtime.dt)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
@@ -273,19 +268,19 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
-        states, _ = runtime.rhs_updater(states, runtime, config)
+        states, _ = _prepare_rhs(states, runtime, config)
 
         # now states.q = u^2 = (3 * u_{n} + u^1 + dt * RHS(u^1)) / 4
         states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] * 3. + states.rhs.w * runtime.dt)
         states.q.w[nongh, nongh] /= 4
-        states.q.hu[nongh, nongh] += (3 * prev_q.hu[nongh, nongh] * 3. + states.rhs.hu * runtime.dt)
+        states.q.hu[nongh, nongh] += (prev_q.hu[nongh, nongh] * 3. + states.rhs.hu * runtime.dt)
         states.q.hu[nongh, nongh] /= 4
         states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] * 3. + states.rhs.hv * runtime.dt)
         states.q.hv[nongh, nongh] /= 4
         states = runtime.gh_updater(states)
 
         # stage 3: now states.rhs is RHS(u^2)
-        states, _ = runtime.rhs_updater(states, runtime, config)
+        states, _ = _prepare_rhs(states, runtime, config)
 
         # now states.q = u_{n+1} = (u_{n} + 2 * u^2 + 2 * dt * RHS(u^1)) / 3
         states.q.w[nongh, nongh] *= 2  # 2 * u^2

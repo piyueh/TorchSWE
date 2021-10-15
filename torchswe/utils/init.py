@@ -394,7 +394,6 @@ def get_empty_states(domain: _Domain, ngh: int):
     return _States(
         domain=domain, ngh=ngh,
         q=get_empty_whuhvmodel(nx+2*ngh, ny+2*ngh, dtype),
-        src=get_empty_whuhvmodel(nx, ny, dtype),
         slp=get_empty_slopes(nx, ny, dtype),
         rhs=get_empty_whuhvmodel(nx, ny, dtype),
         face=get_empty_facequantitymodel(nx, ny, dtype)
