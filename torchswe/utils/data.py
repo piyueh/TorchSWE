@@ -29,30 +29,6 @@ from torchswe.utils.misc import DummyDtype as _DummyDtype
 _logger = _logging.getLogger("torchswe.utils.data")
 
 
-def _pydantic_val_dtype(val: _nplike.ndarray, values: dict) -> _nplike.ndarray:
-    """Validates that a given ndarray has a matching dtype; used by pydantic."""
-    try:
-        assert val.dtype == values["dtype"], \
-            f"float number type mismatch. Should be {values['dtype']}, got {val.dtype}"
-    except KeyError as err:
-        raise AssertionError("Validation failed due to other validation failures.") from err
-    return val
-
-
-def _pydantic_val_arrays(val, values):
-    """Validates arrays under the same data model, i.e., sharing the same shape and dtype."""
-    try:
-        shape = (values["ny"], values["nx"])
-        dtype = values["dtype"]
-    except KeyError as err:
-        raise AssertionError("Validation failed due to other validation failures.") from err
-
-    assert val.dtype == dtype, f"Dtype mismatch. Should be {dtype}, got {val.dtype}"
-    assert val.shape == shape, f"Shape mismatch. Should be {shape}, got {val.shape}"
-
-    return val
-
-
 def _pydantic_val_nan_inf(val, field):
     """Validates if any elements are NaN or inf."""
     assert not _nplike.any(_nplike.isnan(val)), f"Got NaN in {field.name}"
@@ -77,15 +53,6 @@ def _shape_val_factory(shift: _Union[_Tuple[int, int], int]):
         return val
 
     return _core_func
-
-
-class DummyDataModel:
-    """A dummy class as a base for those needs the property `shape`."""
-
-    @property
-    def shape(self):
-        "Shape of the arrays in this object."
-        return (self.ny, self.nx)  # pylint: disable=no-member
 
 
 class Process(_BaseConfig):
@@ -418,25 +385,22 @@ class Topography(_BaseConfig):
         Elevation at cell faces normal to x-axis.
     yfcenters : (ny+1, nx) array
         Elevation at cell faces normal to y-axis.
-    xgrad : (ny, nx) array
-        Derivatives w.r.t. x at cell centers.
-    ygrad : (ny, nx) array
-        Derivatives w.r.t. y at cell centers.
+    grad : (2, ny, nx) array
+        Derivatives w.r.t. x and y at cell centers.
     """
     domain: Domain
     vertices: _nplike.ndarray
     centers: _nplike.ndarray
     xfcenters: _nplike.ndarray
     yfcenters: _nplike.ndarray
-    xgrad: _nplike.ndarray
-    ygrad: _nplike.ndarray
+    grad: _nplike.ndarray
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_arrays(cls, values):
         """Validations that rely on other fields' correctness."""
 
         # check dtype
-        arrays = ["vertices", "centers", "xfcenters", "yfcenters", "xgrad", "ygrad"]
+        arrays = ["vertices", "centers", "xfcenters", "yfcenters", "grad"]
         target = values["domain"].x.dtype
         for k, v in zip(arrays, _itemgetter(*arrays)(values)):
             assert v.dtype == target, f"{k}: dtype does not match"
@@ -448,8 +412,7 @@ class Topography(_BaseConfig):
         assert values["centers"].shape == (ny, nx), "centers: " + msg
         assert values["xfcenters"].shape == (ny, nx+1), "xfcenters: " + msg
         assert values["yfcenters"].shape == (ny+1, nx), "yfcenters: " + msg
-        assert values["xgrad"].shape == (ny, nx), "xgrad: " + msg
-        assert values["ygrad"].shape == (ny, nx), "ygrad: " + msg
+        assert values["grad"].shape == (2, ny, nx), "grad: " + msg
 
         # check linear interpolation
         v = values["vertices"]
@@ -467,98 +430,51 @@ class Topography(_BaseConfig):
         # check central difference
         v = values["xfcenters"]
         dx = (values["domain"].x.vertices[1:] - values["domain"].x.vertices[:-1])[None, :]
-        assert _nplike.allclose(values["xgrad"], (v[:, 1:]-v[:, :-1])/dx), "xgrad vs xfcenters"
+        assert _nplike.allclose(values["grad"][0], (v[:, 1:]-v[:, :-1])/dx), "grad[0] vs xfcenters"
 
         v = values["yfcenters"]
         dy = (values["domain"].y.vertices[1:] - values["domain"].y.vertices[:-1])[:, None]
-        assert _nplike.allclose(values["ygrad"], (v[1:, :]-v[:-1, :])/dy), "ygrad vs yfcenters"
+        assert _nplike.allclose(values["grad"][1], (v[1:, :]-v[:-1, :])/dy), "grad[1] vs yfcenters"
 
         return values
 
 
-class WHUHVModel(_BaseConfig, DummyDataModel):
-    """Data model with keys w, hu, and v.
-
-    Attributes
-    ----------
-    nx, ny : int
-        They describe the shape of the arrays (not necessarily the shape of the mesh).
-    dtype : str, nplike.float32, or nplike64.
-        The type of floating numbers. If a string, it should be either "float32" or "float64".
-    w, hu, hv : _nplike.ndarray of shape (ny, nx)
-        The fluid elevation (depth + topography elevation), depth-u-velocity, and depth-v-velocity.
-    """
-    nx: _conint(strict=True, gt=0)
-    ny: _conint(strict=True, gt=0)
-    dtype: _DummyDtype
-    w: _nplike.ndarray
-    hu: _nplike.ndarray
-    hv: _nplike.ndarray
-
-    # validators
-    _val_arrays = _validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_arrays)
-    _val_valid_numbers = _validator("w", "hu", "hv", allow_reuse=True)(_pydantic_val_nan_inf)
-
-
-class HUVModel(_BaseConfig, DummyDataModel):
-    """Data model with keys h, u, and v.
-
-    Attributes
-    ----------
-    nx, ny : int
-        They describe the shape of the arrays (not necessarily the shape of the mesh).
-    dtype : str, nplike.float32, or nplike64.
-        The type of floating numbers. If a string, it should be either "float32" or "float64".
-    h, u, v : _nplike.ndarray of shape (ny, nx)
-        The fluid depth, u-velocity, and depth-v-velocity.
-    """
-    nx: _conint(strict=True, gt=0)
-    ny: _conint(strict=True, gt=0)
-    dtype: _DummyDtype
-    h: _nplike.ndarray
-    u: _nplike.ndarray
-    v: _nplike.ndarray
-
-    # validators
-    _val_arrays = _validator("h", "u", "v", allow_reuse=True)(_pydantic_val_arrays)
-    _val_valid_numbers = _validator("h", "u", "v", allow_reuse=True)(_pydantic_val_nan_inf)
-
-
-class FaceOneSideModel(_BaseConfig, DummyDataModel):
+class FaceOneSideModel(_BaseConfig):
     """Data model holding quantities on one side of cell faces normal to one direction.
 
     Attributes
     ----------
-    nx, ny : int
-        They describe the shape of the arrays (not necessarily the shape of the mesh).
-    dtype : str, nplike.float32, or nplike64.
-        The type of floating numbers. If a string, it should be either "float32" or "float64".
-    w, hu, hv : _nplike.ndarray of shape (ny, nx)
-        The fluid elevation (depth + topography elevation), depth-u-velocity, and depth-v-velocity.
-    h, u, v : _nplike.ndarray of shape (ny, nx)
+    U : nplike.ndarray of shape (3, ny+1, nx) or (3, ny, nx+1)
         The fluid depth, u-velocity, and depth-v-velocity.
-    a : _nplike.ndarray of shape (ny, nx)
+    a : nplike.ndarray of shape (ny+1, nx) or (3, ny, nx+1)
         The local speed.
-    flux : WHUHVModel
-        An object holding discontinuous fluxes.
+    F : nplike.ndarray of shape (3, ny+1, nx) or (3, ny, nx+1)
+        An array holding discontinuous fluxes.
     """
-    nx: _conint(strict=True, gt=0)
-    ny: _conint(strict=True, gt=0)
-    dtype: _DummyDtype
-    w: _nplike.ndarray
-    hu: _nplike.ndarray
-    hv: _nplike.ndarray
-    h: _nplike.ndarray
-    u: _nplike.ndarray
-    v: _nplike.ndarray
+    Q: _nplike.ndarray
+    U: _nplike.ndarray
     a: _nplike.ndarray
-    flux: WHUHVModel
+    F: _nplike.ndarray
 
     # validator
-    _val_arrays = _validator(
-        "w", "hu", "hv", "h", "u", "v", "a", "flux", allow_reuse=True)(_pydantic_val_arrays)
-    _val_valid_numbers = _validator(
-        "w", "hu", "hv", "h", "u", "v", "a", allow_reuse=True)(_pydantic_val_nan_inf)
+    _val_valid_numbers = _validator("Q", "U", "a", "F", allow_reuse=True)(_pydantic_val_nan_inf)
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_arrays(cls, values):
+        """Validate the consistency of the arrays shapes and dtypes."""
+        try:
+            Q, U, a, F = values["Q"], values["U"], values["a"], values["F"]
+        except KeyError as err:
+            raise AssertionError("Fix other fields first.") from err
+
+        n1, n2 = a.shape
+        assert Q.shape == (3, n1, n2), f"U shape mismatch. Should be {(3, n1, n2)}. Got {U.shape}."
+        assert U.shape == (3, n1, n2), f"U shape mismatch. Should be {(3, n1, n2)}. Got {U.shape}."
+        assert F.shape == (3, n1, n2), f"F shape mismatch. Should be {(3, n1, n2)}. Got {F.shape}."
+        assert Q.dtype == a.dtype, f"dtype mismatch. Should be {a.dtype}. Got {U.dtype}."
+        assert U.dtype == a.dtype, f"dtype mismatch. Should be {a.dtype}. Got {U.dtype}."
+        assert F.dtype == a.dtype, f"dtype mismatch. Should be {a.dtype}. Got {U.dtype}."
+        return values
 
 
 class FaceTwoSideModel(_BaseConfig):
@@ -568,21 +484,28 @@ class FaceTwoSideModel(_BaseConfig):
     ----------
     plus, minus : FaceOneSideModel
         Objects holding data on one side of each face.
-    num_flux : WHUHVModel
-        An object holding common/continuous flux
+    H : nplike.ndarray of shape (3, ny+1, nx) or (3, ny, nx+1)
+        An object holding common (i.e., continuous or numerical) flux
     """
     plus: FaceOneSideModel
     minus: FaceOneSideModel
-    num_flux: WHUHVModel
+    H: _nplike.ndarray
+
+    # validator
+    _val_valid_numbers = _validator("H", allow_reuse=True)(_pydantic_val_nan_inf)
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_arrays(cls, values):
-        assert values["plus"].nx == values["minus"].nx, "incorrect nx size"
-        assert values["plus"].nx == values["num_flux"].nx, "incorrect nx size"
-        assert values["plus"].ny == values["minus"].ny, "incorrect ny size"
-        assert values["plus"].ny == values["num_flux"].ny, "incorrect nx size"
-        assert values["plus"].dtype == values["minus"].dtype, "incorrect dtype"
-        assert values["plus"].dtype == values["num_flux"].dtype, "incorrect dtype"
+        """Validate shapes and dtypes."""
+        try:
+            plus, minus, H = values["plus"], values["minus"], values["H"]
+        except KeyError as err:
+            raise AssertionError("Fix other fields first.") from err
+
+        assert plus.U.shape == minus.U.shape, f"Shape mismatch: {plus.U.shape} and {minus.U.shape}."
+        assert plus.U.dtype == minus.U.dtype, f"dtype mismatch: {plus.U.dtype} and {minus.U.dtype}."
+        assert plus.U.shape == H.shape, f"Shape mismatch: {plus.U.shape} and {H.shape}."
+        assert plus.U.dtype == H.dtype, f"dtype mismatch: {plus.U.dtype} and {H.dtype}."
         return values
 
 
@@ -599,28 +522,15 @@ class FaceQuantityModel(_BaseConfig):
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_arrays(cls, values):
-        assert (values["x"].plus.nx-values["y"].plus.nx) == 1, "incorrect nx size"
-        assert (values["y"].plus.ny-values["x"].plus.ny) == 1, "incorrect ny size"
-        assert values["x"].plus.dtype == values["y"].plus.dtype, "mismatched dtype"
-        return values
+        """Validate shapes and dtypes."""
+        try:
+            x, y = values["x"], values["y"]
+        except KeyError as err:
+            raise AssertionError("Fix other fields first.") from err
 
-
-class Slopes(_BaseConfig):
-    """Data model for linear extrapolating slopes at cell centers.
-
-    Attributes
-    ----------
-    x, y : WHUHVModel
-        Slopes in x and y directions.
-    """
-    x: WHUHVModel
-    y: WHUHVModel
-
-    @_root_validator(pre=False, skip_on_failure=True)
-    def _val_arrays(cls, values):
-        assert (values["x"].nx-values["y"].nx) == 2, "incorrect nx size"
-        assert (values["y"].ny-values["x"].ny) == 2, "incorrect ny size"
-        assert values["x"].dtype == values["y"].dtype, "dtypes do nat match"
+        assert (x.plus.a.shape[1] - y.plus.a.shape[1]) == 1, "Incorrect nx size."
+        assert (y.plus.a.shape[0] - x.plus.a.shape[0]) == 1, "Incorrect ny size."
+        assert x.plus.a.dtype == y.plus.a.dtype, "Mismatched dtype."
         return values
 
 
@@ -629,39 +539,40 @@ class States(_BaseConfig):
 
     A brief overview of the structure in this jumbo model (ignoring scalars):
     State: {
-        q: {w: ndarray hu: ndarray hv: ndarray},            # shape: (ny+2*ngh, nx+2*ngh)
-        slp: {
-            x: {w: ndarray hu: ndarray hv: ndarray},        # shape: (ny, nx+2)
-            y: {w: ndarray hu: ndarray hv: ndarray},        # shape: (ny+2, nx)
-        },
-        rhs: {w: ndarray hu: ndarray hv: ndarray},          # shape: (ny, nx)
-        stiff: {w: ndarray hu: ndarray hv: ndarray},        # shape: (ny, nx)
+        Q: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
+        U: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
+        S: ndarray                                          # shape: (3, ny, nx)
+        SS: ndarray                                         # shape: (3, ny, nx)
         face: {
-            x: {                                            # shape: (ny, nx+1)
+            x: {
                 plus: {
-                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray,
-                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
+                    Q: ndarray                              # shape: (3, ny, nx+1)
+                    U: ndarray                              # shape: (3, ny, nx+1)
+                    a: ndarray                              # shape: (ny, nx+1)
+                    F: ndarray                              # shape: (3, ny, nx+1)
                 },
                 minus: {
-                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray,
-                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
+                    Q: ndarray                              # shape: (3, ny, nx+1)
+                    U: ndarray                              # shape: (3, ny, nx+1)
+                    a: ndarray                              # shape: (ny, nx+1)
+                    F: ndarray                              # shape: (3, ny, nx+1)
                 },
-                num_flux: {w: ndarray, hu: ndarray, hv: ndarray},
+                H: ndarray                                  # shape: (3, ny, nx+1)
             },
             y: {                                            # shape: (ny+1, nx)
                 plus: {
-                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray,
-                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
+                    Q: ndarray                              # shape: (3, ny+1, nx)
+                    U: ndarray                              # shape: (3, ny+1, nx)
+                    a: ndarray                              # shape: (ny+1, nx)
+                    F: ndarray                              # shape: (3, ny+1, nx)
                 },
                 minus: {
-                    w: ndarray, hu: ndarray, hv: ndarray, h: ndarray u: ndarray v: ndarray,
-                    a: ndarray,
-                    flux: {w: ndarray, hu: ndarray, hv: ndarray}
+                    U: ndarray                              # shape: (3, ny+1, nx)
+                    U: ndarray                              # shape: (3, ny+1, nx)
+                    a: ndarray                              # shape: (ny+1, nx)
+                    F: ndarray                              # shape: (3, ny+1, nx)
                 },
-                num_flux: {w: ndarray, hu: ndarray, hv: ndarray},
+                H: ndarray                                  # shape: (3, ny+1, nx)
             }
         }
     }
@@ -672,14 +583,14 @@ class States(_BaseConfig):
         The domain associated to this state object.
     ngh : int
         Number of ghost cell layers.
-    q : torchswe.utils.data.WHUHVModel
+    Q : nplike.ndarray of shape (3, ny+2*ngh, nx+2*ngh)
         The conservative quantities defined at cell centers.
-    rhs : torchswe.utils.data.WHUHVModel
+    U : nplike.ndarray of shape (3, ny+2*ngh, nx+2*ngh)
+        The non-conservative quantities defined at cell centers.
+    S : nplike.ndarray of shape (3, ny, nx)
         The explicit right-hand-side terms when during time integration. Defined at cell centers.
-    stiff : torchswe.utils.data.WHUHVModel
+    SS : nplike.ndarray of shape (3, ny, nx)
         The stiff right-hand-side term that require semi-implicit handling. Defined at cell centers.
-    slp: torchswe.utils.data.Slopes
-        The slopes for extrapolating cell-centered quantities to cell faces.
     face: torchswe.utils.data.FaceQuantityModel
         Holding quantites defined at cell faces, including continuous and discontinuous ones.
     """
@@ -691,10 +602,10 @@ class States(_BaseConfig):
     ngh: _conint(strict=True, ge=0)
 
     # quantities defined at cell centers and faces
-    q: WHUHVModel
-    slp: Slopes
-    rhs: WHUHVModel
-    stiff: _Optional[WHUHVModel]
+    Q: _nplike.ndarray
+    U: _nplike.ndarray
+    S: _nplike.ndarray
+    SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
 
     @_root_validator(pre=False, skip_on_failure=True)
@@ -704,19 +615,24 @@ class States(_BaseConfig):
         ngh = values["ngh"]
         dtype = values["domain"].x.dtype
 
-        assert values["q"].shape == (ny+2*ngh, nx+2*ngh), "q: incorrect shape"
-        assert values["slp"].x.shape == (ny, nx+2), "slp.x: incorrect shape"
-        assert values["slp"].y.shape == (ny+2, nx), "slp.y: incorrect shape"
-        assert values["rhs"].shape == (ny, nx), "slp.y: incorrect shape"
-        assert values["face"].x.plus.shape == (ny, nx+1), "face.x: incorrect shape"
-        assert values["face"].y.plus.shape == (ny+1, nx), "face.y: incorrect shape"
+        assert values["Q"].shape == (3, ny+2*ngh, nx+2*ngh), "Q: incorrect shape"
+        assert values["Q"].dtype == dtype, "Q: incorrect dtype"
 
-        assert values["q"].dtype == dtype, "q: incorrect dtype"
-        assert values["slp"].x.dtype == dtype, "slp.x: incorrect dtype"
-        assert values["slp"].y.dtype == dtype, "slp.y: incorrect dtype"
-        assert values["rhs"].dtype == dtype, "slp.y: incorrect dtype"
-        assert values["face"].x.plus.dtype == dtype, "face.x: incorrect dtype"
-        assert values["face"].y.plus.dtype == dtype, "face.y: incorrect dtype"
+        assert values["U"].shape == (3, ny+2*ngh, nx+2*ngh), "U: incorrect shape"
+        assert values["U"].dtype == dtype, "U: incorrect dtype"
+
+        assert values["S"].shape == (3, ny, nx), "S: incorrect shape"
+        assert values["S"].dtype == dtype, "S: incorrect dtype"
+
+        assert values["face"].x.plus.U.shape == (3, ny, nx+1), "face.x: incorrect shape"
+        assert values["face"].x.plus.U.dtype == dtype, "face.x: incorrect dtype"
+
+        assert values["face"].y.plus.U.shape == (3, ny+1, nx), "face.y: incorrect shape"
+        assert values["face"].y.plus.U.dtype == dtype, "face.y: incorrect dtype"
+
+        if values["SS"] is not None:
+            assert values["SS"].shape == (3, ny, nx), "SS: incorrect shape"
+            assert values["SS"].dtype == dtype, "SS: incorrect dtype"
 
         return values
 
@@ -726,28 +642,21 @@ class States(_BaseConfig):
 
         sbuf, sreq, rbuf, rreq = {}, {}, {}, {}
 
-        stags = {
-            "west": {"w": 31, "hu": 32, "hv": 33}, "east": {"w": 41, "hu": 42, "hv": 43},
-            "south": {"w": 51, "hu": 52, "hv": 53}, "north": {"w": 61, "hu": 62, "hv": 63},
-        }
-
-        rtags = {
-            "west": {"w": 41, "hu": 42, "hv": 43}, "east": {"w": 31, "hu": 32, "hv": 33},
-            "south": {"w": 61, "hu": 62, "hv": 63}, "north": {"w": 51, "hu": 52, "hv": 53},
-        }
+        stags = {"west": 31, "east": 41, "south": 51, "north": 61}
+        rtags = {"west": 41, "east": 31, "south": 61, "north": 51}
 
         sslcs = {
-            "west": (slice(self.ngh, -self.ngh), slice(self.ngh, 2*self.ngh)),
-            "east": (slice(self.ngh, -self.ngh), slice(-2*self.ngh, -self.ngh)),
-            "south": (slice(self.ngh, 2*self.ngh), slice(self.ngh, -self.ngh)),
-            "north": (slice(-2*self.ngh, -self.ngh), slice(self.ngh, -self.ngh)),
+            "west": (slice(None), slice(self.ngh, -self.ngh), slice(self.ngh, 2*self.ngh)),
+            "east": (slice(None), slice(self.ngh, -self.ngh), slice(-2*self.ngh, -self.ngh)),
+            "south": (slice(None), slice(self.ngh, 2*self.ngh), slice(self.ngh, -self.ngh)),
+            "north": (slice(None), slice(-2*self.ngh, -self.ngh), slice(self.ngh, -self.ngh)),
         }
 
         rslcs = {
-            "west": (slice(self.ngh, -self.ngh), slice(None, self.ngh)),
-            "east": (slice(self.ngh, -self.ngh), slice(-self.ngh, None)),
-            "south": (slice(None, self.ngh), slice(self.ngh, -self.ngh)),
-            "north": (slice(-self.ngh, None), slice(self.ngh, -self.ngh)),
+            "west": (slice(None), slice(self.ngh, -self.ngh), slice(None, self.ngh)),
+            "east": (slice(None), slice(self.ngh, -self.ngh), slice(-self.ngh, None)),
+            "south": (slice(None), slice(None, self.ngh), slice(self.ngh, -self.ngh)),
+            "north": (slice(None), slice(-self.ngh, None), slice(self.ngh, -self.ngh)),
         }
 
         # make an alias for convenience
@@ -756,26 +665,29 @@ class States(_BaseConfig):
         ans = 0
         for ornt in ["west", "east", "south", "north"]:
             if proc[ornt] is not None:
-                for var in ["w", "hu", "hv"]:
-                    key = (ornt, var)
-                    sbuf[key] = self.q[var][sslcs[ornt]].copy()
-                    _nplike.sync()  # make sure the copy is done before sending the data
-                    sreq[key] = proc.comm.Isend(sbuf[key], proc[ornt], stags[ornt][var])
-                    rbuf[key] = _nplike.zeros_like(self.q[var][rslcs[ornt]])
-                    _nplike.sync()  # make sure the buffer is ready before receiving the data
-                    rreq[key] = proc.comm.Irecv(rbuf[key], proc[ornt], rtags[ornt][var])
-                    ans += 1
+
+                sbuf[ornt] = self.Q[sslcs[ornt]].copy()
+                _nplike.sync()  # make sure the copy is done before sending the data
+
+                sreq[ornt] = proc.comm.Isend(sbuf[ornt], proc[ornt], stags[ornt])
+
+                rbuf[ornt] = _nplike.zeros_like(self.Q[rslcs[ornt]])
+                _nplike.sync()  # make sure the buffer is ready before receiving the data
+
+                rreq[ornt] = proc.comm.Irecv(rbuf[ornt], proc[ornt], rtags[ornt])
+
+                ans += 1
 
         # make sure send requests are done
         tstart = _time.perf_counter()
         done = 0
         while done != ans and _time.perf_counter()-tstart < 5.:
-            for key, req in sreq.items():
-                if key in sbuf and req.Test():
-                    del sbuf[key]
+            for ornt, req in sreq.items():
+                if ornt in sbuf and req.Test():
+                    del sbuf[ornt]
                     done += 1
 
-        # make sure if the while loop exited because of done == ans
+        # make sure whether the while-loop exited because of done == ans
         if done != ans:
             raise RuntimeError(f"Sending data to neighbor timeout: {sbuf.keys()}")
 
@@ -783,10 +695,10 @@ class States(_BaseConfig):
         tstart = _time.perf_counter()
         done = 0
         while done != ans and _time.perf_counter()-tstart < 5.:
-            for key, req in rreq.items():
-                if key in rbuf and req.Test():
-                    self.q[key[1]][rslcs[key[0]]] = rbuf[key]
-                    del rbuf[key]
+            for ornt, req in rreq.items():
+                if ornt in rbuf and req.Test():
+                    self.Q[rslcs[ornt]] = rbuf[ornt]
+                    del rbuf[ornt]
                     done += 1
 
         # make sure if the while loop exited because of done == ans

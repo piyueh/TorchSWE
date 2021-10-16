@@ -12,14 +12,10 @@ from torchswe import nplike as _nplike
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import States as _States
 from torchswe.utils.misc import DummyDict as _DummyDict
-from torchswe.core.reconstruction import get_discontinuous_cnsrv_q as _get_discontinuous_cnsrv_q
-from torchswe.core.reconstruction import correct_negative_depth as _correct_negative_depth
+from torchswe.core.reconstruction import reconstruct as _reconstruct
 from torchswe.core.flux import get_discontinuous_flux as _get_discontinuous_flux
-from torchswe.core.limiters import minmod_slope as _minmod_slope
-from torchswe.core.numerical_flux import central_scheme as _central_scheme
-from torchswe.core.misc import decompose_variables as _decompose_variables
+from torchswe.core.flux import central_scheme as _central_scheme
 from torchswe.core.misc import get_local_speed as _get_local_speed
-from torchswe.core.misc import remove_rounding_errors as _remove_rounding_errors
 
 
 def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
@@ -39,23 +35,14 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
         A scalar indicating the maximum safe time-step size.
     """
 
-    # calculate slopes of piecewise linear approximation
-    states = _minmod_slope(states, config.params.theta, runtime.tol)
-
-    # interpolate to get discontinuous conservative quantities at cell faces
-    states = _get_discontinuous_cnsrv_q(states)
-
-    # fix non-physical negative depth
-    states = _correct_negative_depth(states, runtime.topo)
-
-    # get non-conservative variables at cell faces
-    states = _decompose_variables(states, runtime.topo, runtime.epsilon)
+    # reconstruct conservative and non-conservative quantities at cell interfaces
+    states = _reconstruct(states, runtime, config)
 
     # get local speed at cell faces
     states = _get_local_speed(states, config.params.gravity)
 
     # get discontinuous PDE flux at cell faces
-    states = _get_discontinuous_flux(states, runtime.topo, config.params.gravity)
+    states = _get_discontinuous_flux(states, config.params.gravity)
 
     # get common/continuous numerical flux at cell faces
     states = _central_scheme(states, runtime.tol)
@@ -64,24 +51,13 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     dx, dy = states.domain.x.delta, states.domain.y.delta
 
     # get right-hand-side contributed by spatial derivatives
-    states.rhs.w = \
-        (states.face.x.num_flux.w[:, :-1] - states.face.x.num_flux.w[:, 1:]) / dx + \
-        (states.face.y.num_flux.w[:-1, :] - states.face.y.num_flux.w[1:, :]) / dy
+    states.S = \
+        (states.face.x.H[:, :, :-1] - states.face.x.H[:, :, 1:]) / dx + \
+        (states.face.y.H[:, :-1, :] - states.face.y.H[:, 1:, :]) / dy
 
-    states.rhs.hu = \
-        (states.face.x.num_flux.hu[:, :-1] - states.face.x.num_flux.hu[:, 1:]) / dx + \
-        (states.face.y.num_flux.hu[:-1, :] - states.face.y.num_flux.hu[1:, :]) / dy
-
-    states.rhs.hv = \
-        (states.face.x.num_flux.hv[:, :-1] - states.face.x.num_flux.hv[:, 1:]) / dx + \
-        (states.face.y.num_flux.hv[:-1, :] - states.face.y.num_flux.hv[1:, :]) / dy
-
-    # add explicit source terms in-place to states.rhs
+    # add explicit source terms in-place to states.S
     for func in runtime.sources:
         states = func(states, runtime, config)
-
-    # remove rounding errors
-    states.rhs = _remove_rounding_errors(states.rhs, runtime.tol)
 
     # obtain the maximum safe dt
     amax = _nplike.max(_nplike.maximum(states.face.x.plus.a, -states.face.x.minus.a))

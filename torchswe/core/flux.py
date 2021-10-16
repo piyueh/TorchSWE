@@ -8,11 +8,11 @@
 
 """Functions for calculating discontinuous flux.
 """
+from torchswe import nplike as _nplike
 from torchswe.utils.data import States as _States
-from torchswe.utils.data import Topography as _Topography
 
 
-def get_discontinuous_flux(states: _States, topo: _Topography, gravity: float) -> _States:
+def get_discontinuous_flux(states: _States, gravity: float) -> _States:
     """Calculting the discontinuous fluxes on the both sides at cell faces.
 
     Arguments
@@ -33,71 +33,68 @@ def get_discontinuous_flux(states: _States, topo: _Topography, gravity: float) -
     """
 
     grav2 = gravity / 2.
-    topoxface2 = topo.xfcenters * topo.xfcenters
-    topoyface2 = topo.yfcenters * topo.yfcenters
 
-    # face normal to x-direction, minus side; the scheme requires reconstruct hu
-    # --------------------------------------------------------------------------
-    states.face.x.minus.hu = states.face.x.minus.h * states.face.x.minus.u
+    # face normal to x-direction: [hu, hu^2 + g(h^2)/2, huv]
+    for sign in ["minus", "plus"]:
 
-    # flux for continuity eq at x-direction is hu
-    states.face.x.minus.flux.w = states.face.x.minus.hu
+        states.face.x[sign].F[0] = states.face.x[sign].Q[1]
 
-    # flus for x-momentum eq at x-direction is hu^2 + (g*(w-z)^2)/2
-    states.face.x.minus.flux.hu = states.face.x.minus.hu * states.face.x.minus.u + \
-        grav2 * (
-            states.face.x.minus.w * states.face.x.minus.w - states.face.x.minus.w * topo.xfcenters -
-            topo.xfcenters * states.face.x.minus.w + topoxface2)
+        states.face.x[sign].F[1] = \
+            states.face.x[sign].Q[1] * states.face.x[sign].U[1] + \
+            grav2 * (states.face.x[sign].U[0]**2)  # h = U[0] = Q[0] - xfcenter from `reconstruct`
 
-    # flux for y-momentum eq at x-direction is huv
-    states.face.x.minus.flux.hv = states.face.x.minus.hu * states.face.x.minus.v
+        states.face.x[sign].F[2] = states.face.x[sign].Q[1] * states.face.x[sign].U[2]
 
-    # face normal to x-direction, plus side; the scheme requires reconstruct hu
-    # --------------------------------------------------------------------------
-    states.face.x.plus.hu = states.face.x.plus.h * states.face.x.plus.u
+    # face normal to y-direction: [hv, huv, hv^2+g(h^2)/2]
+    for sign in ["minus", "plus"]:
 
-    # flux for continuity eq at x-direction is hu
-    states.face.x.plus.flux.w = states.face.x.plus.hu
+        states.face.y[sign].F[0] = states.face.y[sign].Q[2]
 
-    # flus for x-momentum eq at x-direction is hu^2 + (g*(w-z)^2)/2
-    states.face.x.plus.flux.hu = states.face.x.plus.hu * states.face.x.plus.u + \
-        grav2 * (
-            states.face.x.plus.w * states.face.x.plus.w - states.face.x.plus.w * topo.xfcenters -
-            topo.xfcenters * states.face.x.plus.w + topoxface2)
+        states.face.y[sign].F[1] = states.face.y[sign].U[1] * states.face.y[sign].Q[2]
 
-    # flux for y-momentum eq at x-direction is huv
-    states.face.x.plus.flux.hv = states.face.x.plus.hu * states.face.x.plus.v
+        states.face.y[sign].F[2] = \
+            states.face.y[sign].Q[2] * states.face.y[sign].U[2] + \
+            grav2 * (states.face.y[sign].U[0]**2)
 
-    # face normal to y-direction, minus side; the scheme requires reconstruct hv
-    # --------------------------------------------------------------------------
-    states.face.y.minus.hv = states.face.y.minus.h * states.face.y.minus.v
+    return states
 
-    # flux for continuity eq at y-direction is hv
-    states.face.y.minus.flux.w = states.face.y.minus.hv
 
-    # flux for x-momentum eq at y-direction is huv
-    states.face.y.minus.flux.hu = states.face.y.minus.u * states.face.y.minus.hv
+def central_scheme(states: _States, tol: float = 1e-12) -> _States:
+    """A central scheme to calculate numerical flux at interfaces.
 
-    # flus for y-momentum eq at y-direction is hv^2 + (g*(w-z)^2)/2
-    states.face.y.minus.flux.hv = states.face.y.minus.hv * states.face.y.minus.v + \
-        grav2 * (
-            states.face.y.minus.w * states.face.y.minus.w - states.face.y.minus.w * topo.yfcenters -
-            topo.yfcenters * states.face.y.minus.w + topoyface2)
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    tol : float
+        The tolerance that can be considered as zero.
 
-    # face normal to y-direction, plus side; the scheme requires reconstruct hv
-    # --------------------------------------------------------------------------
-    states.face.y.plus.hv = states.face.y.plus.h * states.face.y.plus.v
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Updated in-place. Returning it just for coding style.
+    """
 
-    # flux for continuity eq at y-direction is hv
-    states.face.y.plus.flux.w = states.face.y.plus.hv
+    for axis in ["x", "y"]:
 
-    # flux for x-momentum eq at y-direction is huv
-    states.face.y.plus.flux.hu = states.face.y.plus.u * states.face.y.plus.hv
+        denominator = states.face[axis].plus.a - states.face[axis].minus.a
 
-    # flus for y-momentum eq at y-direction is hv^2 + (g*(w-z)^2)/2
-    states.face.y.plus.flux.hv = states.face.y.plus.hv * states.face.y.plus.v + \
-        grav2 * (
-            states.face.y.plus.w * states.face.y.plus.w - states.face.y.plus.w * topo.yfcenters -
-            topo.yfcenters * states.face.y.plus.w + topoyface2)
+        # NOTE =====================================================================================
+        # If `demoninator` is zero, then both `states.face[axis].plus.a` and
+        # `states.face[axis].minus.a` should also be zero.
+        # ==========================================================================================
+
+        coeff = states.face[axis].plus.a * states.face[axis].minus.a
+
+        # if denominator == 0, the division result will just be the zeros
+        j, i = _nplike.nonzero(_nplike.logical_and(denominator > -tol, denominator < tol))
+
+        with _nplike.errstate(divide="ignore", invalid="ignore"):
+            states.face[axis].H = (
+                states.face[axis].plus.a * states.face[axis].minus.F -
+                states.face[axis].minus.a * states.face[axis].plus.F +
+                coeff * (states.face[axis].plus.Q - states.face[axis].minus.Q)
+            ) / denominator
+
+        states.face[axis].H[:, j, i] = 0.
 
     return states

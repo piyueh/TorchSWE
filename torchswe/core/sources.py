@@ -34,13 +34,10 @@ def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -
     states : torchswe.utils.data.States
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
+    slc = slice(states.ngh, -states.ngh)
 
-    internal = slice(states.ngh, -states.ngh)
-    grav_depth = - config.params.gravity * (states.q.w[internal, internal] - runtime.topo.centers)
-
-    states.rhs.hu += runtime.topo.xgrad * grav_depth  # add to rhs in-place
-    states.rhs.hv += runtime.topo.ygrad * grav_depth  # add to rhs in-place
-
+    # auto-broadcasting; add to rhs in-place
+    states.S[1:, ...] -= (config.params.gravity * states.U[0, slc, slc] * runtime.topo.grad)
     return states
 
 
@@ -72,7 +69,6 @@ def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> 
     switch time point for the next point source profile.
     """
 
-
     if runtime.ptsource is None:
         return states
 
@@ -97,6 +93,6 @@ def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> 
             ptsource.active = False  # otherwise, reach the final rate
             _logger.debug("Point source `allowed_dt` has switched to None")
 
-    states.rhs.w[ptsource.j, ptsource.i] += ptsource.rates[ptsource.irate]
+    states.S[0, ptsource.j, ptsource.i] += ptsource.rates[ptsource.irate]
 
     return states

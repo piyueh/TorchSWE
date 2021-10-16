@@ -28,12 +28,9 @@ from torchswe.utils.data import Gridline as _Gridline
 from torchswe.utils.data import Timeline as _Timeline
 from torchswe.utils.data import Domain as _Domain
 from torchswe.utils.data import Topography as _Topography
-from torchswe.utils.data import WHUHVModel as _WHUHVModel
-from torchswe.utils.data import HUVModel as _HUVModel
 from torchswe.utils.data import FaceOneSideModel as _FaceOneSideModel
 from torchswe.utils.data import FaceTwoSideModel as _FaceTwoSideModel
 from torchswe.utils.data import FaceQuantityModel as _FaceQuantityModel
-from torchswe.utils.data import Slopes as _Slopes
 from torchswe.utils.data import States as _States
 from torchswe.utils.data import PointSource as _PointSource
 from torchswe.utils.netcdf import read as _ncread
@@ -234,15 +231,15 @@ def get_topography(domain, elev, demx, demy):
     yface = (vert[:, :-1] + vert[:, 1:]) / 2.
 
     # gradient at cell centers through central difference; here allows nonuniform grids
+    grad = _nplike.zeros((2,)+cntr.shape, dtype=cntr.dtype)
     dx = (domain.x.vertices[1:] - domain.x.vertices[:-1])[None, :]
-    xgrad = (xface[:, 1:] - xface[:, :-1]) / dx
+    grad[0, ...] = (xface[:, 1:] - xface[:, :-1]) / dx
     dy = (domain.y.vertices[1:] - domain.y.vertices[:-1])[:, None]
-    ygrad = (yface[1:, :] - yface[:-1, :]) / dy
+    grad[1, ...] = (yface[1:, :] - yface[:-1, :]) / dy
 
     # initialize DataModel and let pydantic validates data
     return _Topography(
-        domain=domain, vertices=vert, centers=cntr, xfcenters=xface,
-        yfcenters=yface, xgrad=xgrad, ygrad=ygrad)
+        domain=domain, vertices=vert, centers=cntr, xfcenters=xface, yfcenters=yface, grad=grad)
 
 
 def get_topography_from_file(file: _pathlib.Path, key: str, domain: _Domain):
@@ -262,83 +259,40 @@ def get_topography_from_file(file: _pathlib.Path, key: str, domain: _Domain):
     return topo
 
 
-def get_empty_whuhvmodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) WHUHVModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A WHUHVModel with zero arrays.
-    """
-    dtype = _DummyDtype.validator(dtype)
-    w = _nplike.zeros((ny, nx), dtype=dtype)
-    hu = _nplike.zeros((ny, nx), dtype=dtype)
-    hv = _nplike.zeros((ny, nx), dtype=dtype)
-    return _WHUHVModel(nx=nx, ny=ny, dtype=dtype, w=w, hu=hu, hv=hv)
-
-
-def get_empty_huvmodel(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) HUVModel.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A HUVModel with zero arrays.
-    """
-    dtype = _DummyDtype.validator(dtype)
-    h = _nplike.zeros((ny, nx), dtype=dtype)
-    u = _nplike.zeros((ny, nx), dtype=dtype)
-    v = _nplike.zeros((ny, nx), dtype=dtype)
-    return _HUVModel(nx=nx, ny=ny, dtype=dtype, h=h, u=u, v=v)
-
-
-def get_empty_faceonesidemodel(nx: int, ny: int, dtype: str):
+def get_empty_faceonesidemodel(shape: _Tuple[int, int], dtype: str):
     """Get an empty (i.e., zero arrays) FaceOneSideModel.
 
     Arguments
     ---------
-    nx, ny : int
+    shape : a tuple of two int
     dtype : str, nplike.float32, nplike.float64
 
     Returns
     -------
-    A FaceOneSideModel with zero arrays.
+    A FaceOneSideModel with zero arrays. The shapes are: Q.shape = (3, n1, n2), a.shape = (n1, n2),
+    and F.shape = (3, n1, n2).
     """
     dtype = _DummyDtype.validator(dtype)
     return _FaceOneSideModel(
-        nx=nx, ny=ny, dtype=dtype, w=_nplike.zeros((ny, nx), dtype=dtype),
-        hu=_nplike.zeros((ny, nx), dtype=dtype), hv=_nplike.zeros((ny, nx), dtype=dtype),
-        h=_nplike.zeros((ny, nx), dtype=dtype), u=_nplike.zeros((ny, nx), dtype=dtype),
-        v=_nplike.zeros((ny, nx), dtype=dtype), a=_nplike.zeros((ny, nx), dtype=dtype),
-        flux=get_empty_whuhvmodel(nx, ny, dtype)
-    )
+        Q=_nplike.zeros((3,)+shape, dtype=dtype), U=_nplike.zeros((3,)+shape, dtype=dtype),
+        a=_nplike.zeros(shape, dtype=dtype), F=_nplike.zeros((3,)+shape, dtype))
 
 
-def get_empty_facetwosidemodel(nx: int, ny: int, dtype: str):
+def get_empty_facetwosidemodel(shape: _Tuple[int, int], dtype: str):
     """Get an empty (i.e., zero arrays) FaceTwoSideModel.
 
     Arguments
     ---------
-    nx, ny : int
+    shape : a tuple of two int
     dtype : str, nplike.float32, nplike.float64
 
     Returns
     -------
     A FaceTwoSideModel with zero arrays.
     """
-    return _FaceTwoSideModel(
-        plus=get_empty_faceonesidemodel(nx, ny, dtype),
-        minus=get_empty_faceonesidemodel(nx, ny, dtype),
-        num_flux=get_empty_whuhvmodel(nx, ny, dtype)
-    )
+    dtype = _DummyDtype.validator(dtype)
+    return _FaceTwoSideModel(plus=get_empty_faceonesidemodel(shape, dtype),
+        minus=get_empty_faceonesidemodel(shape, dtype), H=_nplike.zeros((3,)+shape, dtype))
 
 
 def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
@@ -347,6 +301,7 @@ def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
     Arguments
     ---------
     nx, ny : int
+        Number of grid cells.
     dtype : str, nplike.float32, nplike.float64
 
     Returns
@@ -354,26 +309,8 @@ def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
     A FaceQuantityModel with zero arrays.
     """
     return _FaceQuantityModel(
-        x=get_empty_facetwosidemodel(nx+1, ny, dtype),
-        y=get_empty_facetwosidemodel(nx, ny+1, dtype),
-    )
-
-
-def get_empty_slopes(nx: int, ny: int, dtype: str):
-    """Get an empty (i.e., zero arrays) Slopes.
-
-    Arguments
-    ---------
-    nx, ny : int
-    dtype : str, nplike.float32, nplike.float64
-
-    Returns
-    -------
-    A Slopes with zero arrays.
-    """
-    return _Slopes(
-        x=get_empty_whuhvmodel(nx+2, ny, dtype),
-        y=get_empty_whuhvmodel(nx, ny+2, dtype),
+        x=get_empty_facetwosidemodel((ny, nx+1), dtype),
+        y=get_empty_facetwosidemodel((ny+1, nx), dtype),
     )
 
 
@@ -394,34 +331,12 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     dtype = domain.x.dtype
     return _States(
         domain=domain, ngh=ngh,
-        q=get_empty_whuhvmodel(nx+2*ngh, ny+2*ngh, dtype),
-        slp=get_empty_slopes(nx, ny, dtype),
-        rhs=get_empty_whuhvmodel(nx, ny, dtype),
-        stiff=(get_empty_whuhvmodel(nx, ny, dtype) if use_stiff else None),
+        Q=_nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype),
+        U=_nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype),
+        S=_nplike.zeros((3, ny, nx), dtype=dtype),
+        SS=(_nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None),
         face=get_empty_facequantitymodel(nx, ny, dtype)
     )
-
-
-def get_initial_states_from_config(comm: _MPI.Comm, config: _Config):
-    """Get an initial states based on a configuration object.
-    """
-
-    # get parallel process, x, y, and domain
-    process = get_process(comm, *config.spatial.discretization)
-
-    x = get_gridline(
-        "x", process.pnx, process.pi, config.spatial.discretization[0],
-        config.spatial.domain[0], config.spatial.domain[1], config.params.dtype)
-
-    y = get_gridline(
-        "y", process.pny, process.pj, config.spatial.discretization[1],
-        config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
-
-    domain = get_domain(process, x, y)
-
-    # get states
-    states = get_initial_states(domain, config.ic, config.params.ngh, (config.ptsource is not None))
-    return states
 
 
 def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int, use_stiff: bool):
@@ -445,9 +360,8 @@ def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int, use_stiff: bool
 
     # special case: constant I.C.
     if ic.values is not None:
-        states.q.w[ngh:-ngh, ngh:-ngh] = ic.values[0]
-        states.q.hu[ngh:-ngh, ngh:-ngh] = ic.values[1]
-        states.q.hv[ngh:-ngh, ngh:-ngh] = ic.values[2]
+        for i in range(3):
+            states.Q[i, ngh:-ngh, ngh:-ngh] = ic.values[i]
         states.check()
         return states
 
@@ -470,33 +384,39 @@ def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int, use_stiff: bool
     # unfortunately, we need to do interpolation in such a situation
     if interp:
         _logger.warning("Grids do not match. Doing spline interpolation.")
-        w = _nplike.array(
-            _interpolate(
-                icdata["x"], icdata["y"], icdata[ic.keys[0]].T, domain.x.centers, domain.y.centers
-            ).T
-        )
-
-        hu = _nplike.array(
-            _interpolate(
-                icdata["x"], icdata["y"], icdata[ic.keys[1]].T, domain.x.centers, domain.y.centers
-            ).T
-        )
-
-        hv = _nplike.array(
-            _interpolate(
-                icdata["x"], icdata["y"], icdata[ic.keys[2]].T, domain.x.centers, domain.y.centers
-            ).T
-        )
+        for i in range(3):
+            states.Q[i, ngh:-ngh, ngh:-ngh] = _nplike.array(
+                _interpolate(
+                    icdata["x"], icdata["y"], icdata[ic.keys[i]].T,
+                    domain.x.centers, domain.y.centers).T
+            )
     else:
-        w = icdata[ic.keys[0]]
-        hu = icdata[ic.keys[1]]
-        hv = icdata[ic.keys[2]]
+        for i in range(3):
+            states.Q[i, ngh:-ngh, ngh:-ngh] = icdata[ic.keys[i]]
 
-    states.q.w[ngh:-ngh, ngh:-ngh] = w
-    states.q.hu[ngh:-ngh, ngh:-ngh] = hu
-    states.q.hv[ngh:-ngh, ngh:-ngh] = hv
     states.check()
+    return states
 
+
+def get_initial_states_from_config(comm: _MPI.Comm, config: _Config):
+    """Get an initial states based on a configuration object.
+    """
+
+    # get parallel process, x, y, and domain
+    process = get_process(comm, *config.spatial.discretization)
+
+    x = get_gridline(
+        "x", process.pnx, process.pi, config.spatial.discretization[0],
+        config.spatial.domain[0], config.spatial.domain[1], config.params.dtype)
+
+    y = get_gridline(
+        "y", process.pny, process.pj, config.spatial.discretization[1],
+        config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
+
+    domain = get_domain(process, x, y)
+
+    # get states
+    states = get_initial_states(domain, config.ic, config.params.ngh, (config.friction is not None))
     return states
 
 

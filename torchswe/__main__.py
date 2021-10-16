@@ -128,8 +128,8 @@ def config_runtime(comm, config, logger):
     logger.info("Obtained a Topography object")
 
     # make sure initial depths are non-negative
-    states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh] = nplike.maximum(
-        runtime.topo.centers, states.q.w[states.ngh:-states.ngh, states.ngh:-states.ngh])
+    states.Q[0, states.ngh:-states.ngh, states.ngh:-states.ngh] = nplike.maximum(
+        runtime.topo.centers, states.Q[0, states.ngh:-states.ngh, states.ngh:-states.ngh])
     states.check()
 
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
@@ -210,7 +210,7 @@ def main():
     # create an NetCDF file and append I.C.
     if runtime.times.save:
         create_empty_soln_file(runtime.outfile, soln.domain, runtime.times)
-        write_soln_to_file(runtime.outfile, soln.domain, soln.q, runtime.times[0], 0, soln.ngh)
+        write_soln_to_file(runtime.outfile, soln, runtime.times[0], 0)
         logger.info("Done writing the initial solution to the NetCDF file.")
     else:
         logger.info("No need to save data for \"no save\" method.")
@@ -229,7 +229,7 @@ def main():
 
         # append to the NetCDF file
         if runtime.times.save:
-            write_soln_to_file(runtime.outfile, soln.domain, soln.q, runtime.next_t, tidx, soln.ngh)
+            write_soln_to_file(runtime.outfile, soln, runtime.next_t, tidx)
             logger.info("Done writing the solution at T=%s to the NetCDF file.", runtime.next_t)
 
     logger.info("Done time marching.")

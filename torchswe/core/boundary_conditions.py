@@ -22,24 +22,31 @@ _extrap_seq = {
 }
 
 _extrap_anchor = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh, ngh+1)),      # shape (n, 1)
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-1, -ngh)),    # shape (n, 1)
-    "north": lambda ngh: (slice(-ngh-1, -ngh), slice(ngh, -ngh)),   # shape (1, n)
-    "south": lambda ngh: (slice(ngh, ngh+1), slice(ngh, -ngh))      # shape (1, n)
+    "west": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(ngh, ngh+1)),       # shape (n, 1)
+    "east": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(-ngh-1, -ngh)),     # shape (n, 1)
+    "north": lambda comp, ngh: (comp, slice(-ngh-1, -ngh), slice(ngh, -ngh)),    # shape (1, n)
+    "south": lambda comp, ngh: (comp, slice(ngh, ngh+1), slice(ngh, -ngh))       # shape (1, n)
 }
 
 _extrap_delta_slc = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(ngh+1, ngh+2)),        # shape (n, 1)
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh-2, -ngh-1)),      # shape (n, 1)
-    "north": lambda ngh: (slice(-ngh-2, -ngh-1), slice(ngh, -ngh)),     # shape (1, n)
-    "south": lambda ngh: (slice(ngh+1, ngh+2), slice(ngh, -ngh))        # shape (1, n)
+    "west": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(ngh+1, ngh+2)),     # shape (n, 1)
+    "east": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(-ngh-2, -ngh-1)),   # shape (n, 1)
+    "north": lambda comp, ngh: (comp, slice(-ngh-2, -ngh-1), slice(ngh, -ngh)),  # shape (1, n)
+    "south": lambda comp, ngh: (comp, slice(ngh+1, ngh+2), slice(ngh, -ngh))     # shape (1, n)
 }
 
-_extrap_slc = {
-    "west": lambda ngh: (slice(ngh, -ngh), slice(0, ngh)),          # shape (n, ngh)
-    "east": lambda ngh: (slice(ngh, -ngh), slice(-ngh, None)),      # shape (n, ngh)
-    "north": lambda ngh: (slice(-ngh, None), slice(ngh, -ngh)),     # shape (ngh, n)
-    "south": lambda ngh: (slice(0, ngh), slice(ngh, -ngh))          # shape (ngh, n)
+_target_slc = {
+    "west": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(0, ngh)),           # shape (n, ngh)
+    "east": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(-ngh, None)),       # shape (n, ngh)
+    "north": lambda comp, ngh: (comp, slice(-ngh, None), slice(ngh, -ngh)),      # shape (ngh, n)
+    "south": lambda comp, ngh: (comp, slice(0, ngh), slice(ngh, -ngh))           # shape (ngh, n)
+}
+
+_periodic_slc = {
+    "west": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(-2*ngh, -ngh)),     # shape (n, ngh)
+    "east": lambda comp, ngh: (comp, slice(ngh, -ngh), slice(ngh, 2*ngh)),       # shape (n, ngh)
+    "north": lambda comp, ngh: (comp, slice(ngh, 2*ngh), slice(ngh, -ngh)),      # shape (ngh, n)
+    "south": lambda comp, ngh: (comp, slice(-2*ngh, -ngh), slice(ngh, -ngh))     # shape (ngh, n)
 }
 
 _inflow_topo_key = {
@@ -57,14 +64,16 @@ _inflow_topo_slc = {
 }
 
 
-def periodic_factory(ngh: int, orientation: str):
+def periodic_factory(comp: int, ngh: int, ornt: str):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
+    comp : int
+        The component in a conservative vector. 0 for w, 1 for hu, and 2 for hv.
     ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
-    orientation : str
+    ornt : str
         A string of one of the following orientation: "west", "east", "north", or "south".
 
     Returns
@@ -73,37 +82,29 @@ def periodic_factory(ngh: int, orientation: str):
     arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    def periodic_west(conserv_q):
-        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, -ngh-ngh:-ngh]
+    target = _target_slc[ornt](comp, ngh)
+    source = _periodic_slc[ornt](comp, ngh)
+
+    def periodic(conserv_q):
+        conserv_q[target] = conserv_q[source]
         return conserv_q
 
-    def periodic_east(conserv_q):
-        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, ngh:ngh+ngh]
-        return conserv_q
+    periodic.target = target
+    periodic.source = source
 
-    def periodic_south(conserv_q):
-        conserv_q[:ngh, ngh:-ngh] = conserv_q[-ngh-ngh:-ngh, ngh:-ngh]
-        return conserv_q
-
-    def periodic_north(conserv_q):
-        conserv_q[-ngh:, ngh:-ngh] = conserv_q[ngh:ngh+ngh, ngh:-ngh]
-        return conserv_q
-
-    candidates = {
-        "west": periodic_west, "east": periodic_east,
-        "south": periodic_south, "north": periodic_north, }
-
-    return candidates[orientation]
+    return periodic
 
 
-def outflow_factory(ngh: int, orientation: str):
+def outflow_factory(comp: int, ngh: int, ornt: str):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
+    comp : int
+        The component in a conservative vector. 0 for w, 1 for hu, and 2 for hv.
     ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
-    orientation : str
+    ornt : str
         A string of one of the following orientation: "west", "east", "north", or "south".
 
     Returns
@@ -112,37 +113,29 @@ def outflow_factory(ngh: int, orientation: str):
     arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    def outflow_west(conserv_q):
-        conserv_q[ngh:-ngh, :ngh] = conserv_q[ngh:-ngh, ngh:ngh+1]
+    target = _target_slc[ornt](comp, ngh)
+    source = _extrap_anchor[ornt](comp, ngh)
+
+    def outflow(conserv_q):
+        conserv_q[target] = conserv_q[source]
         return conserv_q
 
-    def outflow_east(conserv_q):
-        conserv_q[ngh:-ngh, -ngh:] = conserv_q[ngh:-ngh, -ngh-1:-ngh]
-        return conserv_q
+    outflow.target = target
+    outflow.source = source
 
-    def outflow_south(conserv_q):
-        conserv_q[:ngh, ngh:-ngh] = conserv_q[ngh:ngh+1, ngh:-ngh]
-        return conserv_q
-
-    def outflow_north(conserv_q):
-        conserv_q[-ngh:, ngh:-ngh] = conserv_q[-ngh-1:-ngh, ngh:-ngh]
-        return conserv_q
-
-    candidates = {
-        "west": outflow_west, "east": outflow_east,
-        "south": outflow_south, "north": outflow_north, }
-
-    return candidates[orientation]
+    return outflow
 
 
-def linear_extrap_factory(ngh, orientation, dtype):
+def linear_extrap_factory(comp: int, ngh: int, ornt: str, dtype: str):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
+    comp : int
+        The component in a conservative vector. 0 for w, 1 for hu, and 2 for hv.
     ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
-    orientation : str
+    ornt : str
         A string of one of the following orientation: "west", "east", "north", or "south".
     dtype : str
         Either "float64" or "float32".
@@ -153,10 +146,10 @@ def linear_extrap_factory(ngh, orientation, dtype):
     arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    seq = _extrap_seq[orientation](ngh, dtype)
-    anchor = _extrap_anchor[orientation](ngh)
-    delta_slc = _extrap_delta_slc[orientation](ngh)
-    slc = _extrap_slc[orientation](ngh)
+    target = _target_slc[ornt](comp, ngh)
+    source = _extrap_anchor[ornt](comp, ngh)
+    diff = _extrap_delta_slc[ornt](comp, ngh)
+    seq = _extrap_seq[ornt](ngh, dtype)
 
     def linear_extrap(conserv_q):
         """Update the ghost cells with outflow BC using linear extrapolation.
@@ -169,31 +162,33 @@ def linear_extrap_factory(ngh, orientation, dtype):
         -------
         Updated conserv_q.
         """
-        delta = conserv_q[anchor] - conserv_q[delta_slc]
-        conserv_q[slc] = conserv_q[anchor] + seq * delta
+        delta = conserv_q[source] - conserv_q[diff]
+        conserv_q[target] = conserv_q[source] + seq * delta
         return conserv_q
 
+    linear_extrap.target = target
+    linear_extrap.source = source
+    linear_extrap.diff = diff
     linear_extrap.seq = seq
-    linear_extrap.anchor = anchor
-    linear_extrap.delta_slc = delta_slc
-    linear_extrap.slc = slc
 
     return linear_extrap
 
 
-def constant_bc_factory(const, ngh, orientation, dtype):
+def constant_bc_factory(comp: int, ngh: int, ornt: str, dtype: str, const: float):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    const : float
-        The constant of either w, hu, or hv, depending the values in component.
+    comp : int
+        The component in a conservative vector. 0 for w, 1 for hu, and 2 for hv.
     ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
-    orientation : str
+    ornt : str
         A string of one of the following orientation: "west", "east", "north", or "south".
     dtype : str
         Either "float64" or "float32".
+    const : float
+        The constant of either w, hu, or hv, depending the values in component.
 
     Returns
     -------
@@ -201,9 +196,9 @@ def constant_bc_factory(const, ngh, orientation, dtype):
     arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    seq = _extrap_seq[orientation](ngh, dtype)
-    anchor = _extrap_anchor[orientation](ngh)
-    slc = _extrap_slc[orientation](ngh)
+    target = _target_slc[ornt](comp, ngh)
+    source = _extrap_anchor[ornt](comp, ngh)
+    seq = _extrap_seq[ornt](ngh, dtype)
 
     def constant_bc(conserv_q):
         """Update the ghost cells with constant BC using linear extrapolation.
@@ -216,35 +211,35 @@ def constant_bc_factory(const, ngh, orientation, dtype):
         -------
         Updated conserv_q.
         """
-        delta = (const - conserv_q[anchor]) * 2.
-        conserv_q[slc] = conserv_q[anchor] + seq * delta
+        delta = (const - conserv_q[source]) * 2.
+        conserv_q[target] = conserv_q[source] + seq * delta
         return conserv_q
 
-    constant_bc.const = const
+    constant_bc.target = target
+    constant_bc.source = source
     constant_bc.seq = seq
-    constant_bc.anchor = anchor
-    constant_bc.slc = slc
+    constant_bc.const = const
 
     return constant_bc
 
 
-def inflow_bc_factory(const, ngh, orientation, topo, component, dtype):
+def inflow_bc_factory(comp: int, ngh: int, ornt: str, dtype: str, const: float, topo: _Topography):
     """A function factory to create a ghost-cell updating function.
 
     Arguments
     ---------
-    const : float
-        The constant of either h, u, or v, depending the values in component.
+    comp : int
+        The component in a conservative vector. 0 for w, 1 for hu, and 2 for hv.
     ngh : int
         An integer for the number of ghost-cell layers outside each boundary.
-    orientation : str
+    ornt : str
         A string of one of the following orientation: "west", "east", "north", or "south".
-    topo : torchswe.utils.data.Topography
-        An instance of the topography data model.
-    component : int
-        Which quantity will this function be applied to -- 0 for w, 1 for hu, and 2 for hv.
     dtype : str
         Either "float64" or "float32".
+    const : float
+        The constant of either h, u, or v, depending the values in component.
+    topo : torchswe.utils.data.Topography
+        An instance of the topography data model.
 
     Returns
     -------
@@ -252,38 +247,35 @@ def inflow_bc_factory(const, ngh, orientation, topo, component, dtype):
     arrays have a shape of (3, ny+2*ngh, nx+2*ngh).
     """
 
-    seq = _extrap_seq[orientation](ngh, dtype)
-    anchor = _extrap_anchor[orientation](ngh)
-    slc = _extrap_slc[orientation](ngh)
-    topo_cache = topo[_inflow_topo_key[orientation]]
-    bcslc = _inflow_topo_slc[orientation]
-    w_idx = _extrap_anchor[orientation](ngh)
+    target = _target_slc[ornt](comp, ngh)
+    source = _extrap_anchor[ornt](comp, ngh)
+    w_source = _extrap_anchor[ornt](0, ngh)
+    seq = _extrap_seq[ornt](ngh, dtype)
+    topo_cache = topo[_inflow_topo_key[ornt]][_inflow_topo_slc[ornt]]
 
     def inflow_bc_depth(conserv_q):
-        delta = (const + topo_cache[bcslc] - conserv_q[anchor]) * 2
-        conserv_q[slc] = conserv_q[anchor] + seq * delta
+        delta = (const + topo_cache - conserv_q[source]) * 2
+        conserv_q[target] = conserv_q[source] + seq * delta
         return conserv_q
 
-    inflow_bc_depth.const = const
+    inflow_bc_depth.target = target
+    inflow_bc_depth.source = source
     inflow_bc_depth.seq = seq
-    inflow_bc_depth.anchor = anchor
-    inflow_bc_depth.slc = slc
+    inflow_bc_depth.const = const
     inflow_bc_depth.topo_cache = topo_cache
-    inflow_bc_depth.bcslc = bcslc
 
     def inflow_bc_velocity(conserv_q):
-        depth = _nplike.maximum(conserv_q[w_idx]-topo_cache[bcslc], 0.)
-        delta = (const * depth - conserv_q[anchor]) * 2
-        conserv_q[slc] = conserv_q[anchor] + seq * delta
+        depth = _nplike.maximum(conserv_q[w_source]-topo_cache, 0.)
+        delta = (const * depth - conserv_q[source]) * 2
+        conserv_q[target] = conserv_q[source] + seq * delta
         return conserv_q
 
-    inflow_bc_velocity.const = const
+    inflow_bc_velocity.target = target
+    inflow_bc_velocity.source = source
     inflow_bc_velocity.seq = seq
-    inflow_bc_velocity.anchor = anchor
-    inflow_bc_velocity.slc = slc
+    inflow_bc_velocity.const = const
     inflow_bc_velocity.topo_cache = topo_cache
-    inflow_bc_velocity.bcslc = bcslc
-    inflow_bc_velocity.w_idx = w_idx
+    inflow_bc_velocity.w_source = w_source
 
     inflow_bc_depth.__doc__ = inflow_bc_velocity.__doc__ = \
     """Update the ghost cells for inflow boundary conditions.
@@ -300,7 +292,7 @@ def inflow_bc_factory(const, ngh, orientation, topo, component, dtype):
     Updated conserv_q.
     """  # noqa: E122
 
-    if component == 0:
+    if comp == 0:
         return inflow_bc_depth
 
     return inflow_bc_velocity
@@ -349,24 +341,24 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
         # all other types of BCs
         # ----------------------
         funcs[ornt] = {}  # initialize the dictionary for this orientation
-        for i, (key, bctp, bcv) in enumerate(zip(["w", "hu", "hv"], bc.types, bc.values)):
+        for i, (bctp, bcv) in enumerate(zip(bc.types, bc.values)):
 
             # constant extrapolation BC (outflow)
             if bctp == "outflow":
-                funcs[ornt][key] = outflow_factory(states.ngh, ornt)
+                funcs[ornt][i] = outflow_factory(i, states.ngh, ornt)
 
             # linear extrapolation BC
             elif bctp == "extrap":
-                funcs[ornt][key] = linear_extrap_factory(states.ngh, ornt, states.q.dtype)
+                funcs[ornt][i] = linear_extrap_factory(i, states.ngh, ornt, states.Q.dtype)
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
-                funcs[ornt][key] = constant_bc_factory(bcv, states.ngh, ornt, states.q.dtype)
+                funcs[ornt][i] = constant_bc_factory(i, states.ngh, ornt, states.Q.dtype, bcv)
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
                 topo.check()
-                funcs[ornt][key] = inflow_bc_factory(bcv, states.ngh, ornt, topo, i, states.q.dtype)
+                funcs[ornt][i] = inflow_bc_factory(i, states.ngh, ornt, states.Q.dtype, bcv, topo)
 
             # this shouldn't happen because pydantic should have catched the error
             else:
@@ -378,8 +370,8 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
     # this is the function that will be retuned by this function factory
     def updater(soln: _States):
         for func in funcs.values():  # if funcs is an empty dictionary, this will skip it
-            for key in ["w", "hu", "hv"]:
-                soln.q[key] = func[key](soln.q[key])
+            for i in range(3):
+                soln.Q = func[i](soln.Q)
 
         # exchange data on internal boundaries between MPI processes (also periodic BCs)
         soln.exchange_data()

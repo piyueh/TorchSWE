@@ -79,9 +79,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update
-        states.q.w[internal, internal] += (states.rhs.w * runtime.dt)
-        states.q.hu[internal, internal] += (states.rhs.hu * runtime.dt)
-        states.q.hv[internal, internal] += (states.rhs.hv * runtime.dt)
+        states.Q[:, internal, internal] += (states.S * runtime.dt)
         states = runtime.gh_updater(states)
 
         # update iteration index and time
@@ -90,7 +88,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.q.w[internal, internal].sum() * cell_area - soil_vol
+            fluid_vol = states.Q[0, internal, internal].sum() * cell_area - soil_vol
             fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
@@ -141,7 +139,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     states = runtime.gh_updater(states)
 
     # to hold previous solution
-    prev_q = _copy.deepcopy(states.q)
+    prev_q = _copy.deepcopy(states.Q[:, nongh, nongh])
 
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
@@ -162,21 +160,15 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
-        states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
-        states.q.hu[nongh, nongh] += (states.rhs.hu * runtime.dt)
-        states.q.hv[nongh, nongh] += (states.rhs.hv * runtime.dt)
+        states.Q[:, nongh, nongh] += (states.S * runtime.dt)
         states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
 
         # calculate u_{n+1} = (u_{n} + u^1 + dt * RHS(u^1)) / 2.
-        states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] + states.rhs.w * runtime.dt)
-        states.q.w[nongh, nongh] /= 2
-        states.q.hu[nongh, nongh] += (prev_q.hu[nongh, nongh] + states.rhs.hu * runtime.dt)
-        states.q.hu[nongh, nongh] /= 2
-        states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] + states.rhs.hv * runtime.dt)
-        states.q.hv[nongh, nongh] /= 2
+        states.Q[:, nongh, nongh] += (prev_q + states.S * runtime.dt)
+        states.Q /= 2  # doesn't matter whether ghost cells are also divided by 2
         states = runtime.gh_updater(states)
 
         # update iteration index and time
@@ -185,7 +177,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.q.w[nongh, nongh].sum() * cell_area - soil_vol
+            fluid_vol = states.Q[0, nongh, nongh].sum() * cell_area - soil_vol
             fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
@@ -194,7 +186,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
             break
 
         # for the next time step; copying values should be faster than allocating new arrays
-        prev_q.w[...], prev_q.hu[...], prev_q.hv[...] = states.q.w, states.q.hu, states.q.hv
+        prev_q[...] = states.Q[:, nongh, nongh]
 
     return states
 
@@ -241,7 +233,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     states = runtime.gh_updater(states)
 
     # to hold previous solution
-    prev_q = _copy.deepcopy(states.q)
+    prev_q = _copy.deepcopy(states.Q[:, nongh, nongh])
 
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
@@ -262,36 +254,25 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
-        states.q.w[nongh, nongh] += (states.rhs.w * runtime.dt)
-        states.q.hu[nongh, nongh] += (states.rhs.hu * runtime.dt)
-        states.q.hv[nongh, nongh] += (states.rhs.hv * runtime.dt)
+        states.Q[:, nongh, nongh] += (states.S * runtime.dt)
         states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
 
         # now states.q = u^2 = (3 * u_{n} + u^1 + dt * RHS(u^1)) / 4
-        states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] * 3. + states.rhs.w * runtime.dt)
-        states.q.w[nongh, nongh] /= 4
-        states.q.hu[nongh, nongh] += (prev_q.hu[nongh, nongh] * 3. + states.rhs.hu * runtime.dt)
-        states.q.hu[nongh, nongh] /= 4
-        states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] * 3. + states.rhs.hv * runtime.dt)
-        states.q.hv[nongh, nongh] /= 4
+        states.Q[:, nongh, nongh] += (prev_q * 3. + states.S * runtime.dt)
+        states.Q /= 4.
         states = runtime.gh_updater(states)
 
         # stage 3: now states.rhs is RHS(u^2)
         states, _ = _prepare_rhs(states, runtime, config)
 
         # now states.q = u_{n+1} = (u_{n} + 2 * u^2 + 2 * dt * RHS(u^1)) / 3
-        states.q.w[nongh, nongh] *= 2  # 2 * u^2
-        states.q.w[nongh, nongh] += (prev_q.w[nongh, nongh] + states.rhs.w * runtime.dt * 2)
-        states.q.w[nongh, nongh] /= 3
-        states.q.hu[nongh, nongh] *= 2  # 2 * u^2
-        states.q.hu[nongh, nongh] += (prev_q.hu[nongh, nongh] + states.rhs.hu * runtime.dt * 2)
-        states.q.hu[nongh, nongh] /= 3
-        states.q.hv[nongh, nongh] *= 2  # 2 * u^2
-        states.q.hv[nongh, nongh] += (prev_q.hv[nongh, nongh] + states.rhs.hv * runtime.dt * 2)
-        states.q.hv[nongh, nongh] /= 3
+        states.Q[:, nongh, nongh] += (states.S * runtime.dt)
+        states.Q *= 2.
+        states.Q[:, nongh, nongh] += prev_q
+        states.Q /= 3.
         states = runtime.gh_updater(states)
 
         # update iteration index and time
@@ -300,7 +281,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.q.w[nongh, nongh].sum() * cell_area - soil_vol
+            fluid_vol = states.Q[0, nongh, nongh].sum() * cell_area - soil_vol
             fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
@@ -309,6 +290,6 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
             break
 
         # for the next time step; copying values should be faster than allocating new arrays
-        prev_q.w[...], prev_q.hu[...], prev_q.hv[...] = states.q.w, states.q.hu, states.q.hv
+        prev_q[...] = states.Q[:, nongh, nongh]
 
     return states
