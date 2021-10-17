@@ -24,15 +24,19 @@ from torchswe.utils.init import get_friction_roughness
 from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
+from torchswe.utils.friction import bellos_et_al_2018
 from torchswe.core.boundary_conditions import get_ghost_cell_updaters
 from torchswe.core.temporal import euler, ssprk2, ssprk3
-from torchswe.core.sources import topography_gradient, point_mass_source
+from torchswe.core.sources import topography_gradient, point_mass_source, friction
 
 # enforce print precision
 nplike.set_printoptions(precision=15, linewidth=200)
 
 # available time marching options
 MARCHING_OPTIONS = {"Euler": euler, "SSP-RK2": ssprk2, "SSP-RK3": ssprk3}  # available options
+
+# available friction coefficient models
+FRICTION_MODELS = {"bellos_et_al_2018": bellos_et_al_2018}
 
 
 def init(comm, args=None):
@@ -176,9 +180,16 @@ def config_runtime(comm, config, logger):
             config.ptsource.rates, states.domain, 0)
         logger.info("Obtained a point source object: %s", runtime.ptsource)
 
+    runtime.stiff_sources = []
     if config.friction is not None:
         runtime.roughness = get_friction_roughness(states.domain, config.friction)
         logger.info("Friction roughness used")
+
+        runtime.fc_model = FRICTION_MODELS[config.friction.model]
+        logger.info("Friction coefficient model: %s", config.friction.model)
+
+        runtime.stiff_sources.append(friction)
+        logger.info("Friction fucntion added to stiff source terms")
 
     return states, runtime
 

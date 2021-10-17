@@ -59,6 +59,11 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     for func in runtime.sources:
         states = func(states, runtime, config)
 
+    # add stiff source terms to states.SS
+    states.SS[...] = 0.
+    for func in runtime.stiff_sources:
+        states = func(states, runtime, config)
+
     # obtain the maximum safe dt
     amax = _nplike.max(_nplike.maximum(states.face.x.plus.a, -states.face.x.minus.a))
     bmax = _nplike.max(_nplike.maximum(states.face.y.plus.a, -states.face.y.minus.a))

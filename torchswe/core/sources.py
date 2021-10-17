@@ -9,6 +9,7 @@
 """Source terms.
 """
 import logging as _logging
+from torchswe import nplike as _nplike
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import States as _States
@@ -18,7 +19,7 @@ _logger = _logging.getLogger("torchswe.core.sources")
 
 
 def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -> _States:
-    """Adds topographic forces to `states.rhs.hu` and `states.rhs.hv` in-place.
+    """Adds topographic forces to `states.S[1]` and `states.S[2]` in-place.
 
     Arguments
     ---------
@@ -42,7 +43,7 @@ def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -
 
 
 def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> _States:
-    """Adds point source values to `states.rhs.w` in-place.
+    """Adds point source values to `states.S[0]` in-place.
 
     Arguments
     ---------
@@ -94,5 +95,39 @@ def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> 
             _logger.debug("Point source `allowed_dt` has switched to None")
 
     states.S[0, ptsource.j, ptsource.i] += ptsource.rates[ptsource.irate]
+
+    return states
+
+
+def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
+    """Add the friction forces to the stiff source term `states.SS[1]` and `states.SS[2]`.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+        Data model instance holding conservative quantities at cell centers with ghost cells.
+    runtime : torchswe.utils.misc.DummyDict
+        A DummyDict that we can access a Topography instance through `runtime.topo`.
+    config : torchswe.utils.config.Config
+        A `Config` instance. We use the gravity paramater (in m/s^2) through config.params.gravity.
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Changes are done in-place. Returning it just for coding style.
+    """
+    slc = slice(states.ngh, -states.ngh)
+    loc = (states.U[0, slc, slc] > 0.)
+
+    # views
+    h = states.U[0, slc, slc][loc]
+    hu = states.Q[1, slc, slc][loc]
+    hv = states.Q[2, slc, slc][loc]
+
+    coef = runtime.fc_model(h, hu, hv, config.props.nu, runtime.roughness)
+
+    states.SS[1:, loc] += \
+        - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) \
+        / (8. * _nplike.power(h, 2))
 
     return states
