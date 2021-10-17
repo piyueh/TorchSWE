@@ -144,8 +144,11 @@ class TemporalConfig(BaseConfig):
     @_validator("max_iters")
     def _val_max_iters(cls, v, values):
         """Validate and modify max_iters."""
-        if values["output"][0] in ["t_start every_steps multiple", "t_start n_steps no save"]:
-            v = values["output"][2]  # use per_step as max_iters
+        try:
+            if values["output"][0] in ["t_start every_steps multiple", "t_start n_steps no save"]:
+                v = values["output"][2]  # use per_step as max_iters
+        except KeyError as err:
+            raise AssertionError("Fix `output` first") from err
         return v
 
 

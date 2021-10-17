@@ -143,7 +143,7 @@ def get_timeline(temporal_config: _OutputTypeHint, dt: _Optional[float] = None):
 
     # write solutions to a file at give times
     if output_type == "at":
-        t = list(params)
+        t = params[0]
 
     # output every `every_seconds` seconds `multiple` times from `t_start`
     elif output_type == "t_start every_seconds multiple":

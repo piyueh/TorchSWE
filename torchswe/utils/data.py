@@ -265,7 +265,7 @@ class Timeline(_BaseConfig):
     save : bool
         Whether the times are for saving solutions.
     """
-    values: _Tuple[float, ...]
+    values: _Tuple[_confloat(ge=0.), ...]
     save: bool
 
     @_validator("values")
