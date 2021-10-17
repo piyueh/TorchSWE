@@ -150,9 +150,6 @@ def config_runtime(comm, config, logger):
     runtime.counter = 0  # to count the current number of iterations
     logger.info("The current iteration counter: %d", runtime.counter)
 
-    runtime.epsilon = config.params.drytol**4  # tolerance when dealing almost-dry cells
-    logger.info("Epsilon: %e", runtime.epsilon)
-
     runtime.tol = 1e-12  # up to how big can be treated as zero
     logger.info("Tolerance: %e", runtime.tol)
 
