@@ -80,6 +80,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
 
         # update
         states.Q[:, internal, internal] += (states.S * runtime.dt)
+        states.Q[:, internal, internal] /= (1 - runtime.dt * states.SS)
         states = runtime.gh_updater(states)
 
         # update iteration index and time
