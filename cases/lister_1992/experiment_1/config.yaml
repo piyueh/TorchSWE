@@ -1,0 +1,49 @@
+# This is a template comtaining all required & optional options.
+--- !Config
+
+spatial:
+  domain: [-0.2, 1.0, -0.3, 0.3]
+  discretization: [240, 120]
+
+temporal:
+  output: ["at", [0.0, 32.0, 59.0, 122.0, 271.0, 486.0, 727.0]]
+  scheme: Euler
+
+boundary:
+  west:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+  east:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+  north:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+  south:
+    types: ["extrap", "extrap", "extrap"]
+    values: [null, null, null]
+
+initial:
+  values: [0., 0., 0.]
+
+topography:
+  file: "topo.nc"
+  key: elevation
+
+point source:
+  location: [0.0, 0.0]
+  times: []
+  rates: [1.48e-6]
+
+fluid properties:
+  density: 1.
+  reference mu: 1.13e-3
+  reference temperature: 15.
+  ambient temperature: 15.
+  nu: 1.13e-3
+
+friction:
+  roughness: 0.
+
+parameters:
+  dry tolerance: 1.0e-4
