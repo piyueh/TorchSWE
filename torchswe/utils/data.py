@@ -730,6 +730,7 @@ class PointSource(_BaseConfig):
     rates: _Tuple[_confloat(strict=True, ge=0.), ...]
     irate: _conint(strict=True, ge=0)
     active: bool = True
+    init_dt: _confloat(strict=True, gt=0.)
 
     @_validator("irate")
     def _val_irate(cls, val, values):

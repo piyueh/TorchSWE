@@ -146,6 +146,10 @@ point source:
   times: [1., 2., 3.]
   rates: [1., 0.5, 0.1, 0.]
 
+  # optional; giving a constraint for the first time step (default: 1e-3)
+  # ---------------------------------------------------------------------------
+  initial dt: 1.0e-3
+
 # =============================================================================
 # Optional block: friction
 #

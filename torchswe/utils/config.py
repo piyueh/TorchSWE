@@ -294,6 +294,7 @@ class PointSourceConfig(BaseConfig):
     loc: _Tuple[_confloat(strict=True), _confloat(strict=True)] = _Field(..., alias="location")
     times: _Tuple[_confloat(strict=True), ...]
     rates: _Tuple[_confloat(strict=True, ge=0.), ...]
+    init_dt: _confloat(strict=True, gt=0.) = _Field(1e-3, alias="initial dt")
 
     @_validator("times")
     def val_times(cls, val):

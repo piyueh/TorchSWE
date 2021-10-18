@@ -175,9 +175,7 @@ def config_runtime(comm, config, logger):
         logger.info("Explicit source term: point source")
 
         # get a PointSource instance
-        runtime.ptsource = get_pointsource(
-            config.ptsource.loc[0], config.ptsource.loc[1], config.ptsource.times,
-            config.ptsource.rates, states.domain, 0)
+        runtime.ptsource = get_pointsource(config.ptsource, states.domain, 0)
         logger.info("Obtained a point source object: %s", runtime.ptsource)
 
     runtime.stiff_sources = []

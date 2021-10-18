@@ -23,6 +23,7 @@ from torchswe.utils.config import ICConfig as _ICConfig
 from torchswe.utils.config import FrictionConfig as _FrictionConfig
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.config import OutputTypeHint as _OutputTypeHint
+from torchswe.utils.config import PointSourceConfig as _PointSourceConfig
 from torchswe.utils.data import Process as _Process
 from torchswe.utils.data import Gridline as _Gridline
 from torchswe.utils.data import Timeline as _Timeline
@@ -549,20 +550,13 @@ def get_config(args: _argparse.Namespace):
     return config
 
 
-def get_pointsource(
-    x: float, y: float, times: _Tuple[float, ...], rates: _Tuple[float, ...],
-    domain: _Domain, irate: int = 0
-):
+def get_pointsource(ptconfig: _PointSourceConfig, domain: _Domain, irate: int = 0):
     """Get a PointSource instance.
 
     Arguments
     ---------
-    x, y : float
-        The x and y coordinates of this point source.
-    times : a tuple of floats
-        Times to change flow rates.
-    rates : a tiple of floats
-        Volumetrix flow rates to use during specified time intervals.
+    ptconfig : torchswe.utils.config.PointSourceConfig
+        The configuration of a point source.
     domain : torchswe.utils.data.Domain
         The object describing grids and domain decomposition.
     irate : int
@@ -570,7 +564,7 @@ def get_pointsource(
 
     Returns
     -------
-    None if the current MPI rank does not own this point source, otherwise an instance of
+    `None` if the current MPI rank does not own this point source, otherwise an instance of
     torchswe.utils.data.PointSource.
 
     Notes
@@ -578,20 +572,23 @@ def get_pointsource(
     The returned PointSource object will store depth increment rates, rather than volumetric flow
     rates.
     """
-    i = _find_cell_index(x, domain.x.lower, domain.x.upper, domain.x.delta)
-    j = _find_cell_index(y, domain.y.lower, domain.y.upper, domain.y.delta)
+    i = _find_cell_index(ptconfig.loc[0], domain.x.lower, domain.x.upper, domain.x.delta)
+    j = _find_cell_index(ptconfig.loc[1], domain.y.lower, domain.y.upper, domain.y.delta)
 
     if i is None or j is None:
         return None
 
     # convert volumetric flow rates to depth increment rates; assuming constant/uniform dx & dy
-    rates = [rate / domain.x.delta / domain.y.delta for rate in rates]
+    rates = [rate / domain.x.delta / domain.y.delta for rate in ptconfig.rates]
 
     # len(times) is 0, meaning one constant rate from the beginning to the end of a simulation
-    active = (not len(times) == 0)
+    active = (not len(ptconfig.times) == 0)
     _logger.debug("Point source initial `active`: %s", active)
 
-    return _PointSource(x=x, y=y, i=i, j=j, times=times, rates=rates, irate=irate, active=active)
+    return _PointSource(
+        x=ptconfig.loc[0], y=ptconfig.loc[1], i=i, j=j, times=ptconfig.times, rates=rates,
+        irate=irate, active=active, init_dt=ptconfig.init_dt
+    )
 
 
 def get_friction_roughness(domain: _Domain, friction: _FrictionConfig):

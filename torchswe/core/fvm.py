@@ -69,14 +69,6 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     bmax = _nplike.max(_nplike.maximum(states.face.y.plus.a, -states.face.y.minus.a))
 
     with _nplike.errstate(divide="ignore"):
-        max_dt = min(0.25*dx/amax, 0.25*dy/bmax)
-
-    # TODO: remove try-except once issue cupy/cupy#5866 is resolved and released in CuPy v10
-    try:
-        max_dt = _nplike.nan_to_num(max_dt, False, float("NaN"), runtime.dt)
-    except TypeError as err:
-        if "Wrong number of arguments" not in str(err):
-            raise
-        max_dt = runtime.dt if float(max_dt) == float("inf") else max_dt
+        max_dt = min(0.25*dx/amax, 0.25*dy/bmax)  # may be a `inf` (but never `NaN`)
 
     return states, max_dt

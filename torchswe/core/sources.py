@@ -76,6 +76,9 @@ def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> 
     # alias
     ptsource = runtime.ptsource
 
+    if runtime.counter == 0:
+        runtime.dt_constraint = min(runtime.dt_constraint, ptsource.init_dt)
+
     # silently assume t is already >= ptsource.times[ptsource.irate-1]
     if ptsource.active:  # that is, if `allowed_dt` is not None
         if runtime.cur_t >= ptsource.times[ptsource.irate]:
