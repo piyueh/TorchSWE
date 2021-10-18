@@ -50,10 +50,6 @@ def correct_negative_depth(states: _States) -> _States:
     j, i = j[i != nx], i[i != nx]  # to avoid i + 1 = nx + 1
     states.face.x.minus.U[0, j, i+1] = 2 * states.U[0, j+ngh, i+ngh]
 
-    # fix rounding errors in x.minus.w caused by the last calculation above
-    j, i = _nplike.nonzero(states.face.x.minus.U[0] < 0.)
-    states.face.x.minus.U[0, j, i] = 0.
-
     # fix the case when the bottom depth of an interface is negative
     j, i = _nplike.nonzero(states.face.y.minus.U[0] < 0.)
     states.face.y.minus.U[0, j, i] = 0.
@@ -65,10 +61,6 @@ def correct_negative_depth(states: _States) -> _States:
     states.face.y.plus.U[0, j, i] = 0.
     j, i = j[j != ny], i[j != ny]  # to avoid j + 1 = Ny + 1
     states.face.y.minus.U[0, j+1, i] = 2 * states.U[0, j+ngh, i+ngh]
-
-    # fix rounding errors in y.minus.w caused by the last calculation above
-    j, i = _nplike.nonzero(states.face.y.minus.U[0] < 0.)
-    states.face.y.minus.U[0, j, i] = 0.
 
     return states
 
@@ -126,14 +118,18 @@ def reconstruct(states: _States, runtime: _DummyDict, config: _Config) -> _State
     # get non-consercative variables at cell faces
     for ornt in ["x", "y"]:
         for sign in ["minus", "plus"]:
-            wet = (states.face[ornt][sign].U[0] > config.params.drytol)
-            states.face[ornt][sign].U[1:] = 0.
-            states.face[ornt][sign].U[1:, wet] = \
-                states.face[ornt][sign].Q[1:, wet] / states.face[ornt][sign].U[0, wet]
 
-    # re-calculate conservative quantities at cell interfaces
-    for ornt in ["x", "y"]:
-        for sign in ["minus", "plus"]:
+            # fix rounding errors
+            loc = _nplike.nonzero(states.face[ornt][sign].U[0] < runtime.tol)
+            states.face[ornt][sign].U[0, loc[0], loc[1]] = 0.
+
+            # calculate velocities at wet interfaces
+            loc = (states.face[ornt][sign].U[0] > config.params.drytol)
+            states.face[ornt][sign].U[1:] = 0.
+            states.face[ornt][sign].U[1:, loc] = \
+                states.face[ornt][sign].Q[1:, loc] / states.face[ornt][sign].U[0, loc]
+
+            # re-calculate conservative quantities at cell interfaces
             states.face[ornt][sign].Q[0] = \
                    states.face[ornt][sign].U[0] + runtime.topo[ornt+"fcenters"]
             states.face[ornt][sign].Q[1:] = \
