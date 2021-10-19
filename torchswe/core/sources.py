@@ -56,8 +56,7 @@ def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> 
         simulation time. `runtime.dt_constraint` is a float of current time-step size constraint
         due to non-stability-related issues.
     *args, **kwargs :
-        To absorb unused provided arguments to make all source term calculations using the same
-        signature.
+        To absorb unused arguments to make all source term calculations using the same signature.
 
     Returns
     -------
@@ -133,4 +132,23 @@ def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
         - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) \
         / (8. * _nplike.power(h, 2))
 
+    return states
+
+
+def zero_stiff_terms(states: _States, *args, **kwargs):
+    """Push zeros to states.SS.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+        Data model instance holding conservative quantities at cell centers with ghost cells.
+    *args, **kwargs :
+        To absorb unused to make all source term calculations using the same signature.
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Changes are done in-place. Returning it just for coding style.
+    """
+    states.SS[...] = 0.
     return states

@@ -19,7 +19,7 @@ from torchswe.core.misc import get_local_speed as _get_local_speed
 
 
 def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
-    """Get the right-hand-side of a time-marching step for SWE with only topography.
+    """Get the right-hand-side of a time-marching step for SWE.
 
     Arguments
     ---------
@@ -59,8 +59,7 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     for func in runtime.sources:
         states = func(states, runtime, config)
 
-    # add stiff source terms to states.SS
-    states.SS[...] = 0.
+    # add stiff source terms to states.SS (including reset it to zero first)
     for func in runtime.stiff_sources:
         states = func(states, runtime, config)
 

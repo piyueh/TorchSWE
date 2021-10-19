@@ -41,11 +41,25 @@ def _cfl_dt_adapter_log_only(delta_t: float, max_dt: float, *args, **kwargs):
     return delta_t
 
 
+def _stiff_terms(states, slc, dt):
+    """update with stiff terms."""
+    states.Q[:, slc, slc] /= (1. - dt * states.SS)
+    return states
+
+
+def _stiff_terms_null(states, *args, **kwargs):
+    """Dummy function"""
+    return states
+
+
 def euler(states: _States, runtime: _DummyDict, config: _Config):
     """A simple 1st-order forward Euler time-marching."""
 
     # adaptive time stepping
     adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
+
+    # stiff term handling
+    semi_implicit_step = _stiff_terms if states.SS is not None else _stiff_terms_null
 
     # non-ghost domain slice
     internal = slice(states.ngh, -states.ngh)
@@ -80,7 +94,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
 
         # update
         states.Q[:, internal, internal] += (states.S * runtime.dt)
-        states.Q[:, internal, internal] /= (1 - runtime.dt * states.SS)
+        states = semi_implicit_step(states, internal, runtime.dt)
         states = runtime.gh_updater(states)
 
         # update iteration index and time

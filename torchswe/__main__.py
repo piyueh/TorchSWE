@@ -27,7 +27,7 @@ from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.utils.friction import bellos_et_al_2018
 from torchswe.core.boundary_conditions import get_ghost_cell_updaters
 from torchswe.core.temporal import euler, ssprk2, ssprk3
-from torchswe.core.sources import topography_gradient, point_mass_source, friction
+from torchswe.core.sources import topography_gradient, point_mass_source, friction, zero_stiff_terms
 
 # enforce print precision
 nplike.set_printoptions(precision=15, linewidth=200)
@@ -185,6 +185,9 @@ def config_runtime(comm, config, logger):
 
         runtime.fc_model = FRICTION_MODELS[config.friction.model]
         logger.info("Friction coefficient model: %s", config.friction.model)
+
+        runtime.stiff_sources.append(zero_stiff_terms)
+        logger.info("Re-initialization fucntion of SS added to stiff source terms")
 
         runtime.stiff_sources.append(friction)
         logger.info("Friction fucntion added to stiff source terms")
