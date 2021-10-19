@@ -2,7 +2,7 @@
 --- !Config
 
 spatial:
-  domain: [-0.2, 1.0, -0.3, 0.3]
+  domain: [-0.1988578658982294, 1.0, -0.3, 0.3]
   discretization: [240, 120]
 
 temporal:
@@ -31,7 +31,7 @@ topography:
   key: elevation
 
 point source:
-  location: [0.0, 0.0]
+  location: [0.0009517784181422018, 0.0]
   times: []
   rates: [1.48e-6]
 
@@ -46,4 +46,4 @@ friction:
   roughness: 0.
 
 parameters:
-  dry tolerance: 1.0e-4
+  dry tolerance: 1.0e-5

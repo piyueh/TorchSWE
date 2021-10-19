@@ -32,10 +32,15 @@ with open(case.joinpath("config.yaml"), "r", encoding="utf-8") as fobj:
 sim_data, _ = ncread(case.joinpath("solutions.nc"), ["w"])
 dem, _ = ncread(case.joinpath("topo.nc"), [config.topo.key])
 
-# 2D coordinates
+# coordinate in flow direction but ON THE INCLINDE PLANE
+dxp = 1.2 / config.spatial.discretization[0]
+x = numpy.linspace(-0.2+dxp/2., 1.0-dxp/2., config.spatial.discretization[0])
+
+# 2D coordinates ON THE HORIZONTAL PLANE
 dx = (config.spatial.domain[1] - config.spatial.domain[0]) / config.spatial.discretization[0]
 dy = (config.spatial.domain[3] - config.spatial.domain[2]) / config.spatial.discretization[1]
-soln_X, soln_Y = numpy.meshgrid(sim_data["x"], sim_data["y"])
+y = sim_data["y"]
+soln_X, soln_Y = numpy.meshgrid(x, y)
 dem_X, dem_Y = numpy.meshgrid(dem["x"], dem["y"])
 
 # times
@@ -68,11 +73,11 @@ for h, t in zip(H[1:], times[1:]):
     # plot
     pyplot.figure()
     pyplot.title(f"Flow depth @T={t} sec")
-    pyplot.contourf(soln_X, soln_Y, numpy.ma.array(h, mask=(h < config.params.drytol)), 128)
+    pyplot.contourf(soln_X, soln_Y, numpy.ma.array(h, mask=(h < config.params.drytol*10)), 128)
+    pyplot.colorbar(label="Depth (m)", orientation="horizontal")
     pyplot.scatter(
         exp[:, 0], exp[:, 1], s=30, c="w", marker="^",
         linewidth=2, edgecolors="k", label="Experiments (Lister, 1992)")
-    pyplot.colorbar(label="Depth (m)", orientation="horizontal")
     pyplot.xlabel("x (m)")
     pyplot.ylabel("y (m)")
     pyplot.legend(loc=0)

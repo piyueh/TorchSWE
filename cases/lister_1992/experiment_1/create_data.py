@@ -16,6 +16,7 @@ from torchswe.utils.netcdf import write
 
 def main():
     """Main function"""
+    # pylint: disable=invalid-name
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
 
@@ -23,12 +24,13 @@ def main():
         config = yaml.load(fobj, Loader=yaml.Loader)
 
     # gridlines
-    spatial = config.spatial
-    x = numpy.linspace(*spatial.domain[:2], spatial.discretization[0]+1, dtype=config.params.dtype)
-    y = numpy.linspace(*spatial.domain[2:], spatial.discretization[1]+1, dtype=config.params.dtype)
+    nx, ny = config.spatial.discretization
+    xi = numpy.linspace(1.2, 0.0, nx+1, dtype=config.params.dtype)  # coordinate along the plane
+    x = 1. - xi * numpy.cos(numpy.pi*2.5/180.)  # coordinates in flow direction but horizontal
+    y = numpy.linspace(-0.3, 0.3, ny+1, dtype=config.params.dtype)
 
     # elevation
-    elev = numpy.tile(numpy.abs(x-spatial.domain[1])*numpy.tan(2.5*numpy.pi/180.), (y.size, 1))
+    elev = numpy.tile(xi*numpy.sin(2.5*numpy.pi/180.), (y.size, 1))
 
     # write topography file
     write(case.joinpath(config.topo.file), (x, y), {"elevation": elev})
