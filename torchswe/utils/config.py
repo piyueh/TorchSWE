@@ -342,6 +342,12 @@ class ParamConfig(BaseConfig):
     log_steps: _conint(ge=1) = _Field(100, alias="print steps")
     dtype: _Literal["float32", "float64"] = "float64"
 
+    @_validator("ngh")
+    def _val_ngh(cls, val):
+        """Currently only support ngh=2"""
+        assert val == 2, "Currently, the solver only supports ngh = 2"
+        return val
+
 
 class FluidPropsConfig(BaseConfig):
     """An object holding configuration of fluid properties.
