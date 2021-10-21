@@ -3,7 +3,7 @@
 
 spatial:
   domain: [-0.1988578658982294, 1.0, -0.3, 0.3]
-  discretization: [240, 120]
+  discretization: [963, 483]
 
 temporal:
   output: ["at", [0.0, 32.0, 59.0, 122.0, 271.0, 486.0, 727.0]]
