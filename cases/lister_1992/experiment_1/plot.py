@@ -137,7 +137,7 @@ ax.set_ylabel("y (m)")
 ax.set_ylim(-0.01, 0.33)
 
 leg1 = ax.legend(
-    scatters, [f"t={int(ti+0.5)}" for ti in times],
+    scatters, [f"t={int(ti+0.5)}" for ti in times[1:]],
     title="Experiments (Lister, 1992)", title_fontsize=10,
     ncol=3, fontsize=8, bbox_to_anchor=(0.01, 0.99), loc="upper left", borderaxespad=0.,
     frameon=True, labelspacing=0.3
