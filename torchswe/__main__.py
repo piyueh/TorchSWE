@@ -18,6 +18,7 @@ from torchswe.utils.init import get_cmd_arguments
 from torchswe.utils.init import get_config
 from torchswe.utils.init import get_timeline
 from torchswe.utils.init import get_initial_states_from_config
+from torchswe.utils.init import get_initial_states_from_snapshot
 from torchswe.utils.init import get_topography_from_file
 from torchswe.utils.init import get_pointsource
 from torchswe.utils.init import get_friction_roughness
@@ -145,10 +146,13 @@ def config_runtime(comm, config, logger):
     runtime.dt_constraint = float("inf")
     logger.info("Initial dt constraint: %e", runtime.dt_constraint)
 
+    runtime.tidx = 0
+    logger.info("Initial output time index: %d", runtime.tidx)
+
     runtime.cur_t = runtime.times[0]  # the current simulation time
     logger.info("Initial t: %e", runtime.cur_t)
 
-    runtime.next_t = None  # next output time; will be set later
+    runtime.next_t = runtime.times[1]
     logger.info("The next t: %s", runtime.next_t)
 
     runtime.counter = 0  # to count the current number of iterations
@@ -195,6 +199,47 @@ def config_runtime(comm, config, logger):
     return states, runtime
 
 
+def restart(states, runtime, cont, logger):
+    """Update data if we're continue from a previous solution."""
+
+    if cont is None:  # not restarting
+        return states, runtime
+
+    try:
+        runtime.tidx = runtime.times.values.index(cont)
+        logger.info("Initial output time index: %d", runtime.tidx)
+    except ValueError as err:
+        if "not in tuple" not in str(err):  # other kinds of ValueError
+            raise
+        raise ValueError(
+            f"Target restarting time {cont} was not found in {runtime.times.values}"
+        ) from err
+
+    # update current time
+    runtime.cur_t = cont
+    logger.info("Initial t: %s", runtime.cur_t)
+
+    # update next time
+    runtime.next_t = runtime.times.values[runtime.tidx+1]
+    logger.info("The next t: %s", runtime.next_t)
+
+    # make the counter non-zero to avoid some functions using counter == 0 as condition
+    runtime.counter = 1
+    logger.info("The counter: %d", runtime.counter)
+
+    # update initial solution
+    states = get_initial_states_from_snapshot(runtime.outfile, runtime.tidx, states)
+
+    # update point source timer
+    if runtime.ptsource is not None:
+        runtime.ptsource.irate = int(nplike.searchsorted(
+            nplike.array(runtime.ptsource.times), nplike.array(runtime.cur_t), "left"))
+        runtime.ptsource.active = (not runtime.ptsource.irate == len(runtime.ptsource.times))
+        logger.info("Point source reset: %s", runtime.ptsource)
+
+    return states, runtime
+
+
 def main():
     """Main function."""
 
@@ -212,33 +257,39 @@ def main():
     soln, runtime = config_runtime(comm, config, logger)
     logger.info("Done configuring runtime.")
 
+    # update data if this is a continued run
+    soln, runtime = restart(soln, runtime, args.cont, logger)
+
     # update ghost cells
     soln = runtime.gh_updater(soln)
     logger.info("Done updating ghost cells.")
 
     # create an NetCDF file and append I.C.
-    if runtime.times.save:
+    if runtime.times.save and runtime.tidx == 0:
         create_empty_soln_file(runtime.outfile, soln.domain, runtime.times)
         write_soln_to_file(runtime.outfile, soln, runtime.times[0], 0)
         logger.info("Done writing the initial solution to the NetCDF file.")
     else:
-        logger.info("No need to save data for \"no save\" method.")
+        logger.info("No need to save data for \"no save\" method or for a continued run.")
 
     # initialize counter and performance profiling variable
     perf_t0 = time.time()  # suppose to be wall time
     logger.info("Time marching starts at %s", time.ctime(perf_t0))
 
     # start running time marching until each output time
-    for tidx, runtime.next_t in zip(range(1, len(runtime.times)), runtime.times[1:]):
+    for runtime.next_t in runtime.times[runtime.tidx+1:]:
         logger.info("Marching from T=%s to T=%s", runtime.cur_t, runtime.next_t)
         soln = runtime.marching(soln, runtime, config)
 
         # sanity check for the current time
         assert abs(runtime.next_t-runtime.cur_t) < 1e-10
 
+        # update tidx
+        runtime.tidx += 1
+
         # append to the NetCDF file
         if runtime.times.save:
-            write_soln_to_file(runtime.outfile, soln, runtime.next_t, tidx)
+            write_soln_to_file(runtime.outfile, soln, runtime.next_t, runtime.tidx)
             logger.info("Done writing the solution at T=%s to the NetCDF file.", runtime.next_t)
 
     logger.info("Done time marching.")

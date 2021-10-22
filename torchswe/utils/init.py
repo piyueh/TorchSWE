@@ -421,6 +421,30 @@ def get_initial_states_from_config(comm: _MPI.Comm, config: _Config):
     return states
 
 
+def get_initial_states_from_snapshot(fpath: str, tidx: int, states):
+    """Read a snapshot from a solution file created by TorchSWE.
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+    """
+
+    data, _ = _ncread(
+        fpath, ["w", "hu", "hv"],
+        [
+            states.domain.x.centers[0], states.domain.x.centers[-1],
+            states.domain.y.centers[0], states.domain.y.centers[-1]
+        ],
+        parallel=True, comm=states.domain.process.comm
+    )
+
+    for i, key in enumerate(["w", "hu", "hv"]):
+        states.Q[i, states.ngh:-states.ngh, states.ngh:-states.ngh] = data[key][tidx]
+
+    states.check()
+    return states
+
+
 def get_cmd_arguments(argv: _Optional[_List[str]] = None):
     """Parse and get CMD arguments.
 
@@ -447,6 +471,11 @@ def get_cmd_arguments(argv: _Optional[_List[str]] = None):
     parser.add_argument(
         "case_folder", metavar="PATH", action="store", type=_pathlib.Path,
         help="The path to a case folder."
+    )
+
+    parser.add_argument(
+        "--continue", action="store", type=float, default=None, metavar="TIME", dest="cont",
+        help="Indicate this run should continue from this time point."
     )
 
     parser.add_argument(
@@ -581,8 +610,8 @@ def get_pointsource(ptconfig: _PointSourceConfig, domain: _Domain, irate: int = 
     # convert volumetric flow rates to depth increment rates; assuming constant/uniform dx & dy
     rates = [rate / domain.x.delta / domain.y.delta for rate in ptconfig.rates]
 
-    # len(times) is 0, meaning one constant rate from the beginning to the end of a simulation
-    active = (not len(ptconfig.times) == 0)
+    # determined from provide irate
+    active = (not irate == len(ptconfig.times))
     _logger.debug("Point source initial `active`: %s", active)
 
     return _PointSource(
