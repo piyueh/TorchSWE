@@ -1,4 +1,6 @@
 *.nogit
+torchswe/kernels/**/*.cpp
+torchswe/kernels/**/*.so
 cases/**/*.png
 cases/**/*.npz
 cases/**/*.npy

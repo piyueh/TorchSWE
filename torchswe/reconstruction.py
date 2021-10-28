@@ -12,7 +12,11 @@ from torchswe import nplike as _nplike
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.data import States as _States
-from torchswe.misc import minmod_slope as _minmod_slope
+
+if _nplike.__name__ == "numpy":
+    from torchswe.kernels.cython import minmod_slope as _minmod_slope
+else:
+    raise ImportError("CuPy's minmod not implemented yet.")
 
 
 def correct_negative_depth(states: _States) -> _States:
@@ -98,7 +102,7 @@ def reconstruct(states: _States, runtime: _DummyDict, config: _Config) -> _State
     states.U[1:, wet] = states.Q[1:, wet] / states.U[0, wet]
 
     # get slopes
-    slps = _minmod_slope(states, config.params.theta, runtime.tol)
+    slps = _minmod_slope(states, config.params.theta)
 
     # get discontinuous conservatice quantities at cell faces
     states.face.x.minus.Q = states.Q[:, ngh:-ngh, ngh-1:-ngh] + slps[0][:, :, :-1] * dx_half
