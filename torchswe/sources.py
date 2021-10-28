@@ -15,7 +15,7 @@ from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import States as _States
 
 
-_logger = _logging.getLogger("torchswe.core.sources")
+_logger = _logging.getLogger("torchswe.sources")
 
 
 def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -> _States:

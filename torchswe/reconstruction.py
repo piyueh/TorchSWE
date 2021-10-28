@@ -12,7 +12,7 @@ from torchswe import nplike as _nplike
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.data import States as _States
-from torchswe.core.misc import minmod_slope as _minmod_slope
+from torchswe.misc import minmod_slope as _minmod_slope
 
 
 def correct_negative_depth(states: _States) -> _States:

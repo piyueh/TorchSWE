@@ -11,12 +11,12 @@
 import copy as _copy
 import logging as _logging
 from mpi4py import MPI as _MPI
-from torchswe.core.fvm import prepare_rhs as _prepare_rhs
+from torchswe.fvm import prepare_rhs as _prepare_rhs
 from torchswe.utils.data import States as _States
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
 
-_logger = _logging.getLogger("torchswe.core.temporal")
+_logger = _logging.getLogger("torchswe.temporal")
 
 
 def _cfl_dt_adapter(delta_t: float, max_dt: float, coeff: float):

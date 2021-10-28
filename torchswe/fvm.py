@@ -12,10 +12,10 @@ from torchswe import nplike as _nplike
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.data import States as _States
 from torchswe.utils.misc import DummyDict as _DummyDict
-from torchswe.core.reconstruction import reconstruct as _reconstruct
-from torchswe.core.flux import get_discontinuous_flux as _get_discontinuous_flux
-from torchswe.core.flux import central_scheme as _central_scheme
-from torchswe.core.misc import get_local_speed as _get_local_speed
+from torchswe.reconstruction import reconstruct as _reconstruct
+from torchswe.flux import get_discontinuous_flux as _get_discontinuous_flux
+from torchswe.flux import central_scheme as _central_scheme
+from torchswe.misc import get_local_speed as _get_local_speed
 
 
 def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):

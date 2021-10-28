@@ -26,9 +26,9 @@ from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.utils.friction import bellos_et_al_2018
-from torchswe.core.boundary_conditions import get_ghost_cell_updaters
-from torchswe.core.temporal import euler, ssprk2, ssprk3
-from torchswe.core.sources import topography_gradient, point_mass_source, friction, zero_stiff_terms
+from torchswe.boundary_conditions import get_ghost_cell_updaters
+from torchswe.temporal import euler, ssprk2, ssprk3
+from torchswe.sources import topography_gradient, point_mass_source, friction, zero_stiff_terms
 
 # enforce print precision
 nplike.set_printoptions(precision=15, linewidth=200)
