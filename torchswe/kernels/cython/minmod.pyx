@@ -100,6 +100,20 @@ cdef numpy.ndarray[fptype, ndim=3] minmod_slope_y(
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
 def minmod_slope(object states, fptype theta):
+    """Calculate the slope of using minmod limiter.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.State
+        The instance of States holding quantities.
+    theta : float
+        The parameter adjusting the dissipation.
+
+    Returns
+    -------
+    slpx : numpy.ndarray with shape (3, ny, nx+2)
+    slpy : numpy.ndarray with shape (3, ny+2, nx)
+    """
 
     cdef numpy.ndarray[fptype, ndim=3] slpx = \
             minmod_slope_x[fptype](states.Q, theta, states.domain.x.delta, states.ngh)

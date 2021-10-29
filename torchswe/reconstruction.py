@@ -15,8 +15,10 @@ from torchswe.utils.data import States as _States
 
 if _nplike.__name__ == "numpy":
     from torchswe.kernels.cython import minmod_slope as _minmod_slope
+elif _nplike.__name__ == "cupy":
+    from torchswe.kernels.cupy import minmod_slope as _minmod_slope
 else:
-    raise ImportError("CuPy's minmod not implemented yet.")
+    raise ImportError("Torch's minmod not implemented yet.")
 
 
 def correct_negative_depth(states: _States) -> _States:
