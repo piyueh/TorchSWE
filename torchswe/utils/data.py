@@ -575,6 +575,8 @@ class States(_BaseConfig):
                 H: ndarray                                  # shape: (3, ny+1, nx)
             }
         }
+        slpx: ndarray                                       # shape: (3, ny, nx+2)
+        slpy: ndarray                                       # shape: (3, ny+2, nx)
     }
 
     Attributes
@@ -607,6 +609,8 @@ class States(_BaseConfig):
     S: _nplike.ndarray
     SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
+    slpx: _nplike.ndarray
+    slpy: _nplike.ndarray
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):
@@ -629,6 +633,12 @@ class States(_BaseConfig):
 
         assert values["face"].y.plus.U.shape == (3, ny+1, nx), "face.y: incorrect shape"
         assert values["face"].y.plus.U.dtype == dtype, "face.y: incorrect dtype"
+
+        assert values["slpx"].shape == (3, ny, nx+2), "slpx: incorrect shape"
+        assert values["slpx"].dtype == dtype, "slpx: incorrect dtype"
+
+        assert values["slpy"].shape == (3, ny+2, nx), "slpy: incorrect shape"
+        assert values["slpy"].dtype == dtype, "slpy: incorrect dtype"
 
         if values["SS"] is not None:
             assert values["SS"].shape == (3, ny, nx), "SS: incorrect shape"

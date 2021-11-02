@@ -164,14 +164,12 @@ cdef numpy.ndarray[fptype, ndim=3] central_scheme_kernel(
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-def central_scheme(object states, fptype tol=1e-12):
+def central_scheme(object states):
     """A central scheme to calculate numerical flux at interfaces.
 
     Arguments
     ---------
     states : torchswe.utils.data.States
-    tol : float
-        The tolerance that can be considered as zero.
 
     Returns
     -------
@@ -179,18 +177,33 @@ def central_scheme(object states, fptype tol=1e-12):
         The same object as the input. Updated in-place. Returning it just for coding style.
     """
 
-    states.face.x.H = central_scheme_kernel[fptype](
-        states.face.x.H,
-        states.face.x.minus.Q, states.face.x.plus.Q,
-        states.face.x.minus.F, states.face.x.plus.F,
-        states.face.x.minus.a, states.face.x.plus.a
-    )
+    if states.face.x.H.dtype == numpy.dtype("float32"):
+        states.face.x.H = central_scheme_kernel[float](
+            states.face.x.H,
+            states.face.x.minus.Q, states.face.x.plus.Q,
+            states.face.x.minus.F, states.face.x.plus.F,
+            states.face.x.minus.a, states.face.x.plus.a
+        )
 
-    states.face.y.H = central_scheme_kernel[fptype](
-        states.face.y.H,
-        states.face.y.minus.Q, states.face.y.plus.Q,
-        states.face.y.minus.F, states.face.y.plus.F,
-        states.face.y.minus.a, states.face.y.plus.a
-    )
+        states.face.y.H = central_scheme_kernel[float](
+            states.face.y.H,
+            states.face.y.minus.Q, states.face.y.plus.Q,
+            states.face.y.minus.F, states.face.y.plus.F,
+            states.face.y.minus.a, states.face.y.plus.a
+        )
+    elif states.face.x.H.dtype == numpy.dtype("float64"):
+        states.face.x.H = central_scheme_kernel[double](
+            states.face.x.H,
+            states.face.x.minus.Q, states.face.x.plus.Q,
+            states.face.x.minus.F, states.face.x.plus.F,
+            states.face.x.minus.a, states.face.x.plus.a
+        )
+
+        states.face.y.H = central_scheme_kernel[double](
+            states.face.y.H,
+            states.face.y.minus.Q, states.face.y.plus.Q,
+            states.face.y.minus.F, states.face.y.plus.F,
+            states.face.y.minus.a, states.face.y.plus.a
+        )
 
     return states

@@ -50,7 +50,7 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     states = _get_discontinuous_flux(states, config.params.gravity)
 
     # get common/continuous numerical flux at cell faces
-    states = _central_scheme(states, runtime.tol)
+    states = _central_scheme(states)
 
     # aliases
     dx, dy = states.domain.x.delta, states.domain.y.delta

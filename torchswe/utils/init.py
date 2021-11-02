@@ -103,9 +103,9 @@ def get_gridline(axis: str, pn: int, pi: int, gn: int, glower: float, gupper: fl
     data["lower"] = data["ibegin"] * data["delta"] + data["glower"]
     data["upper"] = data["iend"] * data["delta"] + data["glower"]
 
-    data["vertices"] = _nplike.linspace(
+    data["vertices"], ddd = _nplike.linspace(
         data["lower"], data["upper"],
-        data["n"]+1, dtype=data["dtype"])
+        data["n"]+1, retstep=True, dtype=data["dtype"])
 
     data["centers"] = _nplike.linspace(
         data["lower"]+data["delta"]/2., data["upper"]-data["delta"]/2.,
@@ -336,7 +336,9 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
         U=_nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype),
         S=_nplike.zeros((3, ny, nx), dtype=dtype),
         SS=(_nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None),
-        face=get_empty_facequantitymodel(nx, ny, dtype)
+        face=get_empty_facequantitymodel(nx, ny, dtype),
+        slpx=_nplike.zeros((3, ny, nx+2), dtype=dtype),
+        slpy=_nplike.zeros((3, ny+2, nx), dtype=dtype),
     )
 
 

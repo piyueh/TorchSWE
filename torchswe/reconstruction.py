@@ -104,13 +104,13 @@ def reconstruct(states: _States, runtime: _DummyDict, config: _Config) -> _State
     states.U[1:, wet] = states.Q[1:, wet] / states.U[0, wet]
 
     # get slopes
-    slps = _minmod_slope(states, config.params.theta)
+    states = _minmod_slope(states, config.params.theta)
 
     # get discontinuous conservatice quantities at cell faces
-    states.face.x.minus.Q = states.Q[:, ngh:-ngh, ngh-1:-ngh] + slps[0][:, :, :-1] * dx_half
-    states.face.x.plus.Q = states.Q[:, ngh:-ngh, ngh:-ngh+1] - slps[0][:, :, 1:] * dx_half
-    states.face.y.minus.Q = states.Q[:, ngh-1:-ngh, ngh:-ngh] + slps[1][:, :-1, :] * dy_half
-    states.face.y.plus.Q = states.Q[:, ngh:-ngh+1, ngh:-ngh] - slps[1][:, 1:, :] * dy_half
+    states.face.x.minus.Q = states.Q[:, ngh:-ngh, ngh-1:-ngh] + states.slpx[:, :, :-1] * dx_half
+    states.face.x.plus.Q = states.Q[:, ngh:-ngh, ngh:-ngh+1] - states.slpx[:, :, 1:] * dx_half
+    states.face.y.minus.Q = states.Q[:, ngh-1:-ngh, ngh:-ngh] + states.slpy[:, :-1, :] * dy_half
+    states.face.y.plus.Q = states.Q[:, ngh:-ngh+1, ngh:-ngh] - states.slpy[:, 1:, :] * dy_half
 
     # get depth at cell interfaces
     for ornt in ["x", "y"]:
