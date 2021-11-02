@@ -9,8 +9,9 @@
 """Minmod implementation for Cuda through CuPy.
 """
 import cupy
+cimport cython
 
-_kernel = cupy.ElementwiseKernel(
+cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
     "T s1, T s2, T s3, T theta, T dx",
     "T slp",
     """
@@ -22,11 +23,12 @@ _kernel = cupy.ElementwiseKernel(
     slp *= denominator;
     slp /= dx;
     """,
-    "kernel"
+    "minmod_slope_kernel",
 )
 
 
-def minmod_slope(states, theta):
+@cython.boundscheck(False)  # deactivate bounds checking
+def minmod_slope(object states, double theta):
     """Calculate the slope of using minmod limiter.
 
     Arguments
@@ -38,17 +40,20 @@ def minmod_slope(states, theta):
 
     Returns
     -------
-    slpx : cupy.ndarray with shape (3, ny, nx+2)
-    slpy : cupy.ndarray with shape (3, ny+2, nx)
+    states : torchswe.utils.data.State
+        The same object as the input.
     """
 
     # alias
-    ngh = states.ngh
-    Q = states.Q
-    dx, dy = states.domain.x.delta, states.domain.y.delta
+    cdef Py_ssize_t ngh = states.ngh
+    cdef double dx = states.domain.x.delta
+    cdef double dy = states.domain.y.delta
+    Q = states.Q  # pylint: disable=invalid-name
 
     # kernels
-    slpx = _kernel(Q[:, ngh:-ngh, :-ngh], Q[:, ngh:-ngh, 1:-1], Q[:, ngh:-ngh, ngh:], theta, dx)
-    slpy = _kernel(Q[:, :-ngh, ngh:-ngh], Q[:, 1:-1, ngh:-ngh], Q[:, ngh:, ngh:-ngh], theta, dy)
+    states.slpx = _minmod_slope_kernel(
+        Q[:, ngh:-ngh, :-ngh], Q[:, ngh:-ngh, 1:-1], Q[:, ngh:-ngh, ngh:], theta, dx)
+    states.slpy = _minmod_slope_kernel(
+        Q[:, :-ngh, ngh:-ngh], Q[:, 1:-1, ngh:-ngh], Q[:, ngh:, ngh:-ngh], theta, dy)
 
-    return slpx, slpy
+    return states

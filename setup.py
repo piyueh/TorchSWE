@@ -24,6 +24,12 @@ exts = [
     Extension(
         name="torchswe.kernels.cython.flux", sources=["torchswe/kernels/cython/flux.pyx"],
         include_dirs=[numpy.get_include()], language="c++"),
+    Extension(
+        name="torchswe.kernels.cupy.minmod", sources=["torchswe/kernels/cupy/minmod.pyx"],
+        include_dirs=[numpy.get_include()], language="c++"),
+    Extension(
+        name="torchswe.kernels.cupy.flux", sources=["torchswe/kernels/cupy/flux.pyx"],
+        include_dirs=[numpy.get_include()], language="c++"),
 ]
 
 setup(
