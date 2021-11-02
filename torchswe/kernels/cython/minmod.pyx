@@ -7,29 +7,30 @@ numpy.seterr(divide="ignore", invalid="ignore")
 
 # fused floating point type; uses as the template varaible type in C++
 ctypedef fused fptype:
-    float
-    double
+    cython.float
+    cython.double
+
+ctypedef fused confptype:
+    const cython.float
+    const cython.double
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-cdef numpy.ndarray[fptype, ndim=3] minmod_slope_x(
-    numpy.ndarray[fptype, ndim=3] slp,
-    fptype[:, :, ::1] Q,
-    fptype theta,
-    fptype delta,
-    int ngh
-):
-    if fptype is float:
-        dtype = numpy.float32
-    elif fptype is double:
-        dtype = numpy.double
-
-    cdef int ny = Q.shape[1] - ngh * 2
-    cdef int nx = Q.shape[2] - ngh * 2
-    cdef int i
-    cdef int j
-    cdef int k
+cdef void minmod_slope_x(
+    fptype[:, :, ::1] slp,
+    confptype[:, :, ::1] Q,
+    const double theta,
+    const double delta,
+    const Py_ssize_t ngh
+) nogil:
+    """Kernel for calculating slope in x direction.
+    """
+    cdef Py_ssize_t ny = Q.shape[1] - ngh * 2
+    cdef Py_ssize_t nx = Q.shape[2] - ngh * 2
+    cdef Py_ssize_t i
+    cdef Py_ssize_t j
+    cdef Py_ssize_t k
 
     cdef fptype value
     cdef fptype denominator
@@ -49,33 +50,28 @@ cdef numpy.ndarray[fptype, ndim=3] minmod_slope_x(
                 value = max(value, 0.)
                 value *= denominator
                 value /= delta
-                slp_view[k, j, i] = value
-    return slp
+                slp[k, j, i] = value
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-cdef numpy.ndarray[fptype, ndim=3] minmod_slope_y(
-    numpy.ndarray[fptype, ndim=3] slp,
-    fptype[:, :, ::1] Q,
-    fptype theta,
-    fptype delta,
-    int ngh
-):
-    if fptype is float:
-        dtype = numpy.float32
-    elif fptype is double:
-        dtype = numpy.double
-
-    cdef int ny = Q.shape[1] - ngh * 2
-    cdef int nx = Q.shape[2] - ngh * 2
-    cdef int i
-    cdef int j
-    cdef int k
+cdef void minmod_slope_y(
+    fptype[:, :, ::1] slp,
+    confptype[:, :, ::1] Q,
+    const double theta,
+    const double delta,
+    const Py_ssize_t ngh
+) nogil:
+    """Kernel for calculating slope in y direction.
+    """
+    cdef Py_ssize_t ny = Q.shape[1] - ngh * 2
+    cdef Py_ssize_t nx = Q.shape[2] - ngh * 2
+    cdef Py_ssize_t i
+    cdef Py_ssize_t j
+    cdef Py_ssize_t k
 
     cdef fptype value
     cdef fptype denominator
-    cdef fptype[:, :, ::1] slp_view = slp
 
     for k in range(3):
         for j in range(ny+2):
@@ -91,13 +87,12 @@ cdef numpy.ndarray[fptype, ndim=3] minmod_slope_y(
                 value = max(value, 0.)
                 value *= denominator
                 value /= delta
-                slp_view[k, j, i] = value
-    return slp
+                slp[k, j, i] = value
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-def minmod_slope(object states, fptype theta):
+def minmod_slope(object states, double theta):
     """Calculate the slope of using minmod limiter.
 
     Arguments
@@ -113,8 +108,21 @@ def minmod_slope(object states, fptype theta):
     slpy : numpy.ndarray with shape (3, ny+2, nx)
     """
 
-    states.slpx = \
-            minmod_slope_x[fptype](states.slpx, states.Q, theta, states.domain.x.delta, states.ngh)
-    states.slpy = \
-            minmod_slope_y[fptype](states.slpy, states.Q, theta, states.domain.y.delta, states.ngh)
+    # aliases to reduce calls in the generated c/c++ code
+    cdef double dx = states.domain.x.delta
+    cdef double dy = states.domain.y.delta
+    cdef Py_ssize_t ngh = states.ngh
+    dtype = states.slpx.dtype  # what's the type?
+    slpx = states.slpx
+    slpy = states.slpy
+    Q = states.Q
+
+    if dtype == numpy.single:
+        minmod_slope_x[cython.float, cython.float](slpx, Q, theta, dx, ngh)
+        minmod_slope_y[cython.float, cython.float](slpy, Q, theta, dy, ngh)
+    elif dtype == numpy.double:
+        minmod_slope_x[cython.double, cython.double](slpx, Q, theta, dx, ngh)
+        minmod_slope_y[cython.double, cython.double](slpy, Q, theta, dy, ngh)
+    else:
+        raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}")
     return states

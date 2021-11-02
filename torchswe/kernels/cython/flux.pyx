@@ -8,139 +8,144 @@ numpy.seterr(divide="ignore", invalid="ignore")
 
 # fused floating point type; uses as the template varaible type in C++
 ctypedef fused fptype:
-    float
-    double
+    cython.float
+    cython.double
+
+ctypedef fused confptype:
+    const cython.float
+    const cython.double
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-cdef numpy.ndarray[fptype, ndim=3] get_discontinuous_flux_x(
-    numpy.ndarray[fptype, ndim=3] F, fptype[:, :, ::1] Q, fptype[:, :, ::1] U, fptype gravity):
+cdef void get_discontinuous_flux_x(
+    fptype[:, :, ::1] F,
+    confptype[:, :, ::1] Q, confptype[:, :, ::1] U, const double gravity
+) nogil:
     """Kernel of calculating discontinuous flux in x direction (in-place).
     """
-    if fptype is float:
-        dtype = numpy.float32
-    elif fptype is double:
-        dtype = numpy.double
-
-    cdef int nx = Q.shape[2]
-    cdef int ny = Q.shape[1]
-    cdef int k, j, i
+    cdef Py_ssize_t nx = Q.shape[2]
+    cdef Py_ssize_t ny = Q.shape[1]
+    cdef Py_ssize_t k, j, i
     cdef fptype grav2 = gravity / 2.0
-    cdef fptype[:, :, ::1] F_view = F  # using a memory view to efficiently access elements
 
     # F[0] = hu
     for j in range(ny):
         for i in range(nx):
-            F_view[0, j, i] = Q[1, j, i]
+            F[0, j, i] = Q[1, j, i]
 
     # F[1] = hu * u + g/2 * h * h
     for j in range(ny):
         for i in range(nx):
-            F_view[1, j, i] = Q[1, j, i] * U[1, j, i] + grav2 * (U[0, j, i] * U[0, j, i])
+            F[1, j, i] = Q[1, j, i] * U[1, j, i] + grav2 * (U[0, j, i] * U[0, j, i])
 
     # F[2] = hu * v
     for j in range(ny):
         for i in range(nx):
-            F_view[2, j, i] = Q[1, j, i] * U[2, j, i]
-
-    return F  # though we already modify it inplace, we return it for coding style
+            F[2, j, i] = Q[1, j, i] * U[2, j, i]
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-cdef numpy.ndarray[fptype, ndim=3] get_discontinuous_flux_y(
-    numpy.ndarray[fptype, ndim=3] F, fptype[:, :, ::1] Q, fptype[:, :, ::1] U, fptype gravity):
+cdef void get_discontinuous_flux_y(
+    fptype[:, :, ::1] F,
+    confptype[:, :, ::1] Q, confptype[:, :, ::1] U, const double gravity
+) nogil:
     """Kernel of calculating discontinuous flux in y direction.
     """
-    if fptype is float:
-        dtype = numpy.float32
-    elif fptype is double:
-        dtype = numpy.double
-
-    cdef int nx = Q.shape[2]
-    cdef int ny = Q.shape[1]
-    cdef int k, j, i
+    cdef Py_ssize_t nx = Q.shape[2]
+    cdef Py_ssize_t ny = Q.shape[1]
+    cdef Py_ssize_t k, j, i
     cdef fptype grav2 = gravity / 2.0
-    cdef fptype[:, :, ::1] F_view = F  # using a memory view to efficiently access elements
 
     # F[0] = hv
     for j in range(ny):
         for i in range(nx):
-            F_view[0, j, i] = Q[2, j, i]
+            F[0, j, i] = Q[2, j, i]
 
     # F[1] = u * hv
     for j in range(ny):
         for i in range(nx):
-            F_view[1, j, i] = U[1, j, i] * Q[2, j, i]
+            F[1, j, i] = U[1, j, i] * Q[2, j, i]
 
     # F[2] = hv * v + g/2 * h * h
     for j in range(ny):
         for i in range(nx):
-            F_view[2, j, i] = Q[2, j, i] * U[2, j, i] + grav2 * U[0, j, i] * U[0, j, i]
-
-    return F  # though we already modify it inplace, we return it for coding style
+            F[2, j, i] = Q[2, j, i] * U[2, j, i] + grav2 * U[0, j, i] * U[0, j, i]
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-def get_discontinuous_flux(object states, fptype gravity):
+def get_discontinuous_flux(object states, double gravity):
     """Calculting the discontinuous fluxes on the both sides at cell faces.
 
     Arguments
     ---------
     states : torchswe.utils.data.States
-    topo : torchswe.utils.data.Topography
     gravity : float
 
     Returns
     -------
     states : torchswe.utils.data.States
         The same object as the input. Changed inplace. Returning it just for coding style.
-
-    Notes
-    -----
-    When calculating (w-z)^2, it seems using w*w-w*z-z*w+z*z has smaller rounding errors. Not sure
-    why. But it worth more investigation. This is apparently slower, though with smaller errors.
     """
+    # aliases to reduce calls in the generated c/c++ code
+    xm = states.face.x.minus
+    xp = states.face.x.plus
+    ym = states.face.y.minus
+    yp = states.face.y.plus
 
-    # face normal to x-direction: [hu, hu^2 + g(h^2)/2, huv]
-    states.face.x.minus.F = get_discontinuous_flux_x[fptype](
-        states.face.x.minus.F, states.face.x.minus.Q, states.face.x.minus.U, gravity)
-    states.face.x.plus.F = get_discontinuous_flux_x[fptype](
-        states.face.x.plus.F, states.face.x.plus.Q, states.face.x.plus.U, gravity)
+    xmF = xm.F
+    xpF = xp.F
+    ymF = ym.F
+    ypF = yp.F
+    xmQ = xm.Q
+    xpQ = xp.Q
+    ymQ = ym.Q
+    ypQ = yp.Q
+    xmU = xm.U
+    xpU = xp.U
+    ymU = ym.U
+    ypU = yp.U
 
-    # face normal to y-direction: [hv, huv, hv^2+g(h^2)/2]
-    states.face.y.minus.F = get_discontinuous_flux_y[fptype](
-        states.face.y.minus.F, states.face.y.minus.Q, states.face.y.minus.U, gravity)
-    states.face.y.plus.F = get_discontinuous_flux_y[fptype](
-        states.face.y.plus.F, states.face.y.plus.Q, states.face.y.plus.U, gravity)
+    dtype = xmF.dtype
+
+    if dtype == numpy.single:
+        # face normal to x-direction: [hu, hu^2 + g(h^2)/2, huv]
+        get_discontinuous_flux_x[cython.float, cython.float](xmF, xmQ, xmU, gravity)
+        get_discontinuous_flux_x[cython.float, cython.float](xpF, xpQ, xpU, gravity)
+
+        # face normal to y-direction: [hv, huv, hv^2+g(h^2)/2]
+        get_discontinuous_flux_y[cython.float, cython.float](ymF, ymQ, ymU, gravity)
+        get_discontinuous_flux_y[cython.float, cython.float](ypF, ypQ, ypU, gravity)
+    elif dtype == numpy.double:
+        # face normal to x-direction: [hu, hu^2 + g(h^2)/2, huv]
+        get_discontinuous_flux_x[cython.double, cython.double](xmF, xmQ, xmU, gravity)
+        get_discontinuous_flux_x[cython.double, cython.double](xpF, xpQ, xpU, gravity)
+
+        # face normal to y-direction: [hv, huv, hv^2+g(h^2)/2]
+        get_discontinuous_flux_y[cython.double, cython.double](ymF, ymQ, ymU, gravity)
+        get_discontinuous_flux_y[cython.double, cython.double](ypF, ypQ, ypU, gravity)
+    else:
+        raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 
     return states
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
-cdef numpy.ndarray[fptype, ndim=3] central_scheme_kernel(
-    numpy.ndarray[fptype, ndim=3] H,
-    fptype[:, :, ::1] Qm,
-    fptype[:, :, ::1] Qp,
-    fptype[:, :, ::1] Fm,
-    fptype[:, :, ::1] Fp,
-    fptype[:, ::1] Am,
-    fptype[:, ::1] Ap
-):
+cdef void central_scheme_kernel(
+    fptype[:, :, ::1] H,
+    confptype[:, :, ::1] Qm, confptype[:, :, ::1] Qp, confptype[:, :, ::1] Fm,
+    confptype[:, :, ::1] Fp, confptype[:, ::1] Am, confptype[:, ::1] Ap
+) nogil:
     """Kernel calculating common/numerical flux.
     """
-    if fptype is float:
-        dtype = numpy.float32
-    elif fptype is double:
-        dtype = numpy.double
-
-    cdef int nx = Qm.shape[2]
-    cdef int ny = Qm.shape[1]
-    cdef int k, j, i
-    cdef fptype[:, :, ::1] H_view = H
+    cdef Py_ssize_t nx = Qm.shape[2]
+    cdef Py_ssize_t ny = Qm.shape[1]
+    cdef Py_ssize_t k, j, i
+    cdef fptype denominator
+    cdef fptype coeff
 
     for k in range(3):
         for j in range(ny):
@@ -155,11 +160,10 @@ cdef numpy.ndarray[fptype, ndim=3] central_scheme_kernel(
 
                 coeff = Ap[j, i] * Am[j, i]
 
-                H_view[k, j, i] = (
+                H[k, j, i] = (
                     Ap[j, i] * Fm[k, j, i] - Am[j, i] * Fp[k, j, i] +
                     coeff * (Qp[k, j, i] - Qm[k, j, i])
                 ) / denominator
-    return H
 
 
 @cython.boundscheck(False)  # deactivate bounds checking
@@ -176,34 +180,36 @@ def central_scheme(object states):
     states : torchswe.utils.data.States
         The same object as the input. Updated in-place. Returning it just for coding style.
     """
+    # aliases to reduce calls in the generated c/c++ code
+    x = states.face.x
+    y = states.face.y
+    xm = x.minus
+    xp = x.plus
+    ym = y.minus
+    yp = y.plus
 
-    if states.face.x.H.dtype == numpy.dtype("float32"):
-        states.face.x.H = central_scheme_kernel[float](
-            states.face.x.H,
-            states.face.x.minus.Q, states.face.x.plus.Q,
-            states.face.x.minus.F, states.face.x.plus.F,
-            states.face.x.minus.a, states.face.x.plus.a
-        )
+    xmF = xm.F
+    xpF = xp.F
+    ymF = ym.F
+    ypF = yp.F
+    xmQ = xm.Q
+    xpQ = xp.Q
+    ymQ = ym.Q
+    ypQ = yp.Q
+    xma = xm.a
+    xpa = xp.a
+    yma = ym.a
+    ypa = yp.a
+    xH = x.H
+    yH = y.H
 
-        states.face.y.H = central_scheme_kernel[float](
-            states.face.y.H,
-            states.face.y.minus.Q, states.face.y.plus.Q,
-            states.face.y.minus.F, states.face.y.plus.F,
-            states.face.y.minus.a, states.face.y.plus.a
-        )
-    elif states.face.x.H.dtype == numpy.dtype("float64"):
-        states.face.x.H = central_scheme_kernel[double](
-            states.face.x.H,
-            states.face.x.minus.Q, states.face.x.plus.Q,
-            states.face.x.minus.F, states.face.x.plus.F,
-            states.face.x.minus.a, states.face.x.plus.a
-        )
-
-        states.face.y.H = central_scheme_kernel[double](
-            states.face.y.H,
-            states.face.y.minus.Q, states.face.y.plus.Q,
-            states.face.y.minus.F, states.face.y.plus.F,
-            states.face.y.minus.a, states.face.y.plus.a
-        )
+    if states.face.x.H.dtype == numpy.single:
+        central_scheme_kernel[cython.float, cython.float](xH, xmQ, xpQ, xmF, xpF, xma, xpa)
+        central_scheme_kernel[cython.float, cython.float](yH, ymQ, ypQ, ymF, ypF, yma, ypa)
+    elif states.face.x.H.dtype == numpy.double:
+        central_scheme_kernel[cython.double, cython.double](xH, xmQ, xpQ, xmF, xpF, xma, xpa)
+        central_scheme_kernel[cython.double, cython.double](yH, ymQ, ypQ, ymF, ypF, yma, ypa)
+    else:
+        raise RuntimeError(f"Arrays are using an unrecognized dtype: {states.face.x.H.dtype}.")
 
     return states

@@ -213,6 +213,8 @@ class Gridline(_BaseConfig):
     def _val_all(cls, values):
         """Validations that rely the existence of other fields."""
 
+        _tol = 1e-10 if values["vertices"].dtype == _nplike.double else 1e-7
+
         # coordinate ranges
         gbg, ged, bg, ed = _itemgetter("glower", "gupper", "lower", "upper")(values)
         assert gbg < ged, f"Global lower bound >= global upper bound: {gbg}, {ged}"
@@ -230,7 +232,7 @@ class Gridline(_BaseConfig):
         for v in _itemgetter("vertices", "centers", "xfcenters", "yfcenters")(values):
             diffs = v[1:] - v[:-1]
             assert all(diff > 0 for diff in diffs), "Not in monotonically increasing order."
-            assert all(abs(diff-values["delta"]) <= 1e-10 for diff in diffs), "Delta doesn't match."
+            assert all(abs(diff-values["delta"]) <= _tol for diff in diffs), "Delta doesn't match."
             assert v.dtype == values["dtype"], "Floating-number types mismatch"
 
         # check vertices
