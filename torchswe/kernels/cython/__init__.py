@@ -9,3 +9,5 @@
 """Cython-base kernels for TorchSWE.
 """
 from .minmod import minmod_slope
+from .flux import get_discontinuous_flux
+from .flux import central_scheme
