@@ -19,23 +19,26 @@ from Cython.Build import cythonize, build_ext
 
 exts = [
     Extension(
-        name="torchswe.kernels.cython.minmod", sources=["torchswe/kernels/cython/minmod.pyx"],
-        include_dirs=[numpy.get_include()], language="c++"),
+        name="torchswe.kernels.cython",
+        sources=[
+            "torchswe/kernels/cython_kernels.pyx",
+        ],
+        include_dirs=[numpy.get_include()], language="c++"
+    ),
     Extension(
-        name="torchswe.kernels.cython.flux", sources=["torchswe/kernels/cython/flux.pyx"],
-        include_dirs=[numpy.get_include()], language="c++"),
-    Extension(
-        name="torchswe.kernels.cupy.minmod", sources=["torchswe/kernels/cupy/minmod.pyx"],
-        include_dirs=[numpy.get_include()], language="c++"),
-    Extension(
-        name="torchswe.kernels.cupy.flux", sources=["torchswe/kernels/cupy/flux.pyx"],
-        include_dirs=[numpy.get_include()], language="c++"),
+        name="torchswe.kernels.cupy",
+        sources=[
+            "torchswe/kernels/cupy_kernels.pyx",
+        ],
+        include_dirs=[numpy.get_include()], language="c++"
+    ),
 ]
 
 setup(
     cmdclass={"build_ext": build_ext},
     ext_modules=cythonize(
         exts,
+        force=True,
         compiler_directives={"language_level": "3"},
     )
 )

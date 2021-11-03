@@ -5,16 +5,6 @@ cimport cython
 numpy.seterr(divide="ignore", invalid="ignore")
 
 
-# fused floating point type; uses as the template varaible type in C++
-ctypedef fused fptype:
-    cython.float
-    cython.double
-
-ctypedef fused confptype:
-    const cython.float
-    const cython.double
-
-
 @cython.boundscheck(False)  # deactivate bounds checking
 @cython.wraparound(False)  # deactivate negative indexing.
 cdef void minmod_slope_x(
