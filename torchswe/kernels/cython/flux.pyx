@@ -203,13 +203,78 @@ def central_scheme(object states):
     xH = x.H
     yH = y.H
 
-    if states.face.x.H.dtype == numpy.single:
+    dtype = yH.dtype
+
+    if dtype == numpy.single:
         central_scheme_kernel[cython.float, cython.float](xH, xmQ, xpQ, xmF, xpF, xma, xpa)
         central_scheme_kernel[cython.float, cython.float](yH, ymQ, ypQ, ymF, ypF, yma, ypa)
-    elif states.face.x.H.dtype == numpy.double:
+    elif dtype == numpy.double:
         central_scheme_kernel[cython.double, cython.double](xH, xmQ, xpQ, xmF, xpF, xma, xpa)
         central_scheme_kernel[cython.double, cython.double](yH, ymQ, ypQ, ymF, ypF, yma, ypa)
     else:
-        raise RuntimeError(f"Arrays are using an unrecognized dtype: {states.face.x.H.dtype}.")
+        raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
+
+    return states
+
+
+@cython.boundscheck(False)  # deactivate bounds checking
+@cython.wraparound(False)  # deactivate negative indexing.
+cdef void local_speed_kernel(
+    fptype[:, ::1] am, fptype[:, ::1] ap,
+    confptype[:, ::1] hm, confptype[:, ::1] hp,
+    confptype[:, ::1] um, confptype[:, ::1] up,
+    const double gravity
+) nogil:
+    cdef Py_ssize_t ny = ap.shape[0]
+    cdef Py_ssize_t nx = ap.shape[1]
+    cdef Py_ssize_t i, j
+    cdef fptype sqrt_ghm, sqrt_ghp
+
+    for j in range(ny):
+        for i in range(nx):
+            sqrt_ghp = (hp[j, i] * gravity)**0.5
+            sqrt_ghm = (hm[j, i] * gravity)**0.5
+            ap[j, i] = max(max(up[j, i]+sqrt_ghp, um[j, i]+sqrt_ghm), 0.0)
+            am[j, i] = min(min(up[j, i]-sqrt_ghp, um[j, i]-sqrt_ghm), 0.0)
+
+
+@cython.boundscheck(False)  # deactivate bounds checking
+@cython.wraparound(False)  # deactivate negative indexing.
+def get_local_speed(object states, double gravity):
+    """Calculate local speeds on the two sides of cell faces.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    gravity : float
+        Gravity in m / s^2.
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Changed inplace. Returning it just for coding style.
+    """
+    x = states.face.x
+    xp = x.plus
+    xm = x.minus
+
+    y = states.face.y
+    yp = y.plus
+    ym = y.minus
+
+    dtype = xp.a.dtype
+
+    if dtype == numpy.single:
+        local_speed_kernel[cython.float, cython.float](
+            xm.a, xp.a, xm.U[0], xp.U[0], xm.U[1], xp.U[1], gravity)
+        local_speed_kernel[cython.float, cython.float](
+            ym.a, yp.a, ym.U[0], yp.U[0], ym.U[2], yp.U[2], gravity)
+    elif dtype == numpy.double:
+        local_speed_kernel[cython.double, cython.double](
+            xm.a, xp.a, xm.U[0], xp.U[0], xm.U[1], xp.U[1], gravity)
+        local_speed_kernel[cython.double, cython.double](
+            ym.a, yp.a, ym.U[0], yp.U[0], ym.U[2], yp.U[2], gravity)
+    else:
+        raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 
     return states

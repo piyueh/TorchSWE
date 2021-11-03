@@ -113,3 +113,44 @@ def central_scheme(object states):
     central_scheme_kernel(ym.a, yp.a, ym.F, yp.F, ym.Q, yp.Q, y.H)
 
     return states
+
+
+def get_local_speed(object states, double gravity):
+    """Calculate local speeds on the two sides of cell faces.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    gravity : float
+        Gravity in m / s^2.
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Changed inplace. Returning it just for coding style.
+    """
+
+    # for convenience
+    zero = cupy.array(0.)
+
+    # faces normal to x-direction
+    sqrt_gh_plus = cupy.sqrt(gravity*states.face.x.plus.U[0])
+    sqrt_gh_minus = cupy.sqrt(gravity*states.face.x.minus.U[0])
+
+    states.face.x.plus.a = cupy.maximum(cupy.maximum(
+        states.face.x.plus.U[1]+sqrt_gh_plus, states.face.x.minus.U[1]+sqrt_gh_minus), zero)
+
+    states.face.x.minus.a = cupy.minimum(cupy.minimum(
+        states.face.x.plus.U[1]-sqrt_gh_plus, states.face.x.minus.U[1]-sqrt_gh_minus), zero)
+
+    # faces normal to y-direction
+    sqrt_gh_plus = cupy.sqrt(gravity*states.face.y.plus.U[0])
+    sqrt_gh_minus = cupy.sqrt(gravity*states.face.y.minus.U[0])
+
+    states.face.y.plus.a = cupy.maximum(cupy.maximum(
+        states.face.y.plus.U[2]+sqrt_gh_plus, states.face.y.minus.U[2]+sqrt_gh_minus), zero)
+
+    states.face.y.minus.a = cupy.minimum(cupy.minimum(
+        states.face.y.plus.U[2]-sqrt_gh_plus, states.face.y.minus.U[2]-sqrt_gh_minus), zero)
+
+    return states
