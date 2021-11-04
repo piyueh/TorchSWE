@@ -8,8 +8,6 @@
 
 """Functions for calculating discontinuous flux.
 """
-import cupy
-cimport cython
 
 
 cdef get_discontinuous_flux_x = cupy.ElementwiseKernel(

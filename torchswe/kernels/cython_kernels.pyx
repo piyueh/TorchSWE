@@ -1,12 +1,7 @@
+import numpy
+cimport numpy
 cimport cython
-
-ctypedef fused fptype:
-    cython.float
-    cython.double
-
-ctypedef fused confptype:
-    const cython.float
-    const cython.double
+numpy.seterr(divide="ignore", invalid="ignore")
 
 include "cython_flux.pyx"
 include "cython_minmod.pyx"

@@ -39,6 +39,6 @@ setup(
     ext_modules=cythonize(
         exts,
         force=True,
-        compiler_directives={"language_level": "3"},
+        compiler_directives={"language_level": "3", "boundscheck": False, "wraparound": False},
     )
 )
