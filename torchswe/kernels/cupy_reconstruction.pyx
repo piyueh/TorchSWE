@@ -11,7 +11,7 @@
 
 
 cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
-    "T s1, T s2, T s3, T theta, T dx",
+    "T s1, T s2, T s3, float64 theta",
     "T slp",
     """
         T denominator = s3 - s2;
@@ -20,95 +20,77 @@ cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
         slp = min(slp, theta);
         slp = max(slp, 0.);
         slp *= denominator;
-        slp /= dx;
+        slp /= 2.0;
     """,
     "minmod_slope_kernel",
 )
 
 
-@cython.boundscheck(False)  # deactivate bounds checking
-def minmod_slope(object states, double theta):
-    """Calculate the slope of using minmod limiter.
-
-    Arguments
-    ---------
-    states : torchswe.utils.data.State
-        The instance of States holding quantities.
-    theta : float
-        The parameter adjusting the dissipation.
-
-    Returns
-    -------
-    states : torchswe.utils.data.State
-        The same object as the input.
+cdef _fix_rounding_err_kernel = cupy.ElementwiseKernel(
+    "T depth, float64 tol",
+    "T ans",
     """
-
-    # alias
-    cdef Py_ssize_t ngh = states.ngh
-    cdef double dx = states.domain.x.delta
-    cdef double dy = states.domain.y.delta
-    Q = states.Q  # pylint: disable=invalid-name
-
-    # kernels
-    states.slpx = _minmod_slope_kernel(
-        Q[:, ngh:-ngh, :-ngh], Q[:, ngh:-ngh, 1:-1], Q[:, ngh:-ngh, ngh:], theta, dx)
-    states.slpy = _minmod_slope_kernel(
-        Q[:, :-ngh, ngh:-ngh], Q[:, 1:-1, ngh:-ngh], Q[:, ngh:, ngh:-ngh], theta, dy)
-
-    return states
+        if (depth < tol) ans = 0.0;
+    """,
+    "fix_rounding_err_kernel",
+)
 
 
-def correct_negative_depth(states):
-    """Fix negative depth on the both sides of cell faces.
-
-    Arguments
-    ---------
-    states : torchswe.utils.data.States
-
-    Returns:
-    --------
-    states : torchswe.utils.data.States
-        The same object as the input. Changed inplace. Returning it just for coding style.
-
-    Notes
-    -----
-    Instead of fixing the w+h as described in Keuganov & Petrova, 2007, we fix h directly, However,
-    this is only valid when the topography elevation at a cell center is exactly the linear
-    interpolation of elevations at cell interfaces.
-    """
-
-    # aliases
-    ngh = states.ngh
-    nx, ny = states.domain.x.n, states.domain.y.n
-
-    # fix the case when the left depth of an interface is negative
-    j, i = cupy.nonzero(states.face.x.minus.U[0] < 0.)
-    states.face.x.minus.U[0, j, i] = 0.
-    j, i = j[i != 0], i[i != 0]  # to avoid those i - 1 = -1
-    states.face.x.plus.U[0, j, i-1] = 2 * states.U[0, j+ngh, i-1+ngh]
-
-    # fix the case when the right depth of an interface is negative
-    j, i = cupy.nonzero(states.face.x.plus.U[0] < 0.)
-    states.face.x.plus.U[0, j, i] = 0.
-    j, i = j[i != nx], i[i != nx]  # to avoid i + 1 = nx + 1
-    states.face.x.minus.U[0, j, i+1] = 2 * states.U[0, j+ngh, i+ngh]
-
-    # fix the case when the bottom depth of an interface is negative
-    j, i = cupy.nonzero(states.face.y.minus.U[0] < 0.)
-    states.face.y.minus.U[0, j, i] = 0.
-    j, i = j[j != 0], i[j != 0]  # to avoid j - 1 = -1
-    states.face.y.plus.U[0, j-1, i] = 2 * states.U[0, j-1+ngh, i+ngh]
-
-    # fix the case when the top depth of an interface is negative
-    j, i = cupy.nonzero(states.face.y.plus.U[0] < 0.)
-    states.face.y.plus.U[0, j, i] = 0.
-    j, i = j[j != ny], i[j != ny]  # to avoid j + 1 = Ny + 1
-    states.face.y.minus.U[0, j+1, i] = 2 * states.U[0, j+ngh, i+ngh]
-
-    return states
+cdef _recnstrt_face_vel_kernel = cupy.ElementwiseKernel(
+    "T depth, T hu, T hv, float64 drytol",
+    "T u, T v",
+    r"""
+        if (depth < drytol) {
+            u = 0.0;
+            v = 0.0;
+        } else {
+            u = hu / depth;
+            v = hv / depth;
+        }
+    """,
+    "recnstrt_face_vel_kernel",
+)
 
 
-def reconstruct(states, runtime, config):
+cdef _recnstrt_face_conservatives = cupy.ElementwiseKernel(
+    "T h, T u, T v, T b",
+    "T w, T hu, T hv",
+    r"""
+        w = h + b;
+        hu = h * u;
+        hv = h * v;
+    """,
+    "recnstrt_face_conservatives"
+)
+
+
+cdef _correct_neg_depth_internal = cupy.ElementwiseKernel(
+    "T hc, T hl, T hr",
+    "T nhl, T nhr",
+    r"""
+        if (hl < 0.0) {
+            nhl = 0.;
+            nhr = hc * 2.0;
+        } else if (hr < 0.0) {
+            nhr = 0.0;
+            nhl = hc * 2.0;
+        }
+    """,
+    "_correct_neg_depth_internal"
+)
+
+
+cdef _correct_neg_depth_edge = cupy.ElementwiseKernel(
+    "T h",
+    "T nh",
+    r"""
+        if (h < 0.0) nh = 0.0;
+    """,
+    "_correct_neg_depth_edge"
+)
+
+
+cpdef reconstruct(object states, object runtime, object config):
     """Reconstructs quantities at cell interfaces and centers.
 
     The following quantities in `states` are updated in this function:
@@ -129,53 +111,84 @@ def reconstruct(states, runtime, config):
         updated in-place.
     """
 
-    ngh = states.ngh
-    dx_half = states.domain.x.delta / 2.
-    dy_half = states.domain.y.delta / 2.
+    # aliases to save object look-up time in Python's underlying dictionary
+    cdef object face = states.face
+    cdef object x = face.x
+    cdef object xm = face.x.minus
+    cdef object xp = face.x.plus
+    cdef object y = face.y
+    cdef object ym = face.y.minus
+    cdef object yp = face.y.plus
+    cdef object Q = states.Q
+    cdef object H = states.H
+    cdef object xmQ = xm.Q
+    cdef object xpQ = xp.Q
+    cdef object ymQ = ym.Q
+    cdef object ypQ = yp.Q
+    cdef object xmU = xm.U
+    cdef object xpU = xp.U
+    cdef object ymU = ym.U
+    cdef object ypU = yp.U
 
-    # calculate non-conservative quantities at cell centers
-    states.U[0, ngh:-ngh, ngh:-ngh] = states.Q[0, ngh:-ngh, ngh:-ngh] - runtime.topo.centers
+    cdef object topo = runtime.topo
 
-    wet = (states.U[0] > config.params.drytol)
-    states.U[1:, ...] = 0.
-    states.U[1:, wet] = states.Q[1:, wet] / states.U[0, wet]
+    cdef Py_ssize_t ngh = states.ngh
+    cdef Py_ssize_t ny = Q.shape[1] - 2 * ngh
+    cdef Py_ssize_t nx = Q.shape[2] - 2 * ngh
+    cdef Py_ssize_t xbg = ngh
+    cdef Py_ssize_t xed = nx+ngh
+    cdef Py_ssize_t ybg = ngh
+    cdef Py_ssize_t yed = ny+ngh
+
+    cdef double theta = config.params.theta
+    cdef double drytol = config.params.drytol
+    cdef double tol = runtime.tol
 
     # get slopes
-    states = minmod_slope(states, config.params.theta)
+    cdef object slpx = _minmod_slope_kernel(
+            Q[:, ybg:yed, xbg-2:xed], Q[:, ybg:yed, xbg-1:xed+1], Q[:, ybg:yed, xbg:xed+2], theta)
+    cdef object slpy = _minmod_slope_kernel(
+            Q[:, ybg-2:yed, xbg:xed], Q[:, ybg-1:yed+1, xbg:xed], Q[:, ybg:yed+2, xbg:xed], theta)
 
     # get discontinuous conservatice quantities at cell faces
-    states.face.x.minus.Q = states.Q[:, ngh:-ngh, ngh-1:-ngh] + states.slpx[:, :, :-1] * dx_half
-    states.face.x.plus.Q = states.Q[:, ngh:-ngh, ngh:-ngh+1] - states.slpx[:, :, 1:] * dx_half
-    states.face.y.minus.Q = states.Q[:, ngh-1:-ngh, ngh:-ngh] + states.slpy[:, :-1, :] * dy_half
-    states.face.y.plus.Q = states.Q[:, ngh:-ngh+1, ngh:-ngh] - states.slpy[:, 1:, :] * dy_half
+    cupy.add(Q[:, ybg:yed, xbg-1:xed], slpx[:, :, :nx+1], out=xmQ)
+    cupy.subtract(Q[:, ybg:yed, xbg:xed+1], slpx[:, :, 1:], out=xpQ)
+    cupy.add(Q[:, ybg-1:yed, xbg:xed], slpy[:, :ny+1, :], out=ymQ)
+    cupy.subtract(Q[:, ybg:yed+1, xbg:xed], slpy[:, 1:, :], out=ypQ)
 
-    # get depth at cell interfaces
-    for ornt in ["x", "y"]:
-        for sign in ["minus", "plus"]:
-            states.face[ornt][sign].U[0] = \
-                states.face[ornt][sign].Q[0] - runtime.topo[ornt+"fcenters"]
+    # calculate depth at cell centers and faces
+    cupy.subtract(Q[0, ybg:yed, xbg:xed], topo.centers, out=H)
+    cupy.subtract(xmQ[0], topo.xfcenters, out=xmU[0])
+    cupy.subtract(xpQ[0], topo.xfcenters, out=xpU[0])
+    cupy.subtract(ymQ[0], topo.yfcenters, out=ymU[0])
+    cupy.subtract(ypQ[0], topo.yfcenters, out=ypU[0])
 
-    # fix negative depths at cell interfaces
-    states = correct_negative_depth(states)
+    # fix negative depths in x direction
+    _correct_neg_depth_internal(H, xpU[0, :, :nx], xmU[0, :, 1:], xpU[0, :, :nx], xmU[0, :, 1:])
+    _correct_neg_depth_edge(xpU[0, :, nx], xpU[0, :, nx])
+    _correct_neg_depth_edge(xmU[0, :, 0], xmU[0, :, 0])
 
-    # get non-consercative variables at cell faces
-    for ornt in ["x", "y"]:
-        for sign in ["minus", "plus"]:
+    # fix negative depths in x direction
+    _correct_neg_depth_internal(H, ypU[0, :ny, :], ymU[0, 1:, :], ypU[0, :ny, :], ymU[0, 1:, :])
+    _correct_neg_depth_edge(ypU[0, ny, :], ypU[0, ny, :])
+    _correct_neg_depth_edge(ymU[0, 0, :], ymU[0, 0, :])
 
-            # fix rounding errors
-            loc = cupy.nonzero(states.face[ornt][sign].U[0] < runtime.tol)
-            states.face[ornt][sign].U[0, loc[0], loc[1]] = 0.
+    # fix rounding errors
+    _fix_rounding_err_kernel(xmU[0], tol, xmU[0])
+    _fix_rounding_err_kernel(xpU[0], tol, xpU[0])
+    _fix_rounding_err_kernel(ymU[0], tol, ymU[0])
+    _fix_rounding_err_kernel(ypU[0], tol, ypU[0])
 
-            # calculate velocities at wet interfaces
-            loc = (states.face[ornt][sign].U[0] > config.params.drytol)
-            states.face[ornt][sign].U[1:] = 0.
-            states.face[ornt][sign].U[1:, loc] = \
-                states.face[ornt][sign].Q[1:, loc] / states.face[ornt][sign].U[0, loc]
+    # reconstruct velocity at cell faces
+    _recnstrt_face_vel_kernel(xmU[0], xmQ[1], xmQ[2], drytol, xmU[1], xmU[2])
+    _recnstrt_face_vel_kernel(xpU[0], xpQ[1], xpQ[2], drytol, xpU[1], xpU[2])
+    _recnstrt_face_vel_kernel(ymU[0], ymQ[1], ymQ[2], drytol, ymU[1], ymU[2])
+    _recnstrt_face_vel_kernel(ypU[0], ypQ[1], ypQ[2], drytol, ypU[1], ypU[2])
 
-            # re-calculate conservative quantities at cell interfaces
-            states.face[ornt][sign].Q[0] = \
-                   states.face[ornt][sign].U[0] + runtime.topo[ornt+"fcenters"]
-            states.face[ornt][sign].Q[1:] = \
-                states.face[ornt][sign].U[0] * states.face[ornt][sign].U[1:]
+    # reconstruct conservative quantities at cell faces
+    _recnstrt_face_conservatives(xmU[0], xmU[1], xmU[2], topo.xfcenters, xmQ[0], xmQ[1], xmQ[2])
+    _recnstrt_face_conservatives(xpU[0], xpU[1], xpU[2], topo.xfcenters, xpQ[0], xpQ[1], xpQ[2])
+    _recnstrt_face_conservatives(ymU[0], ymU[1], ymU[2], topo.yfcenters, ymQ[0], ymQ[1], ymQ[2])
+    _recnstrt_face_conservatives(ypU[0], ypU[1], ypU[2], topo.yfcenters, ypQ[0], ypQ[1], ypQ[2])
 
     return states
