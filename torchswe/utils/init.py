@@ -103,7 +103,7 @@ def get_gridline(axis: str, pn: int, pi: int, gn: int, glower: float, gupper: fl
     data["lower"] = data["ibegin"] * data["delta"] + data["glower"]
     data["upper"] = data["iend"] * data["delta"] + data["glower"]
 
-    data["vertices"], ddd = _nplike.linspace(
+    data["vertices"], _ = _nplike.linspace(
         data["lower"], data["upper"],
         data["n"]+1, retstep=True, dtype=data["dtype"])
 
