@@ -8,20 +8,57 @@
 
 """Linear reconstruction.
 """
-from torchswe import nplike as _nplike
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.misc import DummyDict as _DummyDict
-from torchswe.utils.data import States as _States
-
-if _nplike.__name__ == "numpy":
-    from torchswe.kernels.cython import minmod_slope as _minmod_slope
-elif _nplike.__name__ == "cupy":
-    from torchswe.kernels.cupy import minmod_slope as _minmod_slope
-else:
-    raise ImportError("Torch's minmod not implemented yet.")
 
 
-def correct_negative_depth(states: _States) -> _States:
+cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
+    "T s1, T s2, T s3, T theta, T dx",
+    "T slp",
+    """
+        T denominator = s3 - s2;
+        slp = (s2 - s1) / denominator;
+        slp = min(slp*theta, (1.0 + slp) / 2.0);
+        slp = min(slp, theta);
+        slp = max(slp, 0.);
+        slp *= denominator;
+        slp /= dx;
+    """,
+    "minmod_slope_kernel",
+)
+
+
+@cython.boundscheck(False)  # deactivate bounds checking
+def minmod_slope(object states, double theta):
+    """Calculate the slope of using minmod limiter.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.State
+        The instance of States holding quantities.
+    theta : float
+        The parameter adjusting the dissipation.
+
+    Returns
+    -------
+    states : torchswe.utils.data.State
+        The same object as the input.
+    """
+
+    # alias
+    cdef Py_ssize_t ngh = states.ngh
+    cdef double dx = states.domain.x.delta
+    cdef double dy = states.domain.y.delta
+    Q = states.Q  # pylint: disable=invalid-name
+
+    # kernels
+    states.slpx = _minmod_slope_kernel(
+        Q[:, ngh:-ngh, :-ngh], Q[:, ngh:-ngh, 1:-1], Q[:, ngh:-ngh, ngh:], theta, dx)
+    states.slpy = _minmod_slope_kernel(
+        Q[:, :-ngh, ngh:-ngh], Q[:, 1:-1, ngh:-ngh], Q[:, ngh:, ngh:-ngh], theta, dy)
+
+    return states
+
+
+def correct_negative_depth(states):
     """Fix negative depth on the both sides of cell faces.
 
     Arguments
@@ -45,25 +82,25 @@ def correct_negative_depth(states: _States) -> _States:
     nx, ny = states.domain.x.n, states.domain.y.n
 
     # fix the case when the left depth of an interface is negative
-    j, i = _nplike.nonzero(states.face.x.minus.U[0] < 0.)
+    j, i = cupy.nonzero(states.face.x.minus.U[0] < 0.)
     states.face.x.minus.U[0, j, i] = 0.
     j, i = j[i != 0], i[i != 0]  # to avoid those i - 1 = -1
     states.face.x.plus.U[0, j, i-1] = 2 * states.U[0, j+ngh, i-1+ngh]
 
     # fix the case when the right depth of an interface is negative
-    j, i = _nplike.nonzero(states.face.x.plus.U[0] < 0.)
+    j, i = cupy.nonzero(states.face.x.plus.U[0] < 0.)
     states.face.x.plus.U[0, j, i] = 0.
     j, i = j[i != nx], i[i != nx]  # to avoid i + 1 = nx + 1
     states.face.x.minus.U[0, j, i+1] = 2 * states.U[0, j+ngh, i+ngh]
 
     # fix the case when the bottom depth of an interface is negative
-    j, i = _nplike.nonzero(states.face.y.minus.U[0] < 0.)
+    j, i = cupy.nonzero(states.face.y.minus.U[0] < 0.)
     states.face.y.minus.U[0, j, i] = 0.
     j, i = j[j != 0], i[j != 0]  # to avoid j - 1 = -1
     states.face.y.plus.U[0, j-1, i] = 2 * states.U[0, j-1+ngh, i+ngh]
 
     # fix the case when the top depth of an interface is negative
-    j, i = _nplike.nonzero(states.face.y.plus.U[0] < 0.)
+    j, i = cupy.nonzero(states.face.y.plus.U[0] < 0.)
     states.face.y.plus.U[0, j, i] = 0.
     j, i = j[j != ny], i[j != ny]  # to avoid j + 1 = Ny + 1
     states.face.y.minus.U[0, j+1, i] = 2 * states.U[0, j+ngh, i+ngh]
@@ -71,7 +108,7 @@ def correct_negative_depth(states: _States) -> _States:
     return states
 
 
-def reconstruct(states: _States, runtime: _DummyDict, config: _Config) -> _States:
+def reconstruct(states, runtime, config):
     """Reconstructs quantities at cell interfaces and centers.
 
     The following quantities in `states` are updated in this function:
@@ -104,7 +141,7 @@ def reconstruct(states: _States, runtime: _DummyDict, config: _Config) -> _State
     states.U[1:, wet] = states.Q[1:, wet] / states.U[0, wet]
 
     # get slopes
-    states = _minmod_slope(states, config.params.theta)
+    states = minmod_slope(states, config.params.theta)
 
     # get discontinuous conservatice quantities at cell faces
     states.face.x.minus.Q = states.Q[:, ngh:-ngh, ngh-1:-ngh] + states.slpx[:, :, :-1] * dx_half
@@ -126,7 +163,7 @@ def reconstruct(states: _States, runtime: _DummyDict, config: _Config) -> _State
         for sign in ["minus", "plus"]:
 
             # fix rounding errors
-            loc = _nplike.nonzero(states.face[ornt][sign].U[0] < runtime.tol)
+            loc = cupy.nonzero(states.face[ornt][sign].U[0] < runtime.tol)
             states.face[ornt][sign].U[0, loc[0], loc[1]] = 0.
 
             # calculate velocities at wet interfaces

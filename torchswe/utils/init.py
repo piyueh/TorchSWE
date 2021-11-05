@@ -333,12 +333,10 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     return _States(
         domain=domain, ngh=ngh,
         Q=_nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype),
-        U=_nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype),
+        H=_nplike.zeros((ny, nx), dtype=dtype),
         S=_nplike.zeros((3, ny, nx), dtype=dtype),
         SS=(_nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None),
         face=get_empty_facequantitymodel(nx, ny, dtype),
-        slpx=_nplike.zeros((3, ny, nx+2), dtype=dtype),
-        slpy=_nplike.zeros((3, ny+2, nx), dtype=dtype),
     )
 
 

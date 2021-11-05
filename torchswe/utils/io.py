@@ -86,9 +86,7 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
         "w": soln.Q[0, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
         "hu": soln.Q[1, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
         "hv": soln.Q[2, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "h": soln.U[0, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "u": soln.U[1, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "v": soln.U[2, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
+        "h": soln.H,
     }
 
     # alias

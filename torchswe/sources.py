@@ -35,10 +35,8 @@ def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -
     states : torchswe.utils.data.States
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
-    slc = slice(states.ngh, -states.ngh)
-
     # auto-broadcasting; add to rhs in-place
-    states.S[1:, ...] -= (config.params.gravity * states.U[0, slc, slc] * runtime.topo.grad)
+    states.S[1:, ...] -= (config.params.gravity * states.H * runtime.topo.grad)
     return states
 
 
@@ -119,16 +117,16 @@ def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
     slc = slice(states.ngh, -states.ngh)
-    loc = (states.U[0, slc, slc] > 0.)
+    loc = _nplike.nonzero(states.H > 0.)
 
     # views
-    h = states.U[0, slc, slc][loc]
-    hu = states.Q[1, slc, slc][loc]
-    hv = states.Q[2, slc, slc][loc]
+    h = states.H[loc]
+    hu = states.Q[1, slc, slc][loc]  # hu & hv has ghost cells
+    hv = states.Q[2, slc, slc][loc]  # hu & hv has ghost cells
 
     coef = runtime.fc_model(h, hu, hv, config.props.nu, runtime.roughness)
 
-    states.SS[1:, loc] += \
+    states.SS[1:, loc[0], loc[1]] += \
         - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) \
         / (8. * _nplike.power(h, 2))
 

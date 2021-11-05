@@ -542,7 +542,7 @@ class States(_BaseConfig):
     A brief overview of the structure in this jumbo model (ignoring scalars):
     State: {
         Q: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
-        U: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
+        H: ndarray                                          # shape: (ny, nx)
         S: ndarray                                          # shape: (3, ny, nx)
         SS: ndarray                                         # shape: (3, ny, nx)
         face: {
@@ -577,8 +577,6 @@ class States(_BaseConfig):
                 H: ndarray                                  # shape: (3, ny+1, nx)
             }
         }
-        slpx: ndarray                                       # shape: (3, ny, nx+2)
-        slpy: ndarray                                       # shape: (3, ny+2, nx)
     }
 
     Attributes
@@ -607,12 +605,10 @@ class States(_BaseConfig):
 
     # quantities defined at cell centers and faces
     Q: _nplike.ndarray
-    U: _nplike.ndarray
+    H: _nplike.ndarray
     S: _nplike.ndarray
     SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
-    slpx: _nplike.ndarray
-    slpy: _nplike.ndarray
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):
@@ -624,8 +620,8 @@ class States(_BaseConfig):
         assert values["Q"].shape == (3, ny+2*ngh, nx+2*ngh), "Q: incorrect shape"
         assert values["Q"].dtype == dtype, "Q: incorrect dtype"
 
-        assert values["U"].shape == (3, ny+2*ngh, nx+2*ngh), "U: incorrect shape"
-        assert values["U"].dtype == dtype, "U: incorrect dtype"
+        assert values["H"].shape == (ny, nx), "H: incorrect shape"
+        assert values["H"].dtype == dtype, "H: incorrect dtype"
 
         assert values["S"].shape == (3, ny, nx), "S: incorrect shape"
         assert values["S"].dtype == dtype, "S: incorrect dtype"
@@ -635,12 +631,6 @@ class States(_BaseConfig):
 
         assert values["face"].y.plus.U.shape == (3, ny+1, nx), "face.y: incorrect shape"
         assert values["face"].y.plus.U.dtype == dtype, "face.y: incorrect dtype"
-
-        assert values["slpx"].shape == (3, ny, nx+2), "slpx: incorrect shape"
-        assert values["slpx"].dtype == dtype, "slpx: incorrect dtype"
-
-        assert values["slpy"].shape == (3, ny+2, nx), "slpy: incorrect shape"
-        assert values["slpy"].dtype == dtype, "slpy: incorrect dtype"
 
         if values["SS"] is not None:
             assert values["SS"].shape == (3, ny, nx), "SS: incorrect shape"
