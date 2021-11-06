@@ -10,6 +10,7 @@
 """
 from pathlib import Path as _Path
 from netCDF4 import Dataset as _Dataset  # pylint: disable=no-name-in-module
+from h5py import File as _File
 from torchswe import nplike as _nplike
 from torchswe.utils.data import States as _States
 from torchswe.utils.netcdf import write_to_dataset as _write_to_dataset
@@ -104,28 +105,95 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
 def write_states(states: _States, fname: str):
     """Write flatten states to a .npz file for debug."""
 
-    keys = ["w", "hu", "hv"]
-    keys2 = ["h", "u", "v", "a"]
+    comm = states.domain.process.comm
+    gnx = states.domain.x.gn
+    gny = states.domain.y.gn
+    lnx = states.domain.x.n
+    lny = states.domain.y.n
+    ngh = states.ngh
+    dtype = states.Q.dtype
+    ibg = states.domain.x.ibegin
+    ied = states.domain.x.iend
+    jbg = states.domain.y.ibegin
+    jed = states.domain.y.iend
 
-    data = {}
-    data.update({f"q_{k}": states.q[k] for k in keys})
-    data.update({f"src_{k}": states.src[k] for k in keys})
-    data.update({f"slp_x_{k}": states.slp.x[k] for k in keys})
-    data.update({f"slp_y_{k}": states.slp.y[k] for k in keys})
-    data.update({f"face_x_minus_{k}": states.face.x.minus[k] for k in keys})
-    data.update({f"face_x_plus_{k}": states.face.x.plus[k] for k in keys})
-    data.update({f"face_y_minus_{k}": states.face.y.minus[k] for k in keys})
-    data.update({f"face_y_plus_{k}": states.face.y.plus[k] for k in keys})
-    data.update({f"face_x_minus_{k}": states.face.x.minus[k] for k in keys2})
-    data.update({f"face_x_plus_{k}": states.face.x.plus[k] for k in keys2})
-    data.update({f"face_y_minus_{k}": states.face.y.minus[k] for k in keys2})
-    data.update({f"face_y_plus_{k}": states.face.y.plus[k] for k in keys2})
-    data.update({f"face_x_minus_flux_{k}": states.face.x.minus.flux[k] for k in keys})
-    data.update({f"face_x_plus_flux_{k}": states.face.x.plus.flux[k] for k in keys})
-    data.update({f"face_y_minus_flux_{k}": states.face.y.minus.flux[k] for k in keys})
-    data.update({f"face_y_plus_flux_{k}": states.face.y.plus.flux[k] for k in keys})
-    data.update({f"face_x_num_flux_{k}": states.face.x.num_flux[k] for k in keys})
-    data.update({f"face_y_num_flux_{k}": states.face.y.num_flux[k] for k in keys})
-    data.update({f"rhs_{k}": states.rhs[k] for k in keys})
+    with _File(f"{fname}.hdf5", 'w', driver='mpio', comm=comm) as fobj:
+        fobj.create_dataset("Q", (3, gny, gnx), dtype)
+        fobj["Q"][:, jbg:jed, ibg:ied] = states.Q[:, ngh:-ngh, ngh:-ngh]
 
-    _nplike.savez(fname, **data)
+        fobj.create_dataset("H", (gny, gnx), dtype)
+        fobj["H"][jbg:jed, ibg:ied] = states.H
+
+        fobj.create_dataset("S", (3, gny, gnx), dtype)
+        fobj["S"][:, jbg:jed, ibg:ied] = states.S
+
+        fobj.create_dataset("SS", (3, gny, gnx), dtype)
+        fobj["SS"][:, jbg:jed, ibg:ied] = states.SS
+
+        # how does h5py deal with cometition of shared cell faces between ranks?
+        fobj.create_dataset("xH", (3, gny, gnx+1), dtype)
+        fobj["xH"][:, jbg:jed, ibg:ied+1] = states.face.x.H
+
+        fobj.create_dataset("xmQ", (3, gny, gnx+1), dtype)
+        fobj["xmQ"][:, jbg:jed, ibg:ied+1] = states.face.x.minus.Q
+
+        fobj.create_dataset("xmU", (3, gny, gnx+1), dtype)
+        fobj["xmU"][:, jbg:jed, ibg:ied+1] = states.face.x.minus.U
+
+        fobj.create_dataset("xma", (gny, gnx+1), dtype)
+        fobj["xma"][jbg:jed, ibg:ied+1] = states.face.x.minus.a
+
+        fobj.create_dataset("xmF", (3, gny, gnx+1), dtype)
+        fobj["xmF"][:, jbg:jed, ibg:ied+1] = states.face.x.minus.F
+
+        fobj.create_dataset("xpQ", (3, gny, gnx+1), dtype)
+        fobj["xpQ"][:, jbg:jed, ibg:ied+1] = states.face.x.plus.Q
+
+        fobj.create_dataset("xpU", (3, gny, gnx+1), dtype)
+        fobj["xpU"][:, jbg:jed, ibg:ied+1] = states.face.x.plus.U
+
+        fobj.create_dataset("xpa", (gny, gnx+1), dtype)
+        fobj["xpa"][jbg:jed, ibg:ied+1] = states.face.x.plus.a
+
+        fobj.create_dataset("xpF", (3, gny, gnx+1), dtype)
+        fobj["xpF"][:, jbg:jed, ibg:ied+1] = states.face.x.plus.F
+
+
+        fobj.create_dataset("yH", (3, gny+1, gnx), dtype)
+        fobj["yH"][:, jbg:jed+1, ibg:ied] = states.face.y.H
+
+        fobj.create_dataset("ymQ", (3, gny+1, gnx), dtype)
+        fobj["ymQ"][:, jbg:jed+1, ibg:ied] = states.face.y.minus.Q
+
+        fobj.create_dataset("ymU", (3, gny+1, gnx), dtype)
+        fobj["ymU"][:, jbg:jed+1, ibg:ied] = states.face.y.minus.U
+
+        fobj.create_dataset("yma", (gny+1, gnx), dtype)
+        fobj["yma"][jbg:jed+1, ibg:ied] = states.face.y.minus.a
+
+        fobj.create_dataset("ymF", (3, gny+1, gnx), dtype)
+        fobj["ymF"][:, jbg:jed+1, ibg:ied] = states.face.y.minus.F
+
+        fobj.create_dataset("ypQ", (3, gny+1, gnx), dtype)
+        fobj["ypQ"][:, jbg:jed+1, ibg:ied] = states.face.y.plus.Q
+
+        fobj.create_dataset("ypU", (3, gny+1, gnx), dtype)
+        fobj["ypU"][:, jbg:jed+1, ibg:ied] = states.face.y.plus.U
+
+        fobj.create_dataset("ypa", (gny+1, gnx), dtype)
+        fobj["ypa"][jbg:jed+1, ibg:ied] = states.face.y.plus.a
+
+        fobj.create_dataset("ypF", (3, gny+1, gnx), dtype)
+        fobj["ypF"][:, jbg:jed+1, ibg:ied] = states.face.y.plus.F
+
+        fobj.create_dataset("ibg", (comm.size,), int)
+        fobj["ibg"][comm.rank] = ibg
+
+        fobj.create_dataset("ied", (comm.size,), int)
+        fobj["ied"][comm.rank] = ied
+
+        fobj.create_dataset("jbg", (comm.size,), int)
+        fobj["jbg"][comm.rank] = jbg
+
+        fobj.create_dataset("jed", (comm.size,), int)
+        fobj["jed"][comm.rank] = jed
