@@ -5,6 +5,7 @@ from torchswe.utils.init import get_process
 from torchswe.utils.init import get_gridline
 from torchswe.utils.init import get_domain
 from torchswe.utils.init import get_empty_states
+from torchswe.utils.misc import exchange_states
 
 rank=MPI.COMM_WORLD.Get_rank()
 
@@ -29,7 +30,7 @@ for i, key in enumerate(["w", "hu", "hv"]):
     results.q[key][2:27, -4:-2] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[2:27, -4:-2]
     results.q[key][2:4, 2:27] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[2:4, 2:27]
     results.q[key][-4:-2, 2:27] = 1e6 * (rank + 1) + 1e5 * (i + 1) + idx[-4:-2, 2:27]
-results.exchange_data()
+results = exchange_states(results)
 
 msg = "error: rank {}, {}, {}"
 if rank == 0:

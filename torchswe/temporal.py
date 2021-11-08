@@ -15,6 +15,7 @@ from torchswe.fvm import prepare_rhs as _prepare_rhs
 from torchswe.utils.data import States as _States
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
+from torchswe.utils.misc import exchange_states as _exchange_states
 
 _logger = _logging.getLogger("torchswe.temporal")
 
@@ -71,14 +72,14 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
-    # an initial updating, just in case
-    states = runtime.gh_updater(states)
-
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
         # re-initialize time-step size constraint by not exceeding the next output time
         runtime.dt_constraint = runtime.next_t - runtime.cur_t
+
+        # update values of the halo-ring cells
+        states = _exchange_states(states)
 
         # Euler step
         states, max_dt = _prepare_rhs(states, runtime, config)
@@ -95,7 +96,6 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         # update
         states.Q[:, internal, internal] += (states.S * runtime.dt)
         states = semi_implicit_step(states, internal, runtime.dt)
-        states = runtime.gh_updater(states)
 
         # update iteration index and time
         runtime.counter += 1
@@ -150,9 +150,6 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
-    # previous solution; should not be changed until the end of each time-step
-    states = runtime.gh_updater(states)
-
     # to hold previous solution
     prev_q = _copy.deepcopy(states.Q[:, nongh, nongh])
 
@@ -161,6 +158,9 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
 
         # re-initialize time-step size constraint by not exceeding the next output time
         runtime.dt_constraint = runtime.next_t - runtime.cur_t
+
+        # update values of the halo-ring cells
+        states = _exchange_states(states)
 
         # stage 1: now states.rhs is RHS(u_{n})
         states, max_dt = _prepare_rhs(states, runtime, config)
@@ -176,7 +176,9 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
-        states = runtime.gh_updater(states)
+
+        # update values of the halo-ring cells
+        states = _exchange_states(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -184,7 +186,6 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         # calculate u_{n+1} = (u_{n} + u^1 + dt * RHS(u^1)) / 2.
         states.Q[:, nongh, nongh] += (prev_q + states.S * runtime.dt)
         states.Q /= 2  # doesn't matter whether ghost cells are also divided by 2
-        states = runtime.gh_updater(states)
 
         # update iteration index and time
         runtime.counter += 1
@@ -244,9 +245,6 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
-    # previous solution; should not be changed until the end of each time-step
-    states = runtime.gh_updater(states)
-
     # to hold previous solution
     prev_q = _copy.deepcopy(states.Q[:, nongh, nongh])
 
@@ -255,6 +253,9 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
 
         # re-initialize time-step size constraint by not exceeding the next output time
         runtime.dt_constraint = runtime.next_t - runtime.cur_t
+
+        # update values of the halo-ring cells
+        states = _exchange_states(states)
 
         # stage 1: now states.rhs is RHS(u_{n})
         states, max_dt = _prepare_rhs(states, runtime, config)
@@ -270,7 +271,9 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
-        states = runtime.gh_updater(states)
+
+        # update values of the halo-ring cells
+        states = _exchange_states(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -278,7 +281,9 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         # now states.q = u^2 = (3 * u_{n} + u^1 + dt * RHS(u^1)) / 4
         states.Q[:, nongh, nongh] += (prev_q * 3. + states.S * runtime.dt)
         states.Q /= 4.
-        states = runtime.gh_updater(states)
+
+        # update values of the halo-ring cells
+        states = _exchange_states(states)
 
         # stage 3: now states.rhs is RHS(u^2)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -288,7 +293,6 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q *= 2.
         states.Q[:, nongh, nongh] += prev_q
         states.Q /= 3.
-        states = runtime.gh_updater(states)
 
         # update iteration index and time
         runtime.counter += 1

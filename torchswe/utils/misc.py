@@ -8,6 +8,7 @@
 
 """A collection of some misc stuff.
 """
+import time as _time
 import logging as _logging
 import collections as _collections
 
@@ -304,3 +305,84 @@ def find_cell_index(x, lower, upper, delta):
     if x < lower or x >= upper:
         return None
     return int((x-lower)//delta)
+
+
+def exchange_states(states):
+    """Exchange w, hu, and hv with neighbors to fill in the cells in halo rings
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+
+    Returns
+    -------
+    states : torchswe.utols.data.States
+        The same object as the one in the input arguments.
+    """
+
+    sbuf, sreq, rbuf, rreq = {}, {}, {}, {}
+
+    stags = {"west": 31, "east": 41, "south": 51, "north": 61}
+    rtags = {"west": 41, "east": 31, "south": 61, "north": 51}
+
+    sslcs = {
+        "west": (slice(None), slice(states.ngh, -states.ngh), slice(states.ngh, 2*states.ngh)),
+        "east": (slice(None), slice(states.ngh, -states.ngh), slice(-2*states.ngh, -states.ngh)),
+        "south": (slice(None), slice(states.ngh, 2*states.ngh), slice(states.ngh, -states.ngh)),
+        "north": (slice(None), slice(-2*states.ngh, -states.ngh), slice(states.ngh, -states.ngh)),
+    }
+
+    rslcs = {
+        "west": (slice(None), slice(states.ngh, -states.ngh), slice(None, states.ngh)),
+        "east": (slice(None), slice(states.ngh, -states.ngh), slice(-states.ngh, None)),
+        "south": (slice(None), slice(None, states.ngh), slice(states.ngh, -states.ngh)),
+        "north": (slice(None), slice(-states.ngh, None), slice(states.ngh, -states.ngh)),
+    }
+
+    # make an alias for convenience
+    proc = states.domain.process
+
+    ans = 0
+    for ornt in ["west", "east", "south", "north"]:
+        if proc[ornt] is not None:
+
+            sbuf[ornt] = states.Q[sslcs[ornt]].copy()
+            _nplike.sync()  # make sure the copy is done before sending the data
+
+            sreq[ornt] = proc.comm.Isend(sbuf[ornt], proc[ornt], stags[ornt])
+
+            rbuf[ornt] = _nplike.zeros_like(states.Q[rslcs[ornt]])
+            _nplike.sync()  # make sure the buffer is ready before receiving the data
+
+            rreq[ornt] = proc.comm.Irecv(rbuf[ornt], proc[ornt], rtags[ornt])
+
+            ans += 1
+
+    # make sure send requests are done
+    tstart = _time.perf_counter()
+    done = 0
+    while done != ans and _time.perf_counter()-tstart < 5.:
+        for ornt, req in sreq.items():
+            if ornt in sbuf and req.Test():
+                del sbuf[ornt]
+                done += 1
+
+    # make sure whether the while-loop exited because of done == ans
+    if done != ans:
+        raise RuntimeError(f"Sending data to neighbor timeout: {sbuf.keys()}")
+
+    # receive data from neighbors
+    tstart = _time.perf_counter()
+    done = 0
+    while done != ans and _time.perf_counter()-tstart < 5.:
+        for ornt, req in rreq.items():
+            if ornt in rbuf and req.Test():
+                states.Q[rslcs[ornt]] = rbuf[ornt]
+                del rbuf[ornt]
+                done += 1
+
+    # make sure if the while loop exited because of done == ans
+    if done != ans:
+        raise RuntimeError(f"Receiving data from neighbor timeout: {rbuf.keys()}")
+
+    return states

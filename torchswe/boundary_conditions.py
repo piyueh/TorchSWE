@@ -372,9 +372,6 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
         for func in funcs.values():  # if funcs is an empty dictionary, this will skip it
             for i in range(3):
                 soln.Q = func[i](soln.Q)
-
-        # exchange data on internal boundaries between MPI processes (also periodic BCs)
-        soln.exchange_data()
         return soln
 
     # store the functions as an attribute for debug

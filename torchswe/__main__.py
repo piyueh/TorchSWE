@@ -260,10 +260,6 @@ def main():
     # update data if this is a continued run
     soln, runtime = restart(soln, runtime, args.cont, logger)
 
-    # update ghost cells
-    soln = runtime.gh_updater(soln)
-    logger.info("Done updating ghost cells.")
-
     # create an NetCDF file and append I.C.
     if runtime.times.save and runtime.tidx == 0:
         create_empty_soln_file(runtime.outfile, soln.domain, runtime.times)
