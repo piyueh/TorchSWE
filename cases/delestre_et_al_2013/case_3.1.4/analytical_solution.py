@@ -86,6 +86,16 @@ def main():
     # read simulation data
     filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
     sim_data, _ = ncread(filename, ["w", "hu"])
+
+    # make sure y direction does not have variance
+    for xt in sim_data["w"]:
+        for yslc in xt:
+            assert numpy.allclose(yslc, xt[0, :], 1e-12, 1e-12)
+
+    for xt in sim_data["hu"]:
+        for yslc in xt:
+            assert numpy.allclose(yslc, xt[0, :], 1e-12, 1e-12)
+
     x = sim_data["x"]
     w = sim_data["w"][-1, :, :]  # only keep the soln at the last time
     w = numpy.mean(w, 0)  # use the average in y direction
