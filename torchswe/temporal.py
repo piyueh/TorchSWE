@@ -90,8 +90,8 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         # re-evaluate dt with other constraints; dt_constraint might be modified during _prepare_rhs
         runtime.dt = min(runtime.dt, runtime.dt_constraint)
 
-        # synchronize dt across all processes
-        runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
+        # synchronize dt across all ranks
+        runtime.dt = states.domain.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update
         states.Q[:, internal, internal] += (states.S * runtime.dt)
@@ -104,7 +104,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.Q[0, internal, internal].sum() * cell_area - soil_vol
-            fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
+            fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
@@ -171,8 +171,8 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         # re-evaluate dt with other constraints; dt_constraint might be modified during _prepare_rhs
         runtime.dt = min(runtime.dt, runtime.dt_constraint)
 
-        # synchronize dt across all processes
-        runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
+        # synchronize dt across all ranks
+        runtime.dt = states.domain.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
@@ -194,7 +194,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.Q[0, nongh, nongh].sum() * cell_area - soil_vol
-            fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
+            fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop
@@ -266,8 +266,8 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         # re-evaluate dt with other constraints; dt_constraint might be modified during _prepare_rhs
         runtime.dt = min(runtime.dt, runtime.dt_constraint)
 
-        # synchronize dt across all processes
-        runtime.dt = states.domain.process.comm.allreduce(runtime.dt, _MPI.MIN)
+        # synchronize dt across all ranks
+        runtime.dt = states.domain.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
@@ -301,7 +301,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         # print out information
         if runtime.counter % config.params.log_steps == 0:
             fluid_vol = states.Q[0, nongh, nongh].sum() * cell_area - soil_vol
-            fluid_vol = states.domain.process.comm.allreduce(fluid_vol, _MPI.SUM)
+            fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
 
         # break loop

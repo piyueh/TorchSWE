@@ -112,19 +112,19 @@ def interpolate(x_in, y_in, data_in, x_out, y_out):
 
 
 def cal_num_procs(world_size: int, gnx: int, gny: int):
-    """Calculate the number of MPI processes in x and y directions based on the number of cells.
+    """Calculate the number of MPI ranks in x and y directions based on the number of cells.
 
     Arguments
     ---------
     world_size : int
-        Total number of MPI processes.
+        Total number of MPI ranks.
     gnx, gny : int
         Number of cells globally.
 
     Retunrs
     -------
     pnx, pny : int
-        Number of MPI processes in x and y directions. Note the order of pnx and pny.
+        Number of MPI ranks in x and y directions. Note the order of pnx and pny.
 
     Notes
     -----
@@ -166,9 +166,9 @@ def cal_proc_loc_from_rank(pnx: int, rank: int):
     Arguments
     ---------
     pnx : int
-        Number of MPI processes in x directions.
+        Number of MPI ranks in x directions.
     rank : int
-        The rank of the process of which we want to calculate local cell numbers.
+        The rank of which we want to calculate local cell numbers.
 
     Returns
     -------
@@ -184,9 +184,9 @@ def cal_rank_from_proc_loc(pnx: int, pi: int, pj: int):
     Arguments
     ---------
     pnx : int
-        Number of MPI processes in x directions.
+        Number of MPI ranks in x directions.
     pi, pj : int
-        The location indices of this process in x and y direction in the 2D process topology.
+        The location indices of this rank in x and y direction in the 2D Cartesian topology.
 
     Returns
     -------
@@ -197,14 +197,14 @@ def cal_rank_from_proc_loc(pnx: int, pi: int, pj: int):
 
 
 def cal_local_gridline_range(pn: int, pi: int, gn: int):
-    """Calculate the range of local cells on a target MPI process.
+    """Calculate the range of local cells on a target MPI rank.
 
     Arguments
     ---------
     pn : int
-        Number of MPI processes the target direction.
+        Number of MPI ranks the target direction.
     pi : int
-        The indices of this process in the target direction.
+        The indices of this rank in the target direction.
     gn : int
         Number of global cells in the target direction.
 
@@ -235,11 +235,11 @@ def cal_neighbors(pnx: int, pny: int, pi: int, pj: int, rank: int):
     Arguments
     ---------
     pnx, pny : int
-        Number of MPI processes in x and y directions.
+        Number of MPI ranks in x and y directions.
     pi, pj : int
         The indices of a rank in the 2D MPI topology in x and y directions.
     rank : int
-        The rank of the process of which we want to calculate local cell numbers.
+        The rank which we want to calculate local cell numbers.
 
     Returns
     -------
@@ -271,7 +271,7 @@ def set_device(comm: _MPI.Comm):
     # get number of GPUs on this particular compute node
     n_gpus = _nplike.cuda.runtime.getDeviceCount()
 
-    # get the info of the processes on this compute node
+    # get the info of this rank on this local compute node
     local_name = _MPI.Get_processor_name()
     local_comm = comm.Split_type(_MPI.COMM_TYPE_SHARED)
     local_size = local_comm.Get_size()
@@ -340,7 +340,7 @@ def exchange_states(states):
     }
 
     # make an alias for convenience
-    proc = states.domain.process
+    proc = states.domain
 
     ans = 0
     for ornt in ["west", "east", "south", "north"]:

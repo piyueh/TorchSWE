@@ -46,7 +46,7 @@ def create_empty_soln_file(fpath, domain, t, **kwargs):
 
     data = {k: None for k in ["w", "hu", "hv", "h", "u", "v"]}
 
-    with _Dataset(fpath, "w", parallel=True, comm=domain.process.comm, **kwargs) as dset:
+    with _Dataset(fpath, "w", parallel=True, comm=domain.comm, **kwargs) as dset:
 
         _write_to_dataset(
             dset=dset,
@@ -93,7 +93,7 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
     # alias
     domain = soln.domain
 
-    with _Dataset(fpath, "a", parallel=True, comm=domain.process.comm, **kwargs) as dset:
+    with _Dataset(fpath, "a", parallel=True, comm=domain.comm, **kwargs) as dset:
 
         _add_time_data_to_dataset(
             dset=dset, data=data, time=time, tidx=tidx,
@@ -105,7 +105,7 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
 def write_states(states: _States, fname: str):
     """Write flatten states to a .npz file for debug."""
 
-    comm = states.domain.process.comm
+    comm = states.domain.comm
     gnx = states.domain.x.gn
     gny = states.domain.y.gn
     lnx = states.domain.x.n

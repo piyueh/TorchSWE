@@ -8,6 +8,7 @@
 """Functions related to updating ghost cells, i.e., boundary conditions.
 """
 from operator import itemgetter as _itemgetter
+from mpi4py import MPI as _MPI
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BCConfig as _BCConfig
 from torchswe.utils.data import Topography as _Topography
@@ -328,14 +329,14 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
 
         # not on the physical boundary: skip
         # ----------------------------------
-        if states.domain.process[ornt] is not None:
+        if states.domain[ornt] != _MPI.PROC_NULL:
             continue
 
         # special case: periodic BC
         # -------------------------
         # In MPI cases, periodic boundaries will be handled by internal exchange stage
+        # Also, we're using Cartcomm, so periodic ranks are already configured in the beginning
         if bc.types[0] == "periodic":
-            states = _find_periodic_neighbor(states, ornt)
             continue  # no need to continue this iteration as other components should be periodic
 
         # all other types of BCs
@@ -378,38 +379,3 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
     updater.funcs = funcs
 
     return updater
-
-
-def _find_periodic_neighbor(states: _States, orientation: str):
-    """Find the neighbor MPI process rank corresponding to periodic boundary."""
-    # pylint: disable=invalid-name
-
-    # aliases
-    pny, pnx = states.domain.process.proc_shape
-    pj, pi = states.domain.process.proc_loc
-
-    # self.proc_loc = (pj, 0), target: (pj, pnx-1)
-    if orientation == "west":
-        assert pi == 0
-        states.west = _cal_rank_from_proc_loc(pnx, pnx-1, pj)
-
-    # self.proc_loc = (pj, pnx-1), target: (pj, 0)
-    elif orientation == "east":
-        assert pi == pnx - 1
-        states.east = _cal_rank_from_proc_loc(pnx, 0, pj)
-
-    # self.proc_loc = (0, pi), target: (pny-1, pi)
-    elif orientation == "south":
-        assert pj == 0
-        states.south = _cal_rank_from_proc_loc(pnx, pi, pny-1)
-
-    # self.proc_loc = (pny-1, pi), target: (0, pi)
-    elif orientation == "north":
-        assert pj == pny - 1
-        states.north = _cal_rank_from_proc_loc(pnx, pi, 0)
-
-    else:
-        raise ValueError("\"orientation\" shold be one of: west, east, south, north.")
-
-    # states should have been modified in-place; retrun it for coding style
-    return states

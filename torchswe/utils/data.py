@@ -9,7 +9,6 @@
 """Data models.
 """
 # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
-import time as _time
 import logging as _logging
 from operator import itemgetter as _itemgetter
 from typing import Optional as _Optional
@@ -18,6 +17,7 @@ from typing import Tuple as _Tuple
 from typing import Union as _Union
 
 from mpi4py import MPI as _MPI
+from mpi4py.util.dtlib import from_numpy_dtype
 from pydantic import validator as _validator
 from pydantic import conint as _conint
 from pydantic import confloat as _confloat
@@ -53,108 +53,6 @@ def _shape_val_factory(shift: _Union[_Tuple[int, int], int]):
         return val
 
     return _core_func
-
-
-class Process(_BaseConfig):
-    """A base class containing the info of an MPI process in a 2D Cartesian topology.
-
-    Attributes
-    ----------
-    comm : MPI.Comm
-        The communicator.
-    pnx, pny : int
-        The numbers of processes in the 2D Cartesian process topology.
-    pi, pj : int
-        The location of this process in the 2D Cartesian topology.
-    west, east, south, north : int or None
-        The ranks of the neighbors. If None, means the border is on domain boundary.
-    """
-
-    # mpi related
-    comm: _MPI.Comm
-    pnx: _conint(strict=True, gt=0)
-    pny: _conint(strict=True, gt=0)
-    pi: _conint(strict=True, ge=0)
-    pj: _conint(strict=True, ge=0)
-    west: _Optional[_conint(strict=True, ge=0)] = ...
-    east: _Optional[_conint(strict=True, ge=0)] = ...
-    south: _Optional[_conint(strict=True, ge=0)] = ...
-    north: _Optional[_conint(strict=True, ge=0)] = ...
-
-    @_validator("comm")
-    def _val_comm(cls, val):
-        recvbuf = val.allgather(val.Get_rank())
-        assert recvbuf == list(range(val.Get_size())), "Communicator not working."
-        return val
-
-    @_root_validator
-    def _val_topology(cls, values):
-        rank = values["comm"].Get_rank()
-        size = values["comm"].Get_size()
-        pnx, pny, pi, pj = _itemgetter("pnx", "pny", "pi", "pj")(values)
-        assert pnx * pny == size, "MPI world size does not equal to pnx * pny."
-        assert pj * pnx + pi == rank, "MPI rank does not equal to pj * pnx + pi."
-        return values
-
-    @_root_validator
-    def _val_neighbors(cls, values):
-        # try to communicate with neighbors
-        buff = _itemgetter("pnx", "pny", "pi", "pj")(values)
-        send_tags = {"west": 31, "east": 41, "south": 51, "north": 61}
-        recv_tags = {"west": 41, "east": 31, "south": 61, "north": 51}
-        reqs, ready, reply = {}, {}, {}
-
-        for key in ["west", "east", "south", "north"]:
-            if values[key] is not None:
-                values["comm"].isend(buff, values[key], send_tags[key])
-                reqs[key] = values["comm"].irecv(source=values[key], tag=recv_tags[key])
-                ready[key], reply[key] = reqs[key].test()
-
-        counter = 0
-        while (not all(ready.values())) and counter < 10:
-            for key, val in reqs.items():
-                if ready[key]:  # already ready some time in the previous iterations
-                    continue
-                ready[key], reply[key] = val.test()  # test again if this one is not ready
-
-            counter += 1
-            _time.sleep(1)
-
-        for key, state, ans in zip(ready.keys(), ready.values(), reply.values()):
-            # first make sure we got message from this neighbor
-            assert state, f"Neighbor in {key} (rank {values[key]}) did not answer."
-
-            # second make sure the neighbor has the same topology as we do
-            assert ans[0] == buff[0], f"Err: pnx, {key}, {ans[0]}, {buff[0]}"
-            assert ans[1] == buff[1], f"Err: pny, {key}, {ans[1]}, {buff[1]}"
-
-            # lastly, check this neighbor's pi and pj
-            if key == "west":
-                assert ans[2] == buff[2] - 1, f"West's pi: {ans[2]}, my pi: {buff[2]}"
-                assert ans[3] == buff[3], f"West's pj: {ans[3]}, my pj: {buff[3]}"
-            elif key == "east":
-                assert ans[2] == buff[2] + 1, f"East's pi: {ans[2]}, my pi: {buff[2]}"
-                assert ans[3] == buff[3], f"East's pj: {ans[3]}, my pj: {buff[3]}"
-            elif key == "south":
-                assert ans[2] == buff[2], f"South's pi: {ans[2]}, my pi: {buff[2]}"
-                assert ans[3] == buff[3] - 1, f"South's pj: {ans[3]}, my pj: {buff[3]}"
-            elif key == "north":
-                assert ans[2] == buff[2], f"North's pi: {ans[2]}, my pi: {buff[2]}"
-                assert ans[3] == buff[3] + 1, f"North's pj: {ans[3]}, my pj: {buff[3]}"
-            else:  # should be redundant, but I prefer keep it
-                raise ValueError(f"Unrecoganized key: {key}")
-
-        return values
-
-    @property
-    def proc_shape(self):
-        """Returns the shape of the 2D Cartesian process topology."""
-        return (self.pny, self.pnx)
-
-    @property
-    def proc_loc(self):
-        """Returns the location of the current process in the 2D Cartesian process topology."""
-        return (self.pj, self.pi)
 
 
 class Gridline(_BaseConfig):
@@ -221,6 +119,8 @@ class Gridline(_BaseConfig):
         assert bg < ed, f"Local lower bound >= local upper bound: {bg}, {ed}"
         assert bg >= gbg, f"Local lower bound < global lower bound: {bg}, {gbg}"
         assert ed <= ged, f"Local upper bound > global upper bound: {ed}, {ged}"
+        assert abs(bg-values["vertices"][0]) < _tol, "lower != vertives[0]"
+        assert abs(ed-values["vertices"][-1]) < _tol, "upper != vertives[-1]"
 
         # index range
         gn, n, ibg, ied = _itemgetter("gn", "n", "ibegin", "iend")(values)
@@ -285,76 +185,101 @@ class Timeline(_BaseConfig):
 
 
 class Domain(_BaseConfig):
-    """A base class containing the info of a process in a 2D Cartesian topology.
+    """A base class containing the info of a rank in a 2D Cartesian topology.
 
     Attributes
     ----------
-    process : Process
-        The object holding MPI information.
+    comm : mpi4py.MPI.Cartcomm
+        The object holding MPI communicator (in a Cartesian topology).
+    east, west, south, north : int
+        The ranks of the neighbors. If the neighbor does not exist (e.g., a boundary rank), then
+        its value will be `mpi4py.MPI.PROC_NULL`.
     x, y : Gridline object
         x and y grindline coordinates.
     """
 
-    # mpi process
-    process: Process
+    # mpi communicator
+    comm: _MPI.Cartcomm
+
+    # neighbors
+    east: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    west: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    south: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    north: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
 
     # gridlines
     x: Gridline
     y: Gridline
 
     @_root_validator(pre=False, skip_on_failure=True)
-    def _val_range(cls, values):
+    def _val_indices(cls, values):
 
-        buff = [
-            values["process"].comm.Get_rank(),
-            values["x"].ibegin, values["x"].iend, values["y"].ibegin, values["y"].iend
-        ]
+        # aliases
+        jbg, jed = values["y"].ibegin, values["y"].iend
+        ibg, ied = values["x"].ibegin, values["x"].iend
 
-        send_tags = {"west": 31, "east": 41, "south": 51, "north": 61}
-        recv_tags = {"west": 41, "east": 31, "south": 61, "north": 51}
-        reqs, ready, reply = {}, {}, {}
+        # send-recv indices range from neighbors
+        sendbuf = _nplike.tile(_nplike.array((jbg, jed, ibg, ied), dtype=int), (4,))
+        recvbuf = _nplike.full(16, -999, dtype=int)
+        mpitype = from_numpy_dtype(sendbuf.dtype)
+        values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
-        for key, val in values["process"].dict(include={"west", "east", "south", "north"}).items():
-            if val is not None:
-                values["process"].comm.isend(buff, val, send_tags[key])
-                reqs[key] = values["process"].comm.irecv(source=val, tag=recv_tags[key])
-                ready[key], reply[key] = reqs[key].test()
+        # answers
+        inds = {"south": (1, 2, 3), "north": (0, 2, 3), "west": (0, 1, 3), "east": (0, 1, 2), }
+        ans = {
+            "south": _nplike.array((jbg, ibg, ied), dtype=int),
+            "north": _nplike.array((jed, ibg, ied), dtype=int),
+            "west": _nplike.array((jbg, jed, ibg), dtype=int),
+            "east": _nplike.array((jbg, jed, ied), dtype=int),
+        }
 
-        counter = 0
-        while (not all(ready.values())) and counter < 10:
-            for key, val in reqs.items():
-                if ready[key]:  # already ready some time in the previous iterations
-                    continue
-                ready[key], reply[key] = val.test()
+        # check the values
+        for i, ornt in enumerate(("south", "north", "west", "east")):
+            if values[ornt] == _MPI.PROC_NULL:
+                assert all(recvbuf[i*4:(i+1)*4] == -999), f"{ornt}, {recvbuf[i*4:(i+1)*4]}"
+            else:
+                if values["comm"].periods[i//2] == 0:  # regular bc
+                    assert all(recvbuf[i*4:(i+1)*4].take(inds[ornt]) == ans[ornt]), \
+                        f"{ornt}, {recvbuf[i*4:(i+1)*4].take(inds[ornt])}, {ans[ornt]}"
+                else:
+                    pass  # periodic bc; haven't come up w/ a good way to check
 
-            counter += 1
-            _time.sleep(1)
+        return values
 
-        for key, state, ans in zip(ready.keys(), ready.values(), reply.values()):
-            # first make sure we got message from this neighbor
-            assert state, f"Neighbor in {key} (rank {values[key]}) did not answer."
-            # second make sure this is the correct neighbor (is this redundant?)
-            assert ans[0] == values["process"][key], f"{key}: {ans[0]}, {values['process'][key]}"
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_bounds(cls, values):
 
-            # check the indices from the neighbor in the west
-            if key == "west":
-                assert ans[2] == buff[1], f"West's ied != my ibg: {ans[2]}, {buff[1]}"
-                assert ans[3] == buff[3], f"West's jbg != my jbg: {ans[3]}, {buff[3]}"
-                assert ans[4] == buff[4], f"West's jed != my jed: {ans[4]}, {buff[4]}"
-            elif key == "east":
-                assert ans[1] == buff[2], f"East's ibg != my ied: {ans[1]}, {buff[2]}"
-                assert ans[3] == buff[3], f"East's jbg != my jbg: {ans[3]}, {buff[3]}"
-                assert ans[4] == buff[4], f"East's jed != my jed: {ans[4]}, {buff[4]}"
-            elif key == "south":
-                assert ans[1] == buff[1], f"South's ibg != my ibg: {ans[1]}, {buff[1]}"
-                assert ans[2] == buff[2], f"South's ied != my ied: {ans[2]}, {buff[2]}"
-                assert ans[4] == buff[3], f"South's jed != my jbg: {ans[4]}, {buff[3]}"
-            elif key == "north":
-                assert ans[1] == buff[1], f"North's ibg != my ibg: {ans[1]}, {buff[1]}"
-                assert ans[2] == buff[2], f"North's ied != my ied: {ans[2]}, {buff[2]}"
-                assert ans[3] == buff[4], f"North's jbg != my jed: {ans[3]}, {buff[4]}"
-            else:  # should be redundant, but I prefer keep it
-                raise ValueError(f"Unrecoganized key: {key}")
+        # aliases
+        jbg, jed = values["y"].lower, values["y"].upper
+        ibg, ied = values["x"].lower, values["x"].upper
+        dtype = values["x"].centers.dtype
+
+        # send-recv indices range from neighbors
+        sendbuf = _nplike.tile(_nplike.array((jbg, jed, ibg, ied), dtype=dtype), (4,))
+        recvbuf = _nplike.full(16, float("NaN"), dtype=dtype)
+        mpitype = from_numpy_dtype(dtype)
+        values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
+
+        # answers
+        inds = {"south": (1, 2, 3), "north": (0, 2, 3), "west": (0, 1, 3), "east": (0, 1, 2), }
+        ans = {
+            "south": _nplike.array((jbg, ibg, ied), dtype=dtype),
+            "north": _nplike.array((jed, ibg, ied), dtype=dtype),
+            "west": _nplike.array((jbg, jed, ibg), dtype=dtype),
+            "east": _nplike.array((jbg, jed, ied), dtype=dtype),
+        }
+
+        # check the values
+        for i, ornt in enumerate(("south", "north", "west", "east")):
+            if values[ornt] == _MPI.PROC_NULL:
+                assert all(recvbuf[i*4:(i+1)*4] != recvbuf[i*4:(i+1)*4]), \
+                    f"{ornt}, {recvbuf[i*4:(i+1)*4]}"  # for nan, self != self
+            else:
+                if values["comm"].periods[i//2] == 0:  # regular bc
+                    assert all(recvbuf[i*4:(i+1)*4].take(inds[ornt]) == ans[ornt]), \
+                        f"{ornt}, {recvbuf[i*4:(i+1)*4].take(inds[ornt])}, {ans[ornt]}"
+                else:
+                    pass  # periodic bc; haven't come up w/ a good way to check
 
         return values
 
@@ -362,12 +287,12 @@ class Domain(_BaseConfig):
     def _val_delta(cls, values):
 
         # check dx
-        dxs = values["process"].comm.allgather(values["x"].delta)
-        assert all(dx == values["x"].delta for dx in dxs), "Not all processes have the same dx."
+        dxs = values["comm"].allgather(values["x"].delta)
+        assert all(dx == values["x"].delta for dx in dxs), "Not all ranks have the same dx."
 
         # check dy
-        dys = values["process"].comm.allgather(values["y"].delta)
-        assert all(dy == values["y"].delta for dy in dys), "Not all processes have the same dy."
+        dys = values["comm"].allgather(values["y"].delta)
+        assert all(dy == values["y"].delta for dy in dys), "Not all ranks have the same dy."
 
         return values
 

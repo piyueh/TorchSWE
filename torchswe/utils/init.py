@@ -24,7 +24,6 @@ from torchswe.utils.config import FrictionConfig as _FrictionConfig
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.config import OutputTypeHint as _OutputTypeHint
 from torchswe.utils.config import PointSourceConfig as _PointSourceConfig
-from torchswe.utils.data import Process as _Process
 from torchswe.utils.data import Gridline as _Gridline
 from torchswe.utils.data import Timeline as _Timeline
 from torchswe.utils.data import Domain as _Domain
@@ -37,36 +36,12 @@ from torchswe.utils.data import PointSource as _PointSource
 from torchswe.utils.netcdf import read as _ncread
 from torchswe.utils.misc import DummyDtype as _DummyDtype
 from torchswe.utils.misc import cal_num_procs as _cal_num_procs
-from torchswe.utils.misc import cal_proc_loc_from_rank as _cal_proc_loc_from_rank
-from torchswe.utils.misc import cal_neighbors as _cal_neighbors
 from torchswe.utils.misc import cal_local_gridline_range as _cal_local_gridline_range
 from torchswe.utils.misc import interpolate as _interpolate
 from torchswe.utils.misc import find_cell_index as _find_cell_index
 
 
 _logger = _logging.getLogger("torchswe.utils.init")
-
-
-def get_process(comm: _MPI.Comm, gnx: int, gny: int):
-    """Get an instance of Process for the current MPI process.
-
-    Arguments
-    ---------
-    comm : mpi4py.MPI.Comm
-        The communicator.
-    gnx, gny : int
-        The global numbers of cells.
-
-    Returns
-    -------
-    An instance of `torchswe.utils.data.Process`.
-    """
-    data = {"comm": comm}
-    data["pnx"], data["pny"] = _cal_num_procs(comm.Get_size(), gnx, gny)
-    data["pi"], data["pj"] = _cal_proc_loc_from_rank(data["pnx"], comm.Get_rank())
-    data["west"], data["east"], data["south"], data["north"] = _cal_neighbors(
-        data["pnx"], data["pny"], data["pi"], data["pj"], comm.Get_rank())
-    return _Process(**data)
 
 
 def get_gridline(axis: str, pn: int, pi: int, gn: int, glower: float, gupper: float, dtype: str):
@@ -77,7 +52,7 @@ def get_gridline(axis: str, pn: int, pi: int, gn: int, glower: float, gupper: fl
     axis : str
         Spatial axis. Either "x" or "y".
     pn, pi : int
-        Total number of MPI processes and the index of the current process in this axis.
+        Total number of MPI ranks and the index of the current ranlk on this axis.
     gn : int
         Global number of cells on this axis.
     glower, gupper : float
@@ -180,16 +155,14 @@ def get_timeline(temporal_config: _OutputTypeHint, dt: _Optional[float] = None):
     return _Timeline(values=t, save=save)
 
 
-def get_domain(process: _Process, x: _Gridline, y: _Gridline):
-    """A dummy function to get an instance of Domain for the current MPI process.
-
-    This function does nothing. It is the same as initializing a Domain instance directly with
-    `Domain(process=process, x=x, y=y, t=t, ngh=ngh)`.
+def get_domain(comm: _MPI.Comm, config: _Config):
+    """Get an instance of Domain for the current MPI rank.
 
     Arguments
     ---------
-    process : torchswe.utils.data.Process
-        An instance of Process for this MPI process.
+    comm : mpi4py.MPI.Comm
+        The communicator. Should just be a general communicator. And a Cartcomm will be created
+        automatically in this function from the provided general Comm.
     x, y : torchswe.utils.data.Gridline
         The gridline objects for x and y axes.
 
@@ -198,7 +171,29 @@ def get_domain(process: _Process, x: _Gridline, y: _Gridline):
     An instance of torchswe.utils.data.Domain.
     """
 
-    return _Domain(process=process, x=x, y=y)
+    # see if we need periodic bc
+    period = (config.bc.west.types[0] == "periodic", config.bc.south.types[0] == "period")
+
+    # evaluate the number of ranks in x and y direction
+    pnx, pny = _cal_num_procs(comm.Get_size(), *config.spatial.discretization)
+
+    # get a Cartesian topology communicator
+    comm = comm.Create_cart((pny, pnx), period, True)
+
+    # find the rank of neighbors
+    south, north = comm.Shift(0, 1)
+    west, east = comm.Shift(1, 1)
+
+    # get local gridline
+    x = get_gridline(
+        "x", comm.dims[1], comm.coords[1], config.spatial.discretization[0],
+        config.spatial.domain[0], config.spatial.domain[1], config.params.dtype)
+
+    y = get_gridline(
+        "y", comm.dims[0], comm.coords[0], config.spatial.discretization[1],
+        config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
+
+    return _Domain(comm=comm, east=east, west=west, south=south, north=north, x=x, y=y)
 
 
 def get_topography(domain, elev, demx, demy):
@@ -251,7 +246,7 @@ def get_topography_from_file(file: _pathlib.Path, key: str, domain: _Domain):
     dem, _ = _ncread(
         fpath=file, data_keys=[key],
         extent=(domain.x.lower, domain.x.upper, domain.y.lower, domain.y.upper),
-        parallel=True, comm=domain.process.comm
+        parallel=True, comm=domain.comm
     )
 
     assert dem[key].shape == (len(dem["y"]), len(dem["x"]))
@@ -370,7 +365,7 @@ def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int, use_stiff: bool
     icdata, _ = _ncread(
         ic.file, ic.keys,
         [domain.x.centers[0], domain.x.centers[-1], domain.y.centers[0], domain.y.centers[-1]],
-        parallel=True, comm=domain.process.comm
+        parallel=True, comm=domain.comm
     )
 
     # see if we need to do interpolation
@@ -403,18 +398,8 @@ def get_initial_states_from_config(comm: _MPI.Comm, config: _Config):
     """Get an initial states based on a configuration object.
     """
 
-    # get parallel process, x, y, and domain
-    process = get_process(comm, *config.spatial.discretization)
-
-    x = get_gridline(
-        "x", process.pnx, process.pi, config.spatial.discretization[0],
-        config.spatial.domain[0], config.spatial.domain[1], config.params.dtype)
-
-    y = get_gridline(
-        "y", process.pny, process.pj, config.spatial.discretization[1],
-        config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
-
-    domain = get_domain(process, x, y)
+    # get parallel domain
+    domain = get_domain(comm, config)
 
     # get states
     states = get_initial_states(domain, config.ic, config.params.ngh, (config.friction is not None))
@@ -435,7 +420,7 @@ def get_initial_states_from_snapshot(fpath: str, tidx: int, states):
             states.domain.x.centers[0], states.domain.x.centers[-1],
             states.domain.y.centers[0], states.domain.y.centers[-1]
         ],
-        parallel=True, comm=states.domain.process.comm
+        parallel=True, comm=states.domain.comm
     )
 
     for i, key in enumerate(["w", "hu", "hv"]):
@@ -643,7 +628,7 @@ def get_friction_roughness(domain: _Domain, friction: _FrictionConfig):
     data, _ = _ncread(
         fpath=friction.file, data_keys=[friction.key],
         extent=(domain.x.lower, domain.x.upper, domain.y.lower, domain.y.upper),
-        parallel=True, comm=domain.process.comm
+        parallel=True, comm=domain.comm
     )
 
     assert data[friction.key].shape == (len(data["y"]), len(data["x"]))
