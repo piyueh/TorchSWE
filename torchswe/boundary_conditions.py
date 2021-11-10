@@ -329,7 +329,7 @@ def get_ghost_cell_updaters(bcs: _BCConfig, states: _States, topo: _Topography =
 
         # not on the physical boundary: skip
         # ----------------------------------
-        if states.domain[ornt] != _MPI.PROC_NULL:
+        if states.domain[ornt[0]] != _MPI.PROC_NULL:
             continue
 
         # special case: periodic BC

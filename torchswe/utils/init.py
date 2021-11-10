@@ -18,6 +18,7 @@ from typing import Optional as _Optional
 
 import yaml as _yaml
 from mpi4py import MPI as _MPI
+from mpi4py.util.dtlib import from_numpy_dtype as _from_numpy_dtype
 from torchswe import nplike as _nplike
 from torchswe.utils.config import ICConfig as _ICConfig
 from torchswe.utils.config import FrictionConfig as _FrictionConfig
@@ -35,6 +36,7 @@ from torchswe.utils.data import States as _States
 from torchswe.utils.data import PointSource as _PointSource
 from torchswe.utils.netcdf import read as _ncread
 from torchswe.utils.misc import DummyDtype as _DummyDtype
+from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import cal_num_procs as _cal_num_procs
 from torchswe.utils.misc import cal_local_gridline_range as _cal_local_gridline_range
 from torchswe.utils.misc import interpolate as _interpolate
@@ -177,23 +179,53 @@ def get_domain(comm: _MPI.Comm, config: _Config):
     # evaluate the number of ranks in x and y direction
     pnx, pny = _cal_num_procs(comm.Get_size(), *config.spatial.discretization)
 
+    # to hold data for initializing a Domain instance
+    data = _DummyDict()
+
     # get a Cartesian topology communicator
-    comm = comm.Create_cart((pny, pnx), period, True)
+    data.comm = comm.Create_cart((pny, pnx), period, True)
 
     # find the rank of neighbors
-    south, north = comm.Shift(0, 1)
-    west, east = comm.Shift(1, 1)
+    data.s, data.n = data.comm.Shift(0, 1)
+    data.w, data.e = data.comm.Shift(1, 1)
 
     # get local gridline
-    x = get_gridline(
-        "x", comm.dims[1], comm.coords[1], config.spatial.discretization[0],
+    data.x = get_gridline(
+        "x", data.comm.dims[1], data.comm.coords[1], config.spatial.discretization[0],
         config.spatial.domain[0], config.spatial.domain[1], config.params.dtype)
 
-    y = get_gridline(
-        "y", comm.dims[0], comm.coords[0], config.spatial.discretization[1],
+    data.y = get_gridline(
+        "y", data.comm.dims[0], data.comm.coords[0], config.spatial.discretization[1],
         config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
 
-    return _Domain(comm=comm, east=east, west=west, south=south, north=north, x=x, y=y)
+    # set up costum MPI datatype for exchangine data in Q (Q's shape: (3, ny+2*ngh, nx+2*ngh))
+    ngh = data.ngh = config.params.ngh
+    gshape = (3, data.y.n+2*ngh, data.x.n+2*ngh)
+    scalar_t: _MPI.Datatype = _from_numpy_dtype(data.x.centers.dtype)
+    data.sstype = scalar_t.Create_subarray(gshape, (3, ngh, data.x.n), (0, ngh, ngh)).Commit()
+    data.nstype = scalar_t.Create_subarray(gshape, (3, ngh, data.x.n), (0, data.y.n, ngh)).Commit()
+    data.wstype = scalar_t.Create_subarray(gshape, (3, data.y.n, ngh), (0, ngh, ngh)).Commit()
+    data.estype = scalar_t.Create_subarray(gshape, (3, data.y.n, ngh), (0, ngh, data.x.n)).Commit()
+
+    # get neighbors y.n and x.n
+    nshps = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
+    temp = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
+    int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
+    _nplike.sync()
+
+    data.comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
+    nshps = nshps.reshape(4, 3)
+    ny = nshps[:, 1].flatten() - 2 * ngh
+    nx = nshps[:, 2].flatten() - 2 * ngh
+    _nplike.sync()
+
+    # the receiving buffer's datatype should be defined wiht neighbors' shapes
+    data.srtype = scalar_t.Create_subarray(nshps[0], (3, ngh, nx[0]), (0, ngh+ny[0], ngh)).Commit()
+    data.nrtype = scalar_t.Create_subarray(nshps[0], (3, ngh, nx[1]), (0, 0, ngh)).Commit()
+    data.wrtype = scalar_t.Create_subarray(nshps[0], (3, ny[2], ngh), (0, ngh, ngh+nx[2])).Commit()
+    data.ertype = scalar_t.Create_subarray(nshps[0], (3, ny[3], ngh), (0, ngh, 0)).Commit()
+
+    return _Domain(**data)
 
 
 def get_topography(domain, elev, demx, demy):

@@ -322,28 +322,28 @@ def exchange_states(states):
 
     sbuf, sreq, rbuf, rreq = {}, {}, {}, {}
 
-    stags = {"west": 31, "east": 41, "south": 51, "north": 61}
-    rtags = {"west": 41, "east": 31, "south": 61, "north": 51}
+    stags = {"w": 31, "e": 41, "s": 51, "n": 61}
+    rtags = {"w": 41, "e": 31, "s": 61, "n": 51}
 
     sslcs = {
-        "west": (slice(None), slice(states.ngh, -states.ngh), slice(states.ngh, 2*states.ngh)),
-        "east": (slice(None), slice(states.ngh, -states.ngh), slice(-2*states.ngh, -states.ngh)),
-        "south": (slice(None), slice(states.ngh, 2*states.ngh), slice(states.ngh, -states.ngh)),
-        "north": (slice(None), slice(-2*states.ngh, -states.ngh), slice(states.ngh, -states.ngh)),
+        "w": (slice(None), slice(states.ngh, -states.ngh), slice(states.ngh, 2*states.ngh)),
+        "e": (slice(None), slice(states.ngh, -states.ngh), slice(-2*states.ngh, -states.ngh)),
+        "s": (slice(None), slice(states.ngh, 2*states.ngh), slice(states.ngh, -states.ngh)),
+        "n": (slice(None), slice(-2*states.ngh, -states.ngh), slice(states.ngh, -states.ngh)),
     }
 
     rslcs = {
-        "west": (slice(None), slice(states.ngh, -states.ngh), slice(None, states.ngh)),
-        "east": (slice(None), slice(states.ngh, -states.ngh), slice(-states.ngh, None)),
-        "south": (slice(None), slice(None, states.ngh), slice(states.ngh, -states.ngh)),
-        "north": (slice(None), slice(-states.ngh, None), slice(states.ngh, -states.ngh)),
+        "w": (slice(None), slice(states.ngh, -states.ngh), slice(None, states.ngh)),
+        "e": (slice(None), slice(states.ngh, -states.ngh), slice(-states.ngh, None)),
+        "s": (slice(None), slice(None, states.ngh), slice(states.ngh, -states.ngh)),
+        "n": (slice(None), slice(-states.ngh, None), slice(states.ngh, -states.ngh)),
     }
 
     # make an alias for convenience
     proc = states.domain
 
     ans = 0
-    for ornt in ["west", "east", "south", "north"]:
+    for ornt in ["w", "e", "s", "n"]:
         if proc[ornt] is not None:
 
             sbuf[ornt] = states.Q[sslcs[ornt]].copy()

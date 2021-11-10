@@ -191,9 +191,14 @@ class Domain(_BaseConfig):
     ----------
     comm : mpi4py.MPI.Cartcomm
         The object holding MPI communicator (in a Cartesian topology).
-    east, west, south, north : int
+    e, w, s, n : int
         The ranks of the neighbors. If the neighbor does not exist (e.g., a boundary rank), then
-        its value will be `mpi4py.MPI.PROC_NULL`.
+        its value will be `mpi4py.MPI.PROC_NULL`. These characters stand for east, west, south, and
+        north.
+    estype, wstype, sstype, nstype : mpi4py.MPI.Datatype
+        A derived MPI datatype used for sending conservative quantities to neighbors.
+    ertype, wrtype, srtype, nrtype : mpi4py.MPI.Datatype
+        A derived MPI datatype used for neighbors to receive conservative quantities .
     x, y : Gridline object
         x and y grindline coordinates.
     """
@@ -202,14 +207,29 @@ class Domain(_BaseConfig):
     comm: _MPI.Cartcomm
 
     # neighbors
-    east: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
-    west: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
-    south: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
-    north: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    e: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    w: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    s: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+    n: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
+
+    # send datatype for conservative quantities
+    estype: _MPI.Datatype
+    wstype: _MPI.Datatype
+    sstype: _MPI.Datatype
+    nstype: _MPI.Datatype
+
+    # recv datatype for conservative quantities
+    ertype: _MPI.Datatype
+    wrtype: _MPI.Datatype
+    srtype: _MPI.Datatype
+    nrtype: _MPI.Datatype
 
     # gridlines
     x: Gridline
     y: Gridline
+
+    # layers in halo rings (currently only accept 2)
+    ngh: _Literal[2]
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_indices(cls, values):
@@ -225,16 +245,16 @@ class Domain(_BaseConfig):
         values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
         # answers
-        inds = {"south": (1, 2, 3), "north": (0, 2, 3), "west": (0, 1, 3), "east": (0, 1, 2), }
+        inds = {"s": (1, 2, 3), "n": (0, 2, 3), "w": (0, 1, 3), "e": (0, 1, 2), }
         ans = {
-            "south": _nplike.array((jbg, ibg, ied), dtype=int),
-            "north": _nplike.array((jed, ibg, ied), dtype=int),
-            "west": _nplike.array((jbg, jed, ibg), dtype=int),
-            "east": _nplike.array((jbg, jed, ied), dtype=int),
+            "s": _nplike.array((jbg, ibg, ied), dtype=int),
+            "n": _nplike.array((jed, ibg, ied), dtype=int),
+            "w": _nplike.array((jbg, jed, ibg), dtype=int),
+            "e": _nplike.array((jbg, jed, ied), dtype=int),
         }
 
         # check the values
-        for i, ornt in enumerate(("south", "north", "west", "east")):
+        for i, ornt in enumerate(("s", "n", "w", "e")):
             if values[ornt] == _MPI.PROC_NULL:
                 assert all(recvbuf[i*4:(i+1)*4] == -999), f"{ornt}, {recvbuf[i*4:(i+1)*4]}"
             else:
@@ -261,16 +281,16 @@ class Domain(_BaseConfig):
         values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
         # answers
-        inds = {"south": (1, 2, 3), "north": (0, 2, 3), "west": (0, 1, 3), "east": (0, 1, 2), }
+        inds = {"s": (1, 2, 3), "n": (0, 2, 3), "w": (0, 1, 3), "e": (0, 1, 2), }
         ans = {
-            "south": _nplike.array((jbg, ibg, ied), dtype=dtype),
-            "north": _nplike.array((jed, ibg, ied), dtype=dtype),
-            "west": _nplike.array((jbg, jed, ibg), dtype=dtype),
-            "east": _nplike.array((jbg, jed, ied), dtype=dtype),
+            "s": _nplike.array((jbg, ibg, ied), dtype=dtype),
+            "n": _nplike.array((jed, ibg, ied), dtype=dtype),
+            "w": _nplike.array((jbg, jed, ibg), dtype=dtype),
+            "e": _nplike.array((jbg, jed, ied), dtype=dtype),
         }
 
         # check the values
-        for i, ornt in enumerate(("south", "north", "west", "east")):
+        for i, ornt in enumerate(("s", "n", "w", "e")):
             if values[ornt] == _MPI.PROC_NULL:
                 assert all(recvbuf[i*4:(i+1)*4] != recvbuf[i*4:(i+1)*4]), \
                     f"{ornt}, {recvbuf[i*4:(i+1)*4]}"  # for nan, self != self
@@ -280,6 +300,49 @@ class Domain(_BaseConfig):
                         f"{ornt}, {recvbuf[i*4:(i+1)*4].take(inds[ornt])}, {ans[ornt]}"
                 else:
                     pass  # periodic bc; haven't come up w/ a good way to check
+
+        return values
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_subarray_types(cls, values):
+
+        comm = values["comm"]
+        nx = values["x"].n
+        ny = values["y"].n
+        ngh = values["ngh"]
+
+        data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=int)
+        data[0, ngh:-ngh, ngh:-ngh] = comm.rank * 1000
+        data[1, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 100
+        data[2, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 200
+        win = _MPI.Win.Create(data, comm=comm)
+        win.Fence()
+        for k in ("s", "n", "w", "e"):
+            win.Put([data, values[f"{k}stype"]], values[k], [0, 1, values[f"{k}rtype"]])
+        win.Fence()
+        _nplike.sync()
+
+        # check if correct neighbors put correct data to this rank
+        if values["s"] != _MPI.PROC_NULL:
+            assert all(data[0, :ngh, ngh:-ngh].flatten() == values["s"]*1000)
+            assert all(data[1, :ngh, ngh:-ngh].flatten() == values["s"]*1000+100)
+            assert all(data[2, :ngh, ngh:-ngh].flatten() == values["s"]*1000+200)
+
+        if values["n"] != _MPI.PROC_NULL:
+            assert all(data[0, -ngh:, ngh:-ngh].flatten() == values["n"]*1000)
+            assert all(data[1, -ngh:, ngh:-ngh].flatten() == values["n"]*1000+100)
+            assert all(data[2, -ngh:, ngh:-ngh].flatten() == values["n"]*1000+200)
+
+        if values["w"] != _MPI.PROC_NULL:
+            assert all(data[0, ngh:-ngh, :ngh].flatten() == values["w"]*1000)
+            assert all(data[1, ngh:-ngh, :ngh].flatten() == values["w"]*1000+100)
+            assert all(data[2, ngh:-ngh, :ngh].flatten() == values["w"]*1000+200)
+
+        if values["e"] != _MPI.PROC_NULL:
+            assert all(data[0, ngh:-ngh, -ngh:].flatten() == values["e"]*1000)
+            assert all(data[1, ngh:-ngh, -ngh:].flatten() == values["e"]*1000+100)
+            assert all(data[2, ngh:-ngh, -ngh:].flatten() == values["e"]*1000+200)
+        win.Free()
 
         return values
 
