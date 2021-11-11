@@ -311,7 +311,7 @@ class Domain(_BaseConfig):
         ny = values["y"].n
         ngh = values["ngh"]
 
-        data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=int)
+        data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=values["x"].centers.dtype)
         data[0, ngh:-ngh, ngh:-ngh] = comm.rank * 1000
         data[1, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 100
         data[2, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 200
