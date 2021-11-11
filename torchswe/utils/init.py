@@ -198,33 +198,6 @@ def get_domain(comm: _MPI.Comm, config: _Config):
         "y", data.comm.dims[0], data.comm.coords[0], config.spatial.discretization[1],
         config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
 
-    # set up costum MPI datatype for exchangine data in Q (Q's shape: (3, ny+2*ngh, nx+2*ngh))
-    ngh = data.ngh = config.params.ngh
-    gshape = (3, data.y.n+2*ngh, data.x.n+2*ngh)
-    scalar_t: _MPI.Datatype = _from_numpy_dtype(data.x.centers.dtype)
-    data.sstype = scalar_t.Create_subarray(gshape, (3, ngh, data.x.n), (0, ngh, ngh)).Commit()
-    data.nstype = scalar_t.Create_subarray(gshape, (3, ngh, data.x.n), (0, data.y.n, ngh)).Commit()
-    data.wstype = scalar_t.Create_subarray(gshape, (3, data.y.n, ngh), (0, ngh, ngh)).Commit()
-    data.estype = scalar_t.Create_subarray(gshape, (3, data.y.n, ngh), (0, ngh, data.x.n)).Commit()
-
-    # get neighbors y.n and x.n
-    nshps = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
-    temp = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
-    int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
-    _nplike.sync()
-
-    data.comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
-    nshps = nshps.reshape(4, 3)
-    ny = nshps[:, 1].flatten() - 2 * ngh
-    nx = nshps[:, 2].flatten() - 2 * ngh
-    _nplike.sync()
-
-    # the receiving buffer's datatype should be defined wiht neighbors' shapes
-    data.srtype = scalar_t.Create_subarray(nshps[0], (3, ngh, nx[0]), (0, ngh+ny[0], ngh)).Commit()
-    data.nrtype = scalar_t.Create_subarray(nshps[0], (3, ngh, nx[1]), (0, 0, ngh)).Commit()
-    data.wrtype = scalar_t.Create_subarray(nshps[0], (3, ny[2], ngh), (0, ngh, ngh+nx[2])).Commit()
-    data.ertype = scalar_t.Create_subarray(nshps[0], (3, ny[3], ngh), (0, ngh, 0)).Commit()
-
     return _Domain(**data)
 
 
@@ -357,14 +330,52 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     nx = domain.x.n
     ny = domain.y.n
     dtype = domain.x.dtype
-    return _States(
-        domain=domain, ngh=ngh,
-        Q=_nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype),
-        H=_nplike.zeros((ny, nx), dtype=dtype),
-        S=_nplike.zeros((3, ny, nx), dtype=dtype),
-        SS=(_nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None),
-        face=get_empty_facequantitymodel(nx, ny, dtype),
-    )
+
+    # to hold data for initializing a Domain instance
+    data = _DummyDict()
+    data.domain = domain
+    data.ngh = ngh
+
+    # arrays
+    data.Q = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype)
+    data.H = _nplike.zeros((ny, nx), dtype=dtype)
+    data.S = _nplike.zeros((3, ny, nx), dtype=dtype)
+    data.SS = _nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None
+    data.face = get_empty_facequantitymodel(nx, ny, dtype)
+
+    # the window for one-sided communication for Q
+    _nplike.sync()
+    data.win = _MPI.Win.Create(data.Q, comm=domain.comm)
+    data.win.Fence()
+
+    # set up costum MPI datatype for exchangine data in Q (Q's shape: (3, ny+2*ngh, nx+2*ngh))
+    gshape = (3, domain.y.n + 2 * ngh, domain.x.n + 2 * ngh)
+    fp_t: _MPI.Datatype = _from_numpy_dtype(domain.x.centers.dtype)
+    data.sstype = fp_t.Create_subarray(gshape, (3, ngh, nx), (0, ngh, ngh)).Commit()
+    data.nstype = fp_t.Create_subarray(gshape, (3, ngh, nx), (0, ny, ngh)).Commit()
+    data.wstype = fp_t.Create_subarray(gshape, (3, ny, ngh), (0, ngh, ngh)).Commit()
+    data.estype = fp_t.Create_subarray(gshape, (3, ny, ngh), (0, ngh, nx)).Commit()
+
+    # get neighbors shapes of Q
+    nshps = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
+    temp = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
+    int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
+    _nplike.sync()
+    domain.comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
+    nshps = nshps.reshape(4, 3)
+
+    # get neighbors y.n and x.n
+    nys = nshps[:, 1].flatten() - 2 * ngh
+    nxs = nshps[:, 2].flatten() - 2 * ngh
+    _nplike.sync()
+
+    # the receiving buffer's datatype should be defined wiht neighbors' shapes
+    data.srtype = fp_t.Create_subarray(nshps[0], (3, ngh, nxs[0]), (0, ngh+nys[0], ngh)).Commit()
+    data.nrtype = fp_t.Create_subarray(nshps[1], (3, ngh, nxs[1]), (0, 0, ngh)).Commit()
+    data.wrtype = fp_t.Create_subarray(nshps[2], (3, nys[2], ngh), (0, ngh, ngh+nxs[2])).Commit()
+    data.ertype = fp_t.Create_subarray(nshps[3], (3, nys[3], ngh), (0, ngh, 0)).Commit()
+
+    return _States(**data)
 
 
 def get_initial_states(domain: _Domain, ic: _ICConfig, ngh: int, use_stiff: bool):

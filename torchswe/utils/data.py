@@ -195,10 +195,6 @@ class Domain(_BaseConfig):
         The ranks of the neighbors. If the neighbor does not exist (e.g., a boundary rank), then
         its value will be `mpi4py.MPI.PROC_NULL`. These characters stand for east, west, south, and
         north.
-    estype, wstype, sstype, nstype : mpi4py.MPI.Datatype
-        A derived MPI datatype used for sending conservative quantities to neighbors.
-    ertype, wrtype, srtype, nrtype : mpi4py.MPI.Datatype
-        A derived MPI datatype used for neighbors to receive conservative quantities .
     x, y : Gridline object
         x and y grindline coordinates.
     """
@@ -212,24 +208,9 @@ class Domain(_BaseConfig):
     s: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
     n: _Union[_conint(ge=0), _Literal[_MPI.PROC_NULL]]
 
-    # send datatype for conservative quantities
-    estype: _MPI.Datatype
-    wstype: _MPI.Datatype
-    sstype: _MPI.Datatype
-    nstype: _MPI.Datatype
-
-    # recv datatype for conservative quantities
-    ertype: _MPI.Datatype
-    wrtype: _MPI.Datatype
-    srtype: _MPI.Datatype
-    nrtype: _MPI.Datatype
-
     # gridlines
     x: Gridline
     y: Gridline
-
-    # layers in halo rings (currently only accept 2)
-    ngh: _Literal[2]
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_indices(cls, values):
@@ -242,6 +223,7 @@ class Domain(_BaseConfig):
         sendbuf = _nplike.tile(_nplike.array((jbg, jed, ibg, ied), dtype=int), (4,))
         recvbuf = _nplike.full(16, -999, dtype=int)
         mpitype = from_numpy_dtype(sendbuf.dtype)
+        _nplike.sync()
         values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
         # answers
@@ -278,6 +260,7 @@ class Domain(_BaseConfig):
         sendbuf = _nplike.tile(_nplike.array((jbg, jed, ibg, ied), dtype=dtype), (4,))
         recvbuf = _nplike.full(16, float("NaN"), dtype=dtype)
         mpitype = from_numpy_dtype(dtype)
+        _nplike.sync()
         values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
         # answers
@@ -300,49 +283,6 @@ class Domain(_BaseConfig):
                         f"{ornt}, {recvbuf[i*4:(i+1)*4].take(inds[ornt])}, {ans[ornt]}"
                 else:
                     pass  # periodic bc; haven't come up w/ a good way to check
-
-        return values
-
-    @_root_validator(pre=False, skip_on_failure=True)
-    def _val_subarray_types(cls, values):
-
-        comm = values["comm"]
-        nx = values["x"].n
-        ny = values["y"].n
-        ngh = values["ngh"]
-
-        data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=values["x"].centers.dtype)
-        data[0, ngh:-ngh, ngh:-ngh] = comm.rank * 1000
-        data[1, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 100
-        data[2, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 200
-        win = _MPI.Win.Create(data, comm=comm)
-        win.Fence()
-        for k in ("s", "n", "w", "e"):
-            win.Put([data, values[f"{k}stype"]], values[k], [0, 1, values[f"{k}rtype"]])
-        win.Fence()
-        _nplike.sync()
-
-        # check if correct neighbors put correct data to this rank
-        if values["s"] != _MPI.PROC_NULL:
-            assert all(data[0, :ngh, ngh:-ngh].flatten() == values["s"]*1000)
-            assert all(data[1, :ngh, ngh:-ngh].flatten() == values["s"]*1000+100)
-            assert all(data[2, :ngh, ngh:-ngh].flatten() == values["s"]*1000+200)
-
-        if values["n"] != _MPI.PROC_NULL:
-            assert all(data[0, -ngh:, ngh:-ngh].flatten() == values["n"]*1000)
-            assert all(data[1, -ngh:, ngh:-ngh].flatten() == values["n"]*1000+100)
-            assert all(data[2, -ngh:, ngh:-ngh].flatten() == values["n"]*1000+200)
-
-        if values["w"] != _MPI.PROC_NULL:
-            assert all(data[0, ngh:-ngh, :ngh].flatten() == values["w"]*1000)
-            assert all(data[1, ngh:-ngh, :ngh].flatten() == values["w"]*1000+100)
-            assert all(data[2, ngh:-ngh, :ngh].flatten() == values["w"]*1000+200)
-
-        if values["e"] != _MPI.PROC_NULL:
-            assert all(data[0, ngh:-ngh, -ngh:].flatten() == values["e"]*1000)
-            assert all(data[1, ngh:-ngh, -ngh:].flatten() == values["e"]*1000+100)
-            assert all(data[2, ngh:-ngh, -ngh:].flatten() == values["e"]*1000+200)
-        win.Free()
 
         return values
 
@@ -583,10 +523,17 @@ class States(_BaseConfig):
         The stiff right-hand-side term that require semi-implicit handling. Defined at cell centers.
     face: torchswe.utils.data.FaceQuantityModel
         Holding quantites defined at cell faces, including continuous and discontinuous ones.
+    estype, wstype, sstype, nstype : mpi4py.MPI.Datatype
+        A derived MPI datatype used for sending conservative quantities to neighbors.
+    ertype, wrtype, srtype, nrtype : mpi4py.MPI.Datatype
+        A derived MPI datatype used for neighbors to receive conservative quantities .
     """
 
     # associated domain
     domain: Domain
+
+    # associated one-sided communication window
+    win: _MPI.Win
 
     # number of ghost cell layers
     ngh: _conint(strict=True, ge=0)
@@ -597,6 +544,18 @@ class States(_BaseConfig):
     S: _nplike.ndarray
     SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
+
+    # send datatype for conservative quantities
+    estype: _MPI.Datatype
+    wstype: _MPI.Datatype
+    sstype: _MPI.Datatype
+    nstype: _MPI.Datatype
+
+    # recv datatype for conservative quantities
+    ertype: _MPI.Datatype
+    wrtype: _MPI.Datatype
+    srtype: _MPI.Datatype
+    nrtype: _MPI.Datatype
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):
@@ -623,6 +582,50 @@ class States(_BaseConfig):
         if values["SS"] is not None:
             assert values["SS"].shape == (3, ny, nx), "SS: incorrect shape"
             assert values["SS"].dtype == dtype, "SS: incorrect dtype"
+
+        return values
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_q_subarray_types(cls, values):
+
+        comm = values["domain"].comm
+        nx = values["domain"].x.n
+        ny = values["domain"].y.n
+        ngh = values["ngh"]
+
+        data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=values["Q"].dtype)
+        data[0, ngh:-ngh, ngh:-ngh] = comm.rank * 1000
+        data[1, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 100
+        data[2, ngh:-ngh, ngh:-ngh] = comm.rank * 1000 + 200
+        _nplike.sync()
+
+        win = _MPI.Win.Create(data, comm=comm)
+        win.Fence()
+        for k in ("s", "n", "w", "e"):
+            win.Put([data, values[f"{k}stype"]], values["domain"][k], [0, 1, values[f"{k}rtype"]])
+        win.Fence()
+
+        # check if correct neighbors put correct data to this rank
+        if values["domain"]["s"] != _MPI.PROC_NULL:
+            assert all(data[0, :ngh, ngh:-ngh].flatten() == values["domain"]["s"]*1000)
+            assert all(data[1, :ngh, ngh:-ngh].flatten() == values["domain"]["s"]*1000+100)
+            assert all(data[2, :ngh, ngh:-ngh].flatten() == values["domain"]["s"]*1000+200)
+
+        if values["domain"]["n"] != _MPI.PROC_NULL:
+            assert all(data[0, -ngh:, ngh:-ngh].flatten() == values["domain"]["n"]*1000)
+            assert all(data[1, -ngh:, ngh:-ngh].flatten() == values["domain"]["n"]*1000+100)
+            assert all(data[2, -ngh:, ngh:-ngh].flatten() == values["domain"]["n"]*1000+200)
+
+        if values["domain"]["w"] != _MPI.PROC_NULL:
+            assert all(data[0, ngh:-ngh, :ngh].flatten() == values["domain"]["w"]*1000)
+            assert all(data[1, ngh:-ngh, :ngh].flatten() == values["domain"]["w"]*1000+100)
+            assert all(data[2, ngh:-ngh, :ngh].flatten() == values["domain"]["w"]*1000+200)
+
+        if values["domain"]["e"] != _MPI.PROC_NULL:
+            assert all(data[0, ngh:-ngh, -ngh:].flatten() == values["domain"]["e"]*1000)
+            assert all(data[1, ngh:-ngh, -ngh:].flatten() == values["domain"]["e"]*1000+100)
+            assert all(data[2, ngh:-ngh, -ngh:].flatten() == values["domain"]["e"]*1000+200)
+        win.Free()
 
         return values
 

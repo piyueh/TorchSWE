@@ -8,9 +8,14 @@
 
 """Main function.
 """
+# pylint: disable=wrong-import-position
 
 import time
 import logging
+
+# due to openmpi's problematic implementation of one-sided communication
+import mpi4py
+mpi4py.rc.threads = False
 
 from mpi4py import MPI
 from torchswe import nplike
