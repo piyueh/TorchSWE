@@ -206,7 +206,7 @@ def get_topography(domain, elev, demx, demy):
     """
 
     # alias
-    dtype = domain.x.dtype
+    dtype = domain.dtype
 
     # see if we need to do interpolation
     try:
@@ -327,9 +327,8 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     -------
     A States with zero arrays.
     """
-    nx = domain.x.n
-    ny = domain.y.n
-    dtype = domain.x.dtype
+    ny, nx = domain.shape
+    dtype = domain.dtype
 
     # to hold data for initializing a Domain instance
     data = _DummyDict()
@@ -349,20 +348,19 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     data.win.Fence()
 
     # set up costum MPI datatype for exchangine data in Q (Q's shape: (3, ny+2*ngh, nx+2*ngh))
-    gshape = (3, domain.y.n + 2 * ngh, domain.x.n + 2 * ngh)
-    fp_t: _MPI.Datatype = _from_numpy_dtype(domain.x.centers.dtype)
-    data.sstype = fp_t.Create_subarray(gshape, (3, ngh, nx), (0, ngh, ngh)).Commit()
-    data.nstype = fp_t.Create_subarray(gshape, (3, ngh, nx), (0, ny, ngh)).Commit()
-    data.wstype = fp_t.Create_subarray(gshape, (3, ny, ngh), (0, ngh, ngh)).Commit()
-    data.estype = fp_t.Create_subarray(gshape, (3, ny, ngh), (0, ngh, nx)).Commit()
+    mtype: _MPI.Datatype = _from_numpy_dtype(dtype)
+    data.sstype = mtype.Create_subarray(data.Q.shape, (3, ngh, nx), (0, ngh, ngh)).Commit()
+    data.nstype = mtype.Create_subarray(data.Q.shape, (3, ngh, nx), (0, ny, ngh)).Commit()
+    data.wstype = mtype.Create_subarray(data.Q.shape, (3, ny, ngh), (0, ngh, ngh)).Commit()
+    data.estype = mtype.Create_subarray(data.Q.shape, (3, ny, ngh), (0, ngh, nx)).Commit()
 
     # get neighbors shapes of Q
-    nshps = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
-    temp = _nplike.tile(_nplike.array(gshape, dtype=int), (4,))
+    nshps = _nplike.tile(_nplike.array(data.Q.shape, dtype=int), (4,))
+    temp = _nplike.tile(_nplike.array(data.Q.shape, dtype=int), (4,))
     int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
     _nplike.sync()
     domain.comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
-    nshps = nshps.reshape(4, 3)
+    nshps = nshps.reshape(4, len(data.Q.shape))
 
     # get neighbors y.n and x.n
     nys = nshps[:, 1].flatten() - 2 * ngh
@@ -370,10 +368,10 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     _nplike.sync()
 
     # the receiving buffer's datatype should be defined wiht neighbors' shapes
-    data.srtype = fp_t.Create_subarray(nshps[0], (3, ngh, nxs[0]), (0, ngh+nys[0], ngh)).Commit()
-    data.nrtype = fp_t.Create_subarray(nshps[1], (3, ngh, nxs[1]), (0, 0, ngh)).Commit()
-    data.wrtype = fp_t.Create_subarray(nshps[2], (3, nys[2], ngh), (0, ngh, ngh+nxs[2])).Commit()
-    data.ertype = fp_t.Create_subarray(nshps[3], (3, nys[3], ngh), (0, ngh, 0)).Commit()
+    data.srtype = mtype.Create_subarray(nshps[0], (3, ngh, nxs[0]), (0, ngh+nys[0], ngh)).Commit()
+    data.nrtype = mtype.Create_subarray(nshps[1], (3, ngh, nxs[1]), (0, 0, ngh)).Commit()
+    data.wrtype = mtype.Create_subarray(nshps[2], (3, nys[2], ngh), (0, ngh, ngh+nxs[2])).Commit()
+    data.ertype = mtype.Create_subarray(nshps[3], (3, nys[3], ngh), (0, ngh, 0)).Commit()
 
     return _States(**data)
 
@@ -629,14 +627,16 @@ def get_pointsource(ptconfig: _PointSourceConfig, domain: _Domain, irate: int = 
     The returned PointSource object will store depth increment rates, rather than volumetric flow
     rates.
     """
-    i = _find_cell_index(ptconfig.loc[0], domain.x.lower, domain.x.upper, domain.x.delta)
-    j = _find_cell_index(ptconfig.loc[1], domain.y.lower, domain.y.upper, domain.y.delta)
+    extent = domain.bounds  # south, north, west, east
+    dy, dx = domain.delta
+    i = _find_cell_index(ptconfig.loc[0], *extent[2:], dx)
+    j = _find_cell_index(ptconfig.loc[1], *extent[:2], dy)
 
     if i is None or j is None:
         return None
 
     # convert volumetric flow rates to depth increment rates; assuming constant/uniform dx & dy
-    rates = [rate / domain.x.delta / domain.y.delta for rate in ptconfig.rates]
+    rates = [rate / dx / dy for rate in ptconfig.rates]
 
     # determined from provide irate
     active = (not irate == len(ptconfig.times))
@@ -689,8 +689,8 @@ def get_friction_roughness(domain: _Domain, friction: _FrictionConfig):
         _logger.warning("Grids do not match. Doing spline interpolation.")
         cntr = _nplike.array(_interpolate(
             data["x"], data["y"], data[friction.key].T,
-            domain.x.centers, domain.y.centers).T).astype(domain.x.dtype)
+            domain.x.centers, domain.y.centers).T).astype(domain.dtype)
     else:  # no need for interpolation
-        cntr = data[friction.key].astype(domain.x.dtype)
+        cntr = data[friction.key].astype(domain.dtype)
 
     return cntr

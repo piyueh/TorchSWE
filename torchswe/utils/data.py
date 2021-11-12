@@ -299,6 +299,41 @@ class Domain(_BaseConfig):
 
         return values
 
+    @property
+    def dtype(self):
+        """The dtype of arrays defined on this domain."""
+        return self.x.dtype
+
+    @property
+    def shape(self):
+        """The shape of local grid w/o halo/ghost cells"""
+        return self.y.n, self.x.n
+
+    @property
+    def gshape(self):
+        """The shape of the global computational grid."""
+        return self.y.gn, self.x.gn
+
+    @property
+    def bounds(self):
+        """The bounds of the local domain in the order of south, north, west, & east"""
+        return self.y.lower, self.y.upper, self.x.lower, self.x.upper
+
+    @property
+    def gbounds(self):
+        """The bounds of the global domain in the order of south, north, west, & east"""
+        return self.y.glower, self.y.gupper, self.x.glower, self.x.gupper
+
+    @property
+    def ind_bounds(self):
+        """The index bounds of the local domain in the order of south, north, west, & east"""
+        return self.y.ibegin, self.y.iend, self.x.ibegin, self.x.iend
+
+    @property
+    def delta(self):
+        """The cell sizes in y and x."""
+        return self.y.delta, self.x.delta
+
 
 class Topography(_BaseConfig):
     """Data model for digital elevation.
@@ -329,42 +364,50 @@ class Topography(_BaseConfig):
     def _val_arrays(cls, values):
         """Validations that rely on other fields' correctness."""
 
+        # aliases
+        domain = values["domain"]
+        vertices = values["vertices"]
+        centers = values["centers"]
+        xfcenters = values["xfcenters"]
+        yfcenters = values["yfcenters"]
+        grad = values["grad"]
+
         # check dtype
-        arrays = ["vertices", "centers", "xfcenters", "yfcenters", "grad"]
-        target = values["domain"].x.dtype
-        for k, v in zip(arrays, _itemgetter(*arrays)(values)):
-            assert v.dtype == target, f"{k}: dtype does not match"
+        assert vertices.dtype == domain.dtype, "vertices: dtype does not match"
+        assert centers.dtype == domain.dtype, "centers: dtype does not match"
+        assert xfcenters.dtype == domain.dtype, "xfcenters: dtype does not match"
+        assert yfcenters.dtype == domain.dtype, "yfcenters: dtype does not match"
+        assert grad.dtype == domain.dtype, "grad: dtype does not match"
 
         # check shapes
-        msg = "shape does not match."
-        nx, ny = values["domain"].x.n, values["domain"].y.n
-        assert values["vertices"].shape == (ny+1, nx+1), "vertices: " + msg
-        assert values["centers"].shape == (ny, nx), "centers: " + msg
-        assert values["xfcenters"].shape == (ny, nx+1), "xfcenters: " + msg
-        assert values["yfcenters"].shape == (ny+1, nx), "yfcenters: " + msg
-        assert values["grad"].shape == (2, ny, nx), "grad: " + msg
+        ny, nx = domain.shape
+        assert vertices.shape == (ny+1, nx+1), "vertices: shape does not match."
+        assert centers.shape == (ny, nx), "centers: shape does not match."
+        assert xfcenters.shape == (ny, nx+1), "xfcenters: shape does not match."
+        assert yfcenters.shape == (ny+1, nx), "yfcenters: shape does not match."
+        assert grad.shape == (2, ny, nx), "grad: shape does not match."
 
         # check linear interpolation
-        v = values["vertices"]
-        msg = "linear interpolation"
-        assert _nplike.allclose(values["xfcenters"], (v[1:, :]+v[:-1, :])/2.), "xfcenters: " + msg
-        assert _nplike.allclose(values["yfcenters"], (v[:, 1:]+v[:, :-1])/2.), "yfcenters: " + msg
-        assert _nplike.allclose(values["centers"], (v[:-1, :-1]+v[:-1, 1:]+v[1:, :-1]+v[1:, 1:])/4.)
-
-        v = values["xfcenters"]
-        assert _nplike.allclose(values["centers"], (v[:, 1:]+v[:, :-1])/2.), "centers vs xfcenters"
-
-        v = values["yfcenters"]
-        assert _nplike.allclose(values["centers"], (v[1:, :]+v[:-1, :])/2.), "centers vs yfcenters"
+        assert _nplike.allclose(xfcenters, (vertices[1:, :]+vertices[:-1, :])/2.), \
+            "The solver requires xfcenters to be linearly interpolated from vertices"
+        assert _nplike.allclose(yfcenters, (vertices[:, 1:]+vertices[:, :-1])/2.), \
+            "The solver requires yfcenters to be linearly interpolated from vertices"
+        assert _nplike.allclose(centers, (
+            vertices[:-1, :-1]+vertices[:-1, 1:]+vertices[1:, :-1]+vertices[1:, 1:])/4.), \
+            "The solver requires centers to be linearly interpolated from vertices"
+        assert _nplike.allclose(centers, (xfcenters[:, 1:]+xfcenters[:, :-1])/2.), \
+            "The solver requires centers to be linearly interpolated from xfcenters"
+        assert _nplike.allclose(centers, (yfcenters[1:, :]+yfcenters[:-1, :])/2.), \
+            "The solver requires centers to be linearly interpolated from yfcenters"
 
         # check central difference
-        v = values["xfcenters"]
-        dx = (values["domain"].x.vertices[1:] - values["domain"].x.vertices[:-1])[None, :]
-        assert _nplike.allclose(values["grad"][0], (v[:, 1:]-v[:, :-1])/dx), "grad[0] vs xfcenters"
+        dx = (domain.x.vertices[1:] - domain.x.vertices[:-1])[None, :]
+        assert _nplike.allclose(grad[0], (xfcenters[:, 1:]-xfcenters[:, :-1])/dx), \
+            "grad[0] must be obtained from central differences of xfcenters"
 
-        v = values["yfcenters"]
-        dy = (values["domain"].y.vertices[1:] - values["domain"].y.vertices[:-1])[:, None]
-        assert _nplike.allclose(values["grad"][1], (v[1:, :]-v[:-1, :])/dy), "grad[1] vs yfcenters"
+        dy = (domain.y.vertices[1:] - domain.y.vertices[:-1])[:, None]
+        assert _nplike.allclose(grad[1], (yfcenters[1:, :]-yfcenters[:-1, :])/dy), \
+            "grad[1] must be obtained from central differences of yfcenters"
 
         return values
 
@@ -559,10 +602,11 @@ class States(_BaseConfig):
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):
-        nx = values["domain"].x.n
-        ny = values["domain"].y.n
+
+        # aliases
+        ny, nx = values["domain"].shape
         ngh = values["ngh"]
-        dtype = values["domain"].x.dtype
+        dtype = values["domain"].dtype
 
         assert values["Q"].shape == (3, ny+2*ngh, nx+2*ngh), "Q: incorrect shape"
         assert values["Q"].dtype == dtype, "Q: incorrect dtype"
@@ -588,9 +632,10 @@ class States(_BaseConfig):
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_q_subarray_types(cls, values):
 
-        comm = values["domain"].comm
-        nx = values["domain"].x.n
-        ny = values["domain"].y.n
+        # aliases
+        domain = values["domain"]
+        comm = domain.comm
+        ny, nx = domain.shape
         ngh = values["ngh"]
 
         data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=values["Q"].dtype)
@@ -602,29 +647,29 @@ class States(_BaseConfig):
         win = _MPI.Win.Create(data, comm=comm)
         win.Fence()
         for k in ("s", "n", "w", "e"):
-            win.Put([data, values[f"{k}stype"]], values["domain"][k], [0, 1, values[f"{k}rtype"]])
+            win.Put([data, values[f"{k}stype"]], domain[k], [0, 1, values[f"{k}rtype"]])
         win.Fence()
 
         # check if correct neighbors put correct data to this rank
-        if values["domain"]["s"] != _MPI.PROC_NULL:
-            assert all(data[0, :ngh, ngh:-ngh].flatten() == values["domain"]["s"]*1000)
-            assert all(data[1, :ngh, ngh:-ngh].flatten() == values["domain"]["s"]*1000+100)
-            assert all(data[2, :ngh, ngh:-ngh].flatten() == values["domain"]["s"]*1000+200)
+        if domain.s != _MPI.PROC_NULL:
+            assert all(data[0, :ngh, ngh:-ngh].flatten() == domain.s*1000)
+            assert all(data[1, :ngh, ngh:-ngh].flatten() == domain.s*1000+100)
+            assert all(data[2, :ngh, ngh:-ngh].flatten() == domain.s*1000+200)
 
-        if values["domain"]["n"] != _MPI.PROC_NULL:
-            assert all(data[0, -ngh:, ngh:-ngh].flatten() == values["domain"]["n"]*1000)
-            assert all(data[1, -ngh:, ngh:-ngh].flatten() == values["domain"]["n"]*1000+100)
-            assert all(data[2, -ngh:, ngh:-ngh].flatten() == values["domain"]["n"]*1000+200)
+        if domain.n != _MPI.PROC_NULL:
+            assert all(data[0, -ngh:, ngh:-ngh].flatten() == domain.n*1000)
+            assert all(data[1, -ngh:, ngh:-ngh].flatten() == domain.n*1000+100)
+            assert all(data[2, -ngh:, ngh:-ngh].flatten() == domain.n*1000+200)
 
-        if values["domain"]["w"] != _MPI.PROC_NULL:
-            assert all(data[0, ngh:-ngh, :ngh].flatten() == values["domain"]["w"]*1000)
-            assert all(data[1, ngh:-ngh, :ngh].flatten() == values["domain"]["w"]*1000+100)
-            assert all(data[2, ngh:-ngh, :ngh].flatten() == values["domain"]["w"]*1000+200)
+        if domain.w != _MPI.PROC_NULL:
+            assert all(data[0, ngh:-ngh, :ngh].flatten() == domain.w*1000)
+            assert all(data[1, ngh:-ngh, :ngh].flatten() == domain.w*1000+100)
+            assert all(data[2, ngh:-ngh, :ngh].flatten() == domain.w*1000+200)
 
-        if values["domain"]["e"] != _MPI.PROC_NULL:
-            assert all(data[0, ngh:-ngh, -ngh:].flatten() == values["domain"]["e"]*1000)
-            assert all(data[1, ngh:-ngh, -ngh:].flatten() == values["domain"]["e"]*1000+100)
-            assert all(data[2, ngh:-ngh, -ngh:].flatten() == values["domain"]["e"]*1000+200)
+        if domain.e != _MPI.PROC_NULL:
+            assert all(data[0, ngh:-ngh, -ngh:].flatten() == domain.e*1000)
+            assert all(data[1, ngh:-ngh, -ngh:].flatten() == domain.e*1000+100)
+            assert all(data[2, ngh:-ngh, -ngh:].flatten() == domain.e*1000+200)
         win.Free()
 
         return values

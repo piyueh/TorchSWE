@@ -58,7 +58,7 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     states = _central_scheme(states)
 
     # aliases
-    dx, dy = states.domain.x.delta, states.domain.y.delta
+    dy, dx = states.domain.delta
 
     # get right-hand-side contributed by spatial derivatives
     states.S = \
