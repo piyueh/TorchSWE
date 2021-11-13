@@ -206,6 +206,7 @@ def get_topography(domain, elev, demx, demy):
     """
 
     # alias
+    ny, nx = domain.shape
     dtype = domain.dtype
 
     # see if we need to do interpolation
@@ -214,7 +215,7 @@ def get_topography(domain, elev, demx, demy):
             _nplike.allclose(domain.x.vertices, demx) and
             _nplike.allclose(domain.y.vertices, demy)
         )
-    except ValueError:  # assume thie excpetion means a shape mismatch
+    except ValueError:  # assume this excpetion means a shape mismatch
         interp = True
 
     if interp:  # unfortunately, we need to do interpolation in such a situation
@@ -232,7 +233,7 @@ def get_topography(domain, elev, demx, demy):
     yface = (vert[:, :-1] + vert[:, 1:]) / 2.
 
     # gradient at cell centers through central difference; here allows nonuniform grids
-    grad = _nplike.zeros((2,)+cntr.shape, dtype=cntr.dtype)
+    grad = _nplike.zeros((2,)+cntr.shape, dtype=dtype)
     dx = (domain.x.vertices[1:] - domain.x.vertices[:-1])[None, :]
     grad[0, ...] = (xface[:, 1:] - xface[:, :-1]) / dx
     dy = (domain.y.vertices[1:] - domain.y.vertices[:-1])[:, None]

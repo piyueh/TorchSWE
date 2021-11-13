@@ -150,7 +150,7 @@ cpdef reconstruct(object states, object runtime, object config):
     cdef object slpy = _minmod_slope_kernel(
             Q[:, ybg-2:yed, xbg:xed], Q[:, ybg-1:yed+1, xbg:xed], Q[:, ybg:yed+2, xbg:xed], theta)
 
-    # get discontinuous conservatice quantities at cell faces
+    # get discontinuous conservative quantities at cell faces
     cupy.add(Q[:, ybg:yed, xbg-1:xed], slpx[:, :, :nx+1], out=xmQ)
     cupy.subtract(Q[:, ybg:yed, xbg:xed+1], slpx[:, :, 1:], out=xpQ)
     cupy.add(Q[:, ybg-1:yed, xbg:xed], slpy[:, :ny+1, :], out=ymQ)
