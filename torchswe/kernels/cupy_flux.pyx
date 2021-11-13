@@ -26,8 +26,6 @@ cdef get_discontinuous_flux_y = cupy.ElementwiseKernel(
 )
 
 
-@cython.boundscheck(False)  # deactivate bounds checking
-@cython.wraparound(False)  # deactivate negative indexing.
 def get_discontinuous_flux(object states, double gravity):
     """Calculting the discontinuous fluxes on the both sides at cell faces.
 
@@ -76,8 +74,6 @@ cdef central_scheme_kernel = cupy.ElementwiseKernel(
 )
 
 
-@cython.boundscheck(False)  # deactivate bounds checking
-@cython.wraparound(False)  # deactivate negative indexing.
 def central_scheme(object states):
     """A central scheme to calculate numerical flux at interfaces.
 

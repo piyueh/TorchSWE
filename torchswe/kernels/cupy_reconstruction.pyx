@@ -152,7 +152,6 @@ cpdef reconstruct(object states, object runtime, object config):
     cupy.subtract(Q[:, ybg:yed+1, xbg:xed], slpy[:, 1:, :], out=ypQ)
 
     # calculate depth at cell centers and faces
-    cupy.subtract(Q[0, ybg:yed, xbg:xed], topo.centers, out=H)
     cupy.subtract(xmQ[0], topo.xfcenters, out=xmU[0])
     cupy.subtract(xpQ[0], topo.xfcenters, out=xpU[0])
     cupy.subtract(ymQ[0], topo.yfcenters, out=ymU[0])
@@ -185,5 +184,32 @@ cpdef reconstruct(object states, object runtime, object config):
     _recnstrt_face_conservatives(xpU[0], xpU[1], xpU[2], topo.xfcenters, xpQ[0], xpQ[1], xpQ[2])
     _recnstrt_face_conservatives(ymU[0], ymU[1], ymU[2], topo.yfcenters, ymQ[0], ymQ[1], ymQ[2])
     _recnstrt_face_conservatives(ypU[0], ypU[1], ypU[2], topo.yfcenters, ypQ[0], ypQ[1], ypQ[2])
+
+    return states
+
+
+cpdef get_cell_center_depth(object states, object runtime):
+    """Calculate cell-centered depths for non-halo-ring cells.
+
+    `states.H` will be updated in this function.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    runtime : torchswe.utils.misc.DummyDict
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Returning it just for coding style. The values are actually
+        updated in-place.
+    """
+
+    cdef Py_ssize_t ngh = states.ngh
+    cdef Py_ssize_t ny = states.H.shape[0] - 2
+    cdef Py_ssize_t nx = states.H.shape[1] - 2
+
+    cupy.subtract(
+        states.Q[0, ngh:ngh+ny, ngh:ngh+nx], runtime.topo.centers, out=states.H[1:1+ny, 1:1+nx])
 
     return states

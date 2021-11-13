@@ -36,7 +36,7 @@ def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
     # auto-broadcasting; add to rhs in-place
-    states.S[1:, ...] -= (config.params.gravity * states.H * runtime.topo.grad)
+    states.S[1:, ...] -= (config.params.gravity * states.H[1:-1, 1:-1] * runtime.topo.grad)
     return states
 
 
@@ -117,7 +117,7 @@ def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
     slc = slice(states.ngh, -states.ngh)
-    loc = _nplike.nonzero(states.H > 0.)
+    loc = _nplike.nonzero(states.H[1:-1, 1:-1] > 0.)
 
     # views
     h = states.H[loc]

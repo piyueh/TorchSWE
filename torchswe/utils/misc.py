@@ -307,7 +307,7 @@ def find_cell_index(x, lower, upper, delta):
 
 
 def exchange_states(states):
-    """Exchange w, hu, and hv with neighbors to fill in the cells in halo rings
+    """Exchange w, hu, hv, and h with neighbors to fill in the cells in halo rings
 
     Arguments
     ---------
@@ -322,15 +322,18 @@ def exchange_states(states):
     # alias
     domain = states.domain
     cnsrv = states.Q
-    osc = states.osc.Q
+    depth = states.H
+    osc = states.osc
 
     # make sure all calculations updating states.Q are done
     _nplike.sync()
 
     # start one-sided communication
     for k in ("s", "n", "w", "e"):
-        osc.win.Put([cnsrv, osc[f"{k}s"]], domain[k], [0, 1, osc[f"{k}r"]])
-    osc.win.Fence()
+        osc.Q.win.Put([cnsrv, osc.Q[f"{k}s"]], domain[k], [0, 1, osc.Q[f"{k}r"]])
+        osc.H.win.Put([depth, osc.H[f"{k}s"]], domain[k], [0, 1, osc.H[f"{k}r"]])
+    osc.Q.win.Fence()
+    osc.H.win.Fence()
 
     # theroretically, this sync should not be neeeded, but just in case
     _nplike.sync()

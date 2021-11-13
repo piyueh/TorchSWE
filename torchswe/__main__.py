@@ -31,6 +31,7 @@ from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.utils.friction import bellos_et_al_2018
+from torchswe.kernels import get_cell_center_depth
 from torchswe.boundary_conditions import get_ghost_cell_updaters
 from torchswe.temporal import euler, ssprk2, ssprk3
 from torchswe.sources import topography_gradient, point_mass_source, friction, zero_stiff_terms
@@ -264,6 +265,9 @@ def main():
 
     # update data if this is a continued run
     soln, runtime = restart(soln, runtime, args.cont, logger)
+
+    # calculate cell-centered depths
+    soln = get_cell_center_depth(soln, runtime)
 
     # create an NetCDF file and append I.C.
     if runtime.times.save and runtime.tidx == 0:

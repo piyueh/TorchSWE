@@ -573,7 +573,7 @@ class States(_BaseConfig):
     A brief overview of the structure in this jumbo model (ignoring scalars):
     State: {
         Q: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
-        H: ndarray                                          # shape: (ny, nx)
+        H: ndarray                                          # shape: (ny+2, nx+2)
         S: ndarray                                          # shape: (3, ny, nx)
         SS: ndarray                                         # shape: (3, ny, nx)
         face: {
@@ -650,10 +650,14 @@ class States(_BaseConfig):
     def _val_osc(cls, val):
         """Manually validate each item in the osc field.
         """
-        for name, obj in val.items():
-            if not isinstance(obj, HaloRingOSC):
-                raise TypeError(f"Sub-field osc.{name} is not a HaloRingOSC (got {obj.__class__})")
-            obj.check()  # triger HaloRingOSC's validation
+        for name in ["H", "Q"]:
+            assert name in val, f"The solver expected \"{name}\" in the osc field."
+
+            if not isinstance(val[name], HaloRingOSC):
+                raise TypeError(f"osc.{name} is not a HaloRingOSC (got {val[name].__class__})")
+
+            val[name].check()  # triger HaloRingOSC's validation
+
         return val
 
     @_root_validator(pre=False, skip_on_failure=True)
@@ -667,7 +671,7 @@ class States(_BaseConfig):
         assert values["Q"].shape == (3, ny+2*ngh, nx+2*ngh), "Q: incorrect shape"
         assert values["Q"].dtype == dtype, "Q: incorrect dtype"
 
-        assert values["H"].shape == (ny, nx), "H: incorrect shape"
+        assert values["H"].shape == (ny+2, nx+2), "H: incorrect shape"
         assert values["H"].dtype == dtype, "H: incorrect dtype"
 
         assert values["S"].shape == (3, ny, nx), "S: incorrect shape"

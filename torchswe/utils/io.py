@@ -87,7 +87,7 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
         "w": soln.Q[0, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
         "hu": soln.Q[1, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
         "hv": soln.Q[2, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "h": soln.H,
+        "h": soln.H[1:-1, 1:-1],
     }
 
     # alias
@@ -122,7 +122,7 @@ def write_states(states: _States, fname: str):
         fobj["Q"][:, jbg:jed, ibg:ied] = states.Q[:, ngh:-ngh, ngh:-ngh]
 
         fobj.create_dataset("H", (gny, gnx), dtype)
-        fobj["H"][jbg:jed, ibg:ied] = states.H
+        fobj["H"][jbg:jed, ibg:ied] = states.H[1:-1, 1:-1]
 
         fobj.create_dataset("S", (3, gny, gnx), dtype)
         fobj["S"][:, jbg:jed, ibg:ied] = states.S

@@ -145,25 +145,6 @@ cdef void extrapolate_minmod_y(
             igh += 1
 
 
-cdef inline void recnstrt_center_depth(
-    cython.floating[:, ::1] H,
-    cython.floating[:, :, ::1] Q,  # TODO: read-only buffer
-    cython.floating[:, ::1] B,  # TODO: read-only buffer
-    const Py_ssize_t ngh
-) nogil except *:
-    cdef Py_ssize_t ny = H.shape[0]
-    cdef Py_ssize_t nx = H.shape[1]
-    cdef Py_ssize_t i, j, igh, jgh
-    
-    jgh = ngh
-    for j in range(ny):
-        igh = ngh
-        for i in range(nx):
-            H[j, i] = Q[0, jgh, igh] - B[j, i]
-            igh += 1
-        jgh += 1
-
-
 cdef inline void recnstrt_face_depth(
     cython.floating[:, :, ::1] U,
     cython.floating[:, :, ::1] Q,  # TODO: read-only buffer
@@ -182,29 +163,48 @@ cdef inline void fix_face_negative_depth_x(
     cython.floating[:, :, ::1] pU,
     cython.floating[:, ::1] cH  # TODO: read-only buffer
 ) nogil except *:
-    cdef Py_ssize_t ny = cH.shape[0]
-    cdef Py_ssize_t nx = cH.shape[1]
+    """Fix negative depths at cell faces normal to x axis.
+
+    Arguments
+    ---------
+    mU : memoryview with shape (3, ny, nx+1)
+    pU : memoryview with shape (3, ny, nx+1)
+    cH : memoryview with shape (ny+2, nx+2)
+    """
+    cdef Py_ssize_t ny = cH.shape[0] - 2
+    cdef Py_ssize_t nx = cH.shape[1] - 2
     cdef Py_ssize_t i, j, im
+    cdef cython.floating cHij_2, mUij, pUij
 
     for j in range(ny):
         # minus sign at the most left cell face
-        if mU[0, j, 0] < 0.0:
+        mUij = mU[0, j, 0]
+        cHij_2 = cH[j+1, 0] * 2.0
+        if mUij < 0.0:
             mU[0, j, 0] = 0.0
+        elif mUij > cHij_2:
+            mU[0, j, 0] = cHij_2
 
         # the left and right faces of non-ghost cells
         im = 1
         for i in range(nx):
-            if pU[0, j, i] < 0.0:
-                pU[0, j, i] = 0.0
-                mU[0, j, im] = cH[j, i] * 2.0
-            elif mU[0, j, im] < 0.0:
-                pU[0, j, i] = cH[j, i] * 2.0
+            mUij = mU[0, j, im]
+            cHij_2 = cH[j+1, i+1] * 2.0
+            if mUij < 0.0:
                 mU[0, j, im] = 0.0
+                pU[0, j, i] = cHij_2
+            elif mUij > cHij_2:
+                mU[0, j, im] = cHij_2
+                pU[0, j, i] = 0.0
             im += 1
 
         # plus sign at the most left cell face
-        if pU[0, j, nx] < 0.0:
+        pUij = pU[0, j, nx]
+        cHij_2 = cH[j+1, nx+1] * 2.0
+        if pUij < 0.0:
             pU[0, j, nx] = 0.0
+        elif pUij > cHij_2:
+            pU[0, j, nx] = cHij_2
 
 
 cdef inline void fix_face_negative_depth_y(
@@ -212,31 +212,50 @@ cdef inline void fix_face_negative_depth_y(
     cython.floating[:, :, ::1] pU,
     cython.floating[:, ::1] cH  # TODO: read-only buffer
 ) nogil except *:
-    cdef Py_ssize_t ny = cH.shape[0]
-    cdef Py_ssize_t nx = cH.shape[1]
+    """Fix negative depths at cell faces normal to y axis.
+
+    Arguments
+    ---------
+    mU : memoryview with shape (3, ny+1, nx)
+    pU : memoryview with shape (3, ny+1, nx)
+    cH : memoryview with shape (ny+2, nx+2)
+    """
+    cdef Py_ssize_t ny = cH.shape[0] - 2
+    cdef Py_ssize_t nx = cH.shape[1] - 2
     cdef Py_ssize_t i, j, jm
+    cdef cython.floating cHij_2, mUij, pUij
 
     # minus sign at the most bottom cell face
     for i in range(nx):
-        if mU[0, 0, i] < 0.0:
+        mUij = mU[0, 0, i]
+        cHij_2 = cH[0, i+1] * 2.0
+        if mUij < 0.0:
             mU[0, 0, i] = 0.0
+        elif mUij > cHij_2:
+            mU[0, 0, i] = cHij_2
 
     # the bottom and top faces of non-ghost cells
     jm = 1
     for j in range(ny):
         for i in range(nx):
-            if pU[0, j, i] < 0.0:
-                pU[0, j, i] = 0.0
-                mU[0, jm, i] = cH[j, i] * 2.0
-            elif mU[0, jm, i] < 0.0:
-                pU[0, j, i] = cH[j, i] * 2.0
+            mUij = mU[0, jm, i]
+            cHij_2 = cH[j+1, i+1] * 2.0
+            if mUij < 0.0:
                 mU[0, jm, i] = 0.0
+                pU[0, j, i] = cHij_2
+            elif mUij > cHij_2:
+                mU[0, jm, i] = cHij_2
+                pU[0, j, i] = 0.0
         jm += 1
 
     # plus sign at the most top cell face
     for i in range(nx):
-        if pU[0, ny, i] < 0.0:
+        pUij = pU[0, ny, i]
+        cHij_2 = cH[ny+1, i+1] * 2.0
+        if pUij < 0.0:
             pU[0, ny, i] = 0.0
+        elif pUij > cHij_2:
+            pU[0, ny, i] = cHij_2
 
 
 cdef inline void recnstrt_face_velocity(
@@ -288,12 +307,12 @@ cdef inline void recnstrt_face_conservatives(
 
 
 cdef void reconstruct_kernel(
-    cython.floating[:, ::1] cH, 
     cython.floating[:, :, ::1] xmQ, cython.floating[:, :, ::1] xpQ,
     cython.floating[:, :, ::1] ymQ, cython.floating[:, :, ::1] ypQ,
     cython.floating[:, :, ::1] xmU, cython.floating[:, :, ::1] xpU,
     cython.floating[:, :, ::1] ymU, cython.floating[:, :, ::1] ypU,
     cython.floating[:, :, ::1] cQ,  # TODO: read-only buffer
+    cython.floating[:, ::1] cH,   # TODO: read-only buffer
     cython.floating[:, ::1] cB,  # TODO: read-only buffer
     cython.floating[:, ::1] xB,  # TODO: read-only buffer
     cython.floating[:, ::1] yB,   # TODO: read-only buffer
@@ -304,8 +323,7 @@ cdef void reconstruct_kernel(
     extrapolate_minmod_x(xmQ, xpQ, cQ, theta, ngh)
     extrapolate_minmod_y(ymQ, ypQ, cQ, theta, ngh)
 
-    # calculate depths at centers, xm, xp, ym, and yp
-    recnstrt_center_depth(cH, cQ, cB, ngh)
+    # calculate depths at xm, xp, ym, and yp
     recnstrt_face_depth(xmU, xmQ, xB)
     recnstrt_face_depth(xpU, xpQ, xB)
     recnstrt_face_depth(ymU, ymQ, yB)
@@ -332,9 +350,8 @@ def reconstruct(object states, object runtime, object config):
     """Reconstructs quantities at cell interfaces and centers.
 
     The following quantities in `states` are updated in this function:
-        1. non-conservative quantities defined at cell centers (states.H)
-        2. discontinuous non-conservative quantities defined at cell interfaces
-        3. discontinuous conservative quantities defined at cell interfaces
+        1. discontinuous non-conservative quantities defined at cell interfaces
+        2. discontinuous conservative quantities defined at cell interfaces
 
     Arguments
     ---------
@@ -363,16 +380,72 @@ def reconstruct(object states, object runtime, object config):
 
     if dtype == numpy.single:
         reconstruct_kernel[cython.float](
-            states.H, xm.Q, xp.Q, ym.Q, yp.Q, xm.U, xp.U, ym.U, yp.U, states.Q,
+            xm.Q, xp.Q, ym.Q, yp.Q, xm.U, xp.U, ym.U, yp.U, states.Q, states.H,
             runtime.topo.centers, topo.xfcenters, topo.yfcenters,
             states.ngh, params.drytol, params.theta, runtime.tol
         )
     elif dtype == numpy.double:
         reconstruct_kernel[cython.double](
-            states.H, xm.Q, xp.Q, ym.Q, yp.Q, xm.U, xp.U, ym.U, yp.U, states.Q,
+            xm.Q, xp.Q, ym.Q, yp.Q, xm.U, xp.U, ym.U, yp.U, states.Q, states.H,
             runtime.topo.centers, topo.xfcenters, topo.yfcenters,
             states.ngh, params.drytol, params.theta, runtime.tol
         )
+    else:
+        raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
+
+    return states
+
+
+cdef inline void recnstrt_center_depth(
+    cython.floating[:, ::1] H,
+    cython.floating[:, :, ::1] Q,  # TODO: read-only buffer
+    cython.floating[:, ::1] B,  # TODO: read-only buffer
+    const Py_ssize_t ngh
+) nogil except *:
+    """Get the cell-centered depths for non-halo cells.
+
+    Arguments
+    ---------
+    H : memoryview with shape (ny+2, nx+2)
+    Q : memoryview with shape (ny+2*ngh, nx+2*ngh)
+    B : memoryview with shape (ny, nx)
+    """
+    cdef Py_ssize_t ny = H.shape[0] - 2
+    cdef Py_ssize_t nx = H.shape[1] - 2
+    cdef Py_ssize_t i, j, iq, jq, ih, jh
+
+    jq = ngh; jh = 1
+    for j in range(ny):
+        iq = ngh; ih = 1
+        for i in range(nx):
+            H[jh, ih] = Q[0, jq, iq] - B[j, i]
+            iq += 1; ih += 1
+        jq += 1; jh += 1
+
+
+def get_cell_center_depth(object states, object runtime):
+    """Calculate cell-centered depths for non-halo-ring cells.
+
+    `states.H` will be updated in this function.
+
+    Arguments
+    ---------
+    states : torchswe.utils.data.States
+    runtime : torchswe.utils.misc.DummyDict
+
+    Returns
+    -------
+    states : torchswe.utils.data.States
+        The same object as the input. Returning it just for coding style. The values are actually
+        updated in-place.
+    """
+
+    dtype = states.Q.dtype
+
+    if dtype == numpy.single:
+        recnstrt_center_depth[cython.float](states.H, states.Q, runtime.topo.centers, states.ngh)
+    elif dtype == numpy.double:
+        recnstrt_center_depth[cython.double](states.H, states.Q, runtime.topo.centers, states.ngh)
     else:
         raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 

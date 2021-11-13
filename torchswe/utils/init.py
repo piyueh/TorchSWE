@@ -316,6 +316,54 @@ def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
     )
 
 
+def get_osc_cell_depth_mpi_datatype(comm: _MPI.Cartcomm, arry: _nplike.ndarray):
+    """Get the halo ring MPI datatypes for cell-centered depths for one-sided communications.
+    """
+
+    # make sure GPU has done the calculations
+    _nplike.sync()
+
+    # shape and dtype
+    ny, nx = arry.shape
+    ny, nx = ny - 2, nx - 2  # H's shape is (ny+2, nx+2)
+    mtype: _MPI.Datatype = _from_numpy_dtype(arry.dtype)
+
+    # data holder
+    data = _DummyDict()
+
+    # the window for one-sided communication for Q
+    data.win = _MPI.Win.Create(arry, comm=comm)
+    data.win.Fence()
+
+    # set up custom MPI datatype for exchangine data in H
+    data.ss = mtype.Create_subarray(arry.shape, (1, nx), (1, 1)).Commit()
+    data.ns = mtype.Create_subarray(arry.shape, (1, nx), (ny, 1)).Commit()
+    data.ws = mtype.Create_subarray(arry.shape, (ny, 1), (1, 1)).Commit()
+    data.es = mtype.Create_subarray(arry.shape, (ny, 1), (1, nx)).Commit()
+
+    # get neighbors shapes of H
+    nshps = _nplike.tile(_nplike.array(arry.shape), (4,))
+    temp = _nplike.tile(_nplike.array(arry.shape), (4,))
+    int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
+
+    _nplike.sync()
+    comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
+    nshps = nshps.reshape(4, len(arry.shape))
+
+    # get neighbors y.n and x.n
+    nys = nshps[:, 0].flatten() - 2
+    nxs = nshps[:, 1].flatten() - 2
+    _nplike.sync()
+
+    # the receiving buffer's datatype should be defined wiht neighbors' shapes
+    data.sr = mtype.Create_subarray(nshps[0], (1, nxs[0]), (1+nys[0], 1)).Commit()
+    data.nr = mtype.Create_subarray(nshps[1], (1, nxs[1]), (0, 1)).Commit()
+    data.wr = mtype.Create_subarray(nshps[2], (nys[2], 1), (1, 1+nxs[2])).Commit()
+    data.er = mtype.Create_subarray(nshps[3], (nys[3], 1), (1, 0)).Commit()
+
+    return _HaloRingOSC(**data)
+
+
 def get_osc_conservative_mpi_datatype(comm: _MPI.Cartcomm, arry: _nplike.ndarray, ngh: int):
     """Get the halo ring MPI datatypes for conservative quantities for one-sided communications.
     """
@@ -386,7 +434,7 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
 
     # arrays
     data.Q = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype)
-    data.H = _nplike.zeros((ny, nx), dtype=dtype)
+    data.H = _nplike.zeros((ny+2, nx+2), dtype=dtype)
     data.S = _nplike.zeros((3, ny, nx), dtype=dtype)
     data.SS = _nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None
     data.face = get_empty_facequantitymodel(nx, ny, dtype)
@@ -394,6 +442,7 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     # get one-sided communication windows and datatypes
     data.osc = _DummyDict()
     data.osc.Q = get_osc_conservative_mpi_datatype(domain.comm, data.Q, ngh)
+    data.osc.H = get_osc_cell_depth_mpi_datatype(domain.comm, data.H)
 
     return _States(**data)
 
