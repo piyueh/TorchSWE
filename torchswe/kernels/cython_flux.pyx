@@ -1,4 +1,5 @@
-# Cython implementation of flux calculations
+# vim:fenc=utf-8
+# vim:ft=pyrex
 # TODO: once cython 0.3 is released, use `const cython.floating` for read-only buffers
 
 

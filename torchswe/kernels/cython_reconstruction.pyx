@@ -1,13 +1,5 @@
-#! /usr/bin/env python
-# -*- coding: utf-8 -*-
 # vim:fenc=utf-8
-#
-# Copyright © 2020-2021 Pi-Yueh Chuang <pychuang@gwu.edu>
-#
-# Distributed under terms of the BSD 3-Clause license.
-
-"""Linear reconstruction.
-"""
+# vim:ft=pyrex
 # TODO: once cython 0.3 is released, use `const cython.floating` for read-only buffers
 
 
