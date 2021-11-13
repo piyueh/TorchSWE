@@ -25,6 +25,7 @@ from pydantic import root_validator as _root_validator
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
 from torchswe.utils.misc import DummyDtype as _DummyDtype
+from torchswe.utils.misc import DummyDict as _DummyDict
 
 _logger = _logging.getLogger("torchswe.utils.data")
 
@@ -507,6 +508,65 @@ class FaceQuantityModel(_BaseConfig):
         return values
 
 
+class HaloRingOSC(_BaseConfig):
+    """A data holder for MPI datatypes of halo rings for convenience.
+
+    Attributes
+    ----------
+    win : _MPI.Win
+    ss, ns, we, es : mpi4py.MPI.datatype
+    sr, nr, wr, er : mpi4py.MPI.datatype
+    """
+
+    # one-sided communication window
+    win: _MPI.Win
+
+    # send datatype for conservative quantities
+    ss: _MPI.Datatype
+    ns: _MPI.Datatype
+    ws: _MPI.Datatype
+    es: _MPI.Datatype
+
+    # recv datatype for conservative quantities
+    sr: _MPI.Datatype
+    nr: _MPI.Datatype
+    wr: _MPI.Datatype
+    er: _MPI.Datatype
+
+    @_root_validator(pre=False, skip_on_failure=True)
+    def _val_range(cls, vals):
+        """Validate subarrays."""
+
+        sends = {k: vals[f"{k}s"].Get_contents()[0] for k in ("w", "e", "s", "n")}
+        recvs = {k: vals[f"{k}r"].Get_contents()[0] for k in ("w", "e", "s", "n")}
+
+        ndim = sends["w"][0]
+        assert ndim == sends["e"][0], "ws and es have different dimensions."
+        assert ndim == sends["s"][0], "ws and ss have different dimensions."
+        assert ndim == sends["n"][0], "ws and ns have different dimensions."
+        assert ndim == recvs["w"][0], "ws and wr have different dimensions."
+        assert ndim == recvs["e"][0], "ws and er have different dimensions."
+        assert ndim == recvs["s"][0], "ws and sr have different dimensions."
+        assert ndim == recvs["n"][0], "ws and nr have different dimensions."
+
+        gshape = sends["w"][1:1+ndim]
+        assert gshape == sends["e"][1:1+ndim], "ws and es have different global shapes."
+        assert gshape == sends["s"][1:1+ndim], "ws and ss have different global shapes."
+        assert gshape == sends["n"][1:1+ndim], "ws and ns have different global shapes."
+        assert gshape == recvs["w"][1:1+ndim], "ws and wr have different global shapes."
+        assert gshape == recvs["e"][1:1+ndim], "ws and er have different global shapes."
+        assert gshape == recvs["s"][1:1+ndim], "ws and sr have different global shapes."
+        assert gshape == recvs["n"][1:1+ndim], "ws and nr have different global shapes."
+
+        bg, ed = 1 + ndim, 1 + 2 * ndim
+        assert sends["w"][bg:ed] == recvs["w"][bg:ed], "ws and wr have different subarray shapes."
+        assert sends["e"][bg:ed] == recvs["e"][bg:ed], "es and er have different subarray shapes."
+        assert sends["s"][bg:ed] == recvs["s"][bg:ed], "ss and sr have different subarray shapes."
+        assert sends["n"][bg:ed] == recvs["n"][bg:ed], "ns and nr have different subarray shapes."
+
+        return vals
+
+
 class States(_BaseConfig):
     """A jumbo data model of all arrays on a mesh patch.
 
@@ -564,19 +624,17 @@ class States(_BaseConfig):
         The explicit right-hand-side terms when during time integration. Defined at cell centers.
     SS : nplike.ndarray of shape (3, ny, nx)
         The stiff right-hand-side term that require semi-implicit handling. Defined at cell centers.
-    face: torchswe.utils.data.FaceQuantityModel
+    face : torchswe.utils.data.FaceQuantityModel
         Holding quantites defined at cell faces, including continuous and discontinuous ones.
-    estype, wstype, sstype, nstype : mpi4py.MPI.Datatype
-        A derived MPI datatype used for sending conservative quantities to neighbors.
-    ertype, wrtype, srtype, nrtype : mpi4py.MPI.Datatype
-        A derived MPI datatype used for neighbors to receive conservative quantities .
+    osc : torchswe.utils.misc.DummyDict
+        An object holding MPI datatypes for one-sided communications of halo rings.
     """
 
     # associated domain
     domain: Domain
 
-    # associated one-sided communication window
-    win: _MPI.Win
+    # one-sided communication windows and datatypes
+    osc: _DummyDict
 
     # number of ghost cell layers
     ngh: _conint(strict=True, ge=0)
@@ -588,17 +646,15 @@ class States(_BaseConfig):
     SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
 
-    # send datatype for conservative quantities
-    estype: _MPI.Datatype
-    wstype: _MPI.Datatype
-    sstype: _MPI.Datatype
-    nstype: _MPI.Datatype
-
-    # recv datatype for conservative quantities
-    ertype: _MPI.Datatype
-    wrtype: _MPI.Datatype
-    srtype: _MPI.Datatype
-    nrtype: _MPI.Datatype
+    @_validator("osc")
+    def _val_osc(cls, val):
+        """Manually validate each item in the osc field.
+        """
+        for name, obj in val.items():
+            if not isinstance(obj, HaloRingOSC):
+                raise TypeError(f"Sub-field osc.{name} is not a HaloRingOSC (got {obj.__class__})")
+            obj.check()  # triger HaloRingOSC's validation
+        return val
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):
@@ -637,6 +693,7 @@ class States(_BaseConfig):
         comm = domain.comm
         ny, nx = domain.shape
         ngh = values["ngh"]
+        osc = values["osc"].Q
 
         data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=values["Q"].dtype)
         data[0, ngh:-ngh, ngh:-ngh] = comm.rank * 1000
@@ -647,7 +704,7 @@ class States(_BaseConfig):
         win = _MPI.Win.Create(data, comm=comm)
         win.Fence()
         for k in ("s", "n", "w", "e"):
-            win.Put([data, values[f"{k}stype"]], domain[k], [0, 1, values[f"{k}rtype"]])
+            win.Put([data, osc[f"{k}s"]], domain[k], [0, 1, osc[f"{k}r"]])
         win.Fence()
 
         # check if correct neighbors put correct data to this rank

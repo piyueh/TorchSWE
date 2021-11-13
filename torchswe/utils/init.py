@@ -34,6 +34,7 @@ from torchswe.utils.data import FaceTwoSideModel as _FaceTwoSideModel
 from torchswe.utils.data import FaceQuantityModel as _FaceQuantityModel
 from torchswe.utils.data import States as _States
 from torchswe.utils.data import PointSource as _PointSource
+from torchswe.utils.data import HaloRingOSC as _HaloRingOSC
 from torchswe.utils.netcdf import read as _ncread
 from torchswe.utils.misc import DummyDtype as _DummyDtype
 from torchswe.utils.misc import DummyDict as _DummyDict
@@ -206,7 +207,6 @@ def get_topography(domain, elev, demx, demy):
     """
 
     # alias
-    ny, nx = domain.shape
     dtype = domain.dtype
 
     # see if we need to do interpolation
@@ -316,6 +316,54 @@ def get_empty_facequantitymodel(nx: int, ny: int, dtype: str):
     )
 
 
+def get_osc_conservative_mpi_datatype(comm: _MPI.Cartcomm, arry: _nplike.ndarray, ngh: int):
+    """Get the halo ring MPI datatypes for conservative quantities for one-sided communications.
+    """
+
+    # make sure GPU has done the calculations
+    _nplike.sync()
+
+    # shape and dtype
+    ny, nx = arry.shape[1:]
+    ny, nx = ny - 2 * ngh, nx - 2 * ngh
+    mtype: _MPI.Datatype = _from_numpy_dtype(arry.dtype)
+
+    # data holder
+    data = _DummyDict()
+
+    # the window for one-sided communication for Q
+    data.win = _MPI.Win.Create(arry, comm=comm)
+    data.win.Fence()
+
+    # set up custom MPI datatype for exchangine data in Q (Q's shape: (3, ny+2*ngh, nx+2*ngh))
+    data.ss = mtype.Create_subarray(arry.shape, (3, ngh, nx), (0, ngh, ngh)).Commit()
+    data.ns = mtype.Create_subarray(arry.shape, (3, ngh, nx), (0, ny, ngh)).Commit()
+    data.ws = mtype.Create_subarray(arry.shape, (3, ny, ngh), (0, ngh, ngh)).Commit()
+    data.es = mtype.Create_subarray(arry.shape, (3, ny, ngh), (0, ngh, nx)).Commit()
+
+    # get neighbors shapes of Q
+    nshps = _nplike.tile(_nplike.array(arry.shape), (4,))
+    temp = _nplike.tile(_nplike.array(arry.shape), (4,))
+    int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
+
+    _nplike.sync()
+    comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
+    nshps = nshps.reshape(4, len(arry.shape))
+
+    # get neighbors y.n and x.n
+    nys = nshps[:, 1].flatten() - 2 * ngh
+    nxs = nshps[:, 2].flatten() - 2 * ngh
+    _nplike.sync()
+
+    # the receiving buffer's datatype should be defined wiht neighbors' shapes
+    data.sr = mtype.Create_subarray(nshps[0], (3, ngh, nxs[0]), (0, ngh+nys[0], ngh)).Commit()
+    data.nr = mtype.Create_subarray(nshps[1], (3, ngh, nxs[1]), (0, 0, ngh)).Commit()
+    data.wr = mtype.Create_subarray(nshps[2], (3, nys[2], ngh), (0, ngh, ngh+nxs[2])).Commit()
+    data.er = mtype.Create_subarray(nshps[3], (3, nys[3], ngh), (0, ngh, 0)).Commit()
+
+    return _HaloRingOSC(**data)
+
+
 def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     """Get an empty (i.e., zero arrays) States.
 
@@ -343,36 +391,9 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     data.SS = _nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None
     data.face = get_empty_facequantitymodel(nx, ny, dtype)
 
-    # the window for one-sided communication for Q
-    _nplike.sync()
-    data.win = _MPI.Win.Create(data.Q, comm=domain.comm)
-    data.win.Fence()
-
-    # set up costum MPI datatype for exchangine data in Q (Q's shape: (3, ny+2*ngh, nx+2*ngh))
-    mtype: _MPI.Datatype = _from_numpy_dtype(dtype)
-    data.sstype = mtype.Create_subarray(data.Q.shape, (3, ngh, nx), (0, ngh, ngh)).Commit()
-    data.nstype = mtype.Create_subarray(data.Q.shape, (3, ngh, nx), (0, ny, ngh)).Commit()
-    data.wstype = mtype.Create_subarray(data.Q.shape, (3, ny, ngh), (0, ngh, ngh)).Commit()
-    data.estype = mtype.Create_subarray(data.Q.shape, (3, ny, ngh), (0, ngh, nx)).Commit()
-
-    # get neighbors shapes of Q
-    nshps = _nplike.tile(_nplike.array(data.Q.shape, dtype=int), (4,))
-    temp = _nplike.tile(_nplike.array(data.Q.shape, dtype=int), (4,))
-    int_t: _MPI.Datatype = _from_numpy_dtype(temp.dtype)
-    _nplike.sync()
-    domain.comm.Neighbor_alltoall([temp, int_t], [nshps, int_t])
-    nshps = nshps.reshape(4, len(data.Q.shape))
-
-    # get neighbors y.n and x.n
-    nys = nshps[:, 1].flatten() - 2 * ngh
-    nxs = nshps[:, 2].flatten() - 2 * ngh
-    _nplike.sync()
-
-    # the receiving buffer's datatype should be defined wiht neighbors' shapes
-    data.srtype = mtype.Create_subarray(nshps[0], (3, ngh, nxs[0]), (0, ngh+nys[0], ngh)).Commit()
-    data.nrtype = mtype.Create_subarray(nshps[1], (3, ngh, nxs[1]), (0, 0, ngh)).Commit()
-    data.wrtype = mtype.Create_subarray(nshps[2], (3, nys[2], ngh), (0, ngh, ngh+nxs[2])).Commit()
-    data.ertype = mtype.Create_subarray(nshps[3], (3, nys[3], ngh), (0, ngh, 0)).Commit()
+    # get one-sided communication windows and datatypes
+    data.osc = _DummyDict()
+    data.osc.Q = get_osc_conservative_mpi_datatype(domain.comm, data.Q, ngh)
 
     return _States(**data)
 
