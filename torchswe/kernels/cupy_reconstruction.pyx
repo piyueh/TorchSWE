@@ -76,10 +76,15 @@ cdef _correct_neg_depth_internal = cupy.ElementwiseKernel(
 
 
 cdef _correct_neg_depth_edge = cupy.ElementwiseKernel(
-    "T h",
+    "T h, T hc",
     "T nh",
     r"""
-        if (h < 0.0) nh = 0.0;
+        T hc2 = 2 * hc;
+        if (h < 0.0) {
+            nh = 0.0;
+        } else if (h > hc2) {
+            nh = hc2;
+        }
     """,
     "_correct_neg_depth_edge"
 )
@@ -158,14 +163,14 @@ cpdef reconstruct(object states, object runtime, object config):
     cupy.subtract(ypQ[0], topo.yfcenters, out=ypU[0])
 
     # fix negative depths in x direction
-    _correct_neg_depth_internal(H, xpU[0, :, :nx], xmU[0, :, 1:], xpU[0, :, :nx], xmU[0, :, 1:])
-    _correct_neg_depth_edge(xpU[0, :, nx], xpU[0, :, nx])
-    _correct_neg_depth_edge(xmU[0, :, 0], xmU[0, :, 0])
+    _correct_neg_depth_internal(H[1:ny+1, 1:nx+1], xpU[0, :, :nx], xmU[0, :, 1:], xpU[0, :, :nx], xmU[0, :, 1:])
+    _correct_neg_depth_edge(xpU[0, :, nx], H[1:ny+1, nx+1], xpU[0, :, nx])
+    _correct_neg_depth_edge(xmU[0, :, 0], H[1:ny+1, 0], xmU[0, :, 0])
 
     # fix negative depths in x direction
-    _correct_neg_depth_internal(H, ypU[0, :ny, :], ymU[0, 1:, :], ypU[0, :ny, :], ymU[0, 1:, :])
-    _correct_neg_depth_edge(ypU[0, ny, :], ypU[0, ny, :])
-    _correct_neg_depth_edge(ymU[0, 0, :], ymU[0, 0, :])
+    _correct_neg_depth_internal(H[1:ny+1, 1:nx+1], ypU[0, :ny, :], ymU[0, 1:, :], ypU[0, :ny, :], ymU[0, 1:, :])
+    _correct_neg_depth_edge(ypU[0, ny, :], H[ny+1, 1:nx+1], ypU[0, ny, :])
+    _correct_neg_depth_edge(ymU[0, 0, :], H[0, 1:nx+1], ymU[0, 0, :])
 
     # fix rounding errors
     _fix_rounding_err_kernel(xmU[0], tol, xmU[0])
