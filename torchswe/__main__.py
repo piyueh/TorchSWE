@@ -32,7 +32,7 @@ from torchswe.utils.misc import set_device
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.utils.friction import bellos_et_al_2018
 from torchswe.kernels import get_cell_center_depth
-from torchswe.boundary_conditions import get_ghost_cell_updaters
+from torchswe.bcs import get_ghost_cell_updaters
 from torchswe.temporal import euler, ssprk2, ssprk3
 from torchswe.sources import topography_gradient, point_mass_source, friction, zero_stiff_terms
 
@@ -173,7 +173,7 @@ def config_runtime(comm, config, logger):
     runtime.marching = MARCHING_OPTIONS[config.temporal.scheme]  # time marching scheme
     logger.info("Time marching scheme: %s", config.temporal.scheme)
 
-    runtime.gh_updater = get_ghost_cell_updaters(config.bc, states, runtime.topo)
+    runtime.gh_updater = get_ghost_cell_updaters(states, runtime.topo, config.bc)
     logger.info("Done setting ghost cell updaters")
 
     runtime.sources = [topography_gradient]

@@ -1,12 +1,13 @@
 *.nogit
-torchswe/kernels/**/*.cpp
-torchswe/kernels/**/*.so
+torchswe/**/*.cpp
+torchswe/**/*.so
 cases/**/*.png
 cases/**/*.npz
 cases/**/*.npy
 cases/**/*.nc
 cases/**/*.nc.aux.xml
 cases/**/postprocessing.ipynb
+cases/**/*.log
 comparisons/geoclaw/**/*.data
 comparisons/geoclaw/**/_output
 comparisons/geoclaw/**/.output
