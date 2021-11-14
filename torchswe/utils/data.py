@@ -402,11 +402,9 @@ class Topography(_BaseConfig):
             "The solver requires centers to be linearly interpolated from yfcenters"
 
         # check central difference
-        dx = (domain.x.vertices[1:] - domain.x.vertices[:-1])[None, :]
+        dy, dx = domain.delta
         assert _nplike.allclose(grad[0], (xfcenters[:, 1:]-xfcenters[:, :-1])/dx), \
             "grad[0] must be obtained from central differences of xfcenters"
-
-        dy = (domain.y.vertices[1:] - domain.y.vertices[:-1])[:, None]
         assert _nplike.allclose(grad[1], (yfcenters[1:, :]-yfcenters[:-1, :])/dy), \
             "grad[1] must be obtained from central differences of yfcenters"
 

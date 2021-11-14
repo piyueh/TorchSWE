@@ -233,10 +233,9 @@ def get_topography(domain, elev, demx, demy):
     yface = (vert[:, :-1] + vert[:, 1:]) / 2.
 
     # gradient at cell centers through central difference; here allows nonuniform grids
+    dy, dx = domain.delta
     grad = _nplike.zeros((2,)+cntr.shape, dtype=dtype)
-    dx = (domain.x.vertices[1:] - domain.x.vertices[:-1])[None, :]
     grad[0, ...] = (xface[:, 1:] - xface[:, :-1]) / dx
-    dy = (domain.y.vertices[1:] - domain.y.vertices[:-1])[:, None]
     grad[1, ...] = (yface[1:, :] - yface[:-1, :]) / dy
 
     # initialize DataModel and let pydantic validates data
