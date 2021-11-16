@@ -396,13 +396,15 @@ def reconstruct(object states, object runtime, object config):
     return states
 
 
-cdef inline void recnstrt_center_depth(
+cdef inline void recnstrt_cell_center(
     cython.floating[:, ::1] H,
-    cython.floating[:, :, ::1] Q,  # TODO: read-only buffer
+    cython.floating[:, :, ::1] Q,
     cython.floating[:, ::1] B,  # TODO: read-only buffer
-    const Py_ssize_t ngh
+    const Py_ssize_t ngh,
+    const double drytol,
+    const double tol
 ) nogil except *:
-    """Get the cell-centered depths for non-halo cells.
+    """Get the cell-centered depths and reconstruct w, hu, and hv for non-halo cells.
 
     Arguments
     ---------
@@ -419,11 +421,21 @@ cdef inline void recnstrt_center_depth(
         iq = ngh; ih = 1
         for i in range(nx):
             H[jh, ih] = Q[0, jq, iq] - B[j, i]
+
+            if H[jh, ih] < tol:  # completely dry cells
+                H[jh, ih] = 0.0
+                Q[0, jq, iq] = B[j, i]
+                Q[1, jq, iq] = 0.0
+                Q[2, jq, iq] = 0.0
+            elif H[jh, ih] < drytol:  # wet but still cells
+                Q[1, jq, iq] = 0.0
+                Q[2, jq, iq] = 0.0
+
             iq += 1; ih += 1
         jq += 1; jh += 1
 
 
-def get_cell_center_depth(object states, object runtime):
+def get_cell_center_depth(object states, object runtime, object config):
     """Calculate cell-centered depths for non-halo-ring cells.
 
     `states.H` will be updated in this function.
@@ -443,9 +455,13 @@ def get_cell_center_depth(object states, object runtime):
     dtype = states.Q.dtype
 
     if dtype == numpy.single:
-        recnstrt_center_depth[cython.float](states.H, states.Q, runtime.topo.centers, states.ngh)
+        recnstrt_cell_center[cython.float](
+            states.H, states.Q, runtime.topo.centers,
+            states.ngh, config.params.drytol, runtime.tol)
     elif dtype == numpy.double:
-        recnstrt_center_depth[cython.double](states.H, states.Q, runtime.topo.centers, states.ngh)
+        recnstrt_cell_center[cython.double](
+            states.H, states.Q, runtime.topo.centers,
+            states.ngh, config.params.drytol, runtime.tol)
     else:
         raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 

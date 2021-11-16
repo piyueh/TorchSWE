@@ -32,10 +32,14 @@ cdef _fix_rounding_err_kernel = cupy.ElementwiseKernel(
 
 
 cdef _recnstrt_face_vel_kernel = cupy.ElementwiseKernel(
-    "T depth, T hu, T hv, float64 drytol",
-    "T u, T v",
+    "T depth, T hu, T hv, float64 drytol, float64 tol",
+    "T h, T u, T v",
     r"""
-        if (depth < drytol) {
+        if (depth < tol) {
+            h = 0.0;
+            u = 0.0;
+            v = 0.0;
+        } else if (depth < drytol) {
             u = 0.0;
             v = 0.0;
         } else {
@@ -172,17 +176,11 @@ cpdef reconstruct(object states, object runtime, object config):
     _correct_neg_depth_edge(ypU[0, ny, :], H[ny+1, 1:nx+1], ypU[0, ny, :])
     _correct_neg_depth_edge(ymU[0, 0, :], H[0, 1:nx+1], ymU[0, 0, :])
 
-    # fix rounding errors
-    _fix_rounding_err_kernel(xmU[0], tol, xmU[0])
-    _fix_rounding_err_kernel(xpU[0], tol, xpU[0])
-    _fix_rounding_err_kernel(ymU[0], tol, ymU[0])
-    _fix_rounding_err_kernel(ypU[0], tol, ypU[0])
-
     # reconstruct velocity at cell faces
-    _recnstrt_face_vel_kernel(xmU[0], xmQ[1], xmQ[2], drytol, xmU[1], xmU[2])
-    _recnstrt_face_vel_kernel(xpU[0], xpQ[1], xpQ[2], drytol, xpU[1], xpU[2])
-    _recnstrt_face_vel_kernel(ymU[0], ymQ[1], ymQ[2], drytol, ymU[1], ymU[2])
-    _recnstrt_face_vel_kernel(ypU[0], ypQ[1], ypQ[2], drytol, ypU[1], ypU[2])
+    _recnstrt_face_vel_kernel(xmU[0], xmQ[1], xmQ[2], drytol, tol, xmU[0], xmU[1], xmU[2])
+    _recnstrt_face_vel_kernel(xpU[0], xpQ[1], xpQ[2], drytol, tol, xpU[0], xpU[1], xpU[2])
+    _recnstrt_face_vel_kernel(ymU[0], ymQ[1], ymQ[2], drytol, tol, ymU[0], ymU[1], ymU[2])
+    _recnstrt_face_vel_kernel(ypU[0], ypQ[1], ypQ[2], drytol, tol, ypU[0], ypU[1], ypU[2])
 
     # reconstruct conservative quantities at cell faces
     _recnstrt_face_conservatives(xmU[0], xmU[1], xmU[2], topo.xfcenters, xmQ[0], xmQ[1], xmQ[2])
@@ -193,7 +191,26 @@ cpdef reconstruct(object states, object runtime, object config):
     return states
 
 
-cpdef get_cell_center_depth(object states, object runtime):
+cdef _recnstrt_cell_center = cupy.ElementwiseKernel(
+    "T ow, T b, float64 drytol, float64 tol",
+    "T h, T w, T hu, T hv",
+    """
+        h = ow - b;
+        if (h < tol) {
+            h = 0.0;
+            w = b;
+            hu = 0.0;
+            hv = 0.0;
+        } else if (h < drytol) {
+            hu = 0.0;
+            hv = 0.0;
+        }
+    """,
+    "_recnstrt_cell_center"
+)
+
+
+cpdef get_cell_center_depth(object states, object runtime, object config):
     """Calculate cell-centered depths for non-halo-ring cells.
 
     `states.H` will be updated in this function.
@@ -213,8 +230,18 @@ cpdef get_cell_center_depth(object states, object runtime):
     cdef Py_ssize_t ngh = states.ngh
     cdef Py_ssize_t ny = states.H.shape[0] - 2
     cdef Py_ssize_t nx = states.H.shape[1] - 2
+    cdef double tol = runtime.tol
+    cdef double drytol = config.params.drytol
 
-    cupy.subtract(
-        states.Q[0, ngh:ngh+ny, ngh:ngh+nx], runtime.topo.centers, out=states.H[1:1+ny, 1:1+nx])
+    _recnstrt_cell_center(
+        states.Q[0, ngh:ngh+ny, ngh:ngh+nx],
+        runtime.topo.centers,
+        drytol,
+        tol,
+        states.H[1:1+ny, 1:1+nx],
+        states.Q[0, ngh:ngh+ny, ngh:ngh+nx],
+        states.Q[1, ngh:ngh+ny, ngh:ngh+nx],
+        states.Q[2, ngh:ngh+ny, ngh:ngh+nx]
+    )
 
     return states

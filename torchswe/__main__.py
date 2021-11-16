@@ -267,7 +267,7 @@ def main():
     soln, runtime = restart(soln, runtime, args.cont, logger)
 
     # calculate cell-centered depths
-    soln = get_cell_center_depth(soln, runtime)
+    soln = get_cell_center_depth(soln, runtime, config)
 
     # create an NetCDF file and append I.C.
     if runtime.times.save and runtime.tidx == 0:

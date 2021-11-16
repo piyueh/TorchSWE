@@ -101,7 +101,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         states = semi_implicit_step(states, internal, runtime.dt)
 
         # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime)
+        states = get_cell_center_depth(states, runtime, config)
 
         # update iteration index and time
         runtime.counter += 1
@@ -186,7 +186,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
 
         # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime)
+        states = get_cell_center_depth(states, runtime, config)
 
         # update values of the halo-ring cells
         states = _exchange_states(states)
@@ -199,7 +199,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         states.Q /= 2  # doesn't matter whether ghost cells are also divided by 2
 
         # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime)
+        states = get_cell_center_depth(states, runtime, config)
 
         # update iteration index and time
         runtime.counter += 1
@@ -289,7 +289,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
 
         # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime)
+        states = get_cell_center_depth(states, runtime, config)
 
         # update values of the halo-ring cells
         states = _exchange_states(states)
@@ -302,7 +302,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q /= 4.
 
         # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime)
+        states = get_cell_center_depth(states, runtime, config)
 
         # update values of the halo-ring cells
         states = _exchange_states(states)
@@ -317,7 +317,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q /= 3.
 
         # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime)
+        states = get_cell_center_depth(states, runtime, config)
 
         # update iteration index and time
         runtime.counter += 1
