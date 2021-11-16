@@ -1,6 +1,5 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
-cimport numpy
 
 
 cpdef void _const_extrap_west_w(qtype q, htype h, const Py_ssize_t ngh) nogil except *:

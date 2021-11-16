@@ -23,7 +23,7 @@ exts = [
         sources=[
             "torchswe/kernels/cython_kernels.pyx",
         ],
-        include_dirs=[numpy.get_include()], language="c++",
+        include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
@@ -31,7 +31,7 @@ exts = [
         sources=[
             "torchswe/kernels/cupy_kernels.pyx",
         ],
-        include_dirs=[numpy.get_include()], language="c++",
+        include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
@@ -39,7 +39,7 @@ exts = [
         sources=[
             "torchswe/bcs/cython_bcs.pyx",
         ],
-        include_dirs=[numpy.get_include()], language="c++",
+        include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
@@ -47,7 +47,7 @@ exts = [
         sources=[
             "torchswe/bcs/cupy_bcs.pyx",
         ],
-        include_dirs=[numpy.get_include()], language="c++",
+        include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
 ]

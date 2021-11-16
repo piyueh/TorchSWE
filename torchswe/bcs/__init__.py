@@ -23,8 +23,10 @@ if "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
 
 if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from .cupy import _const_extrap_factory  # pylint: disable=no-name-in-module
+    from .cupy import _linear_extrap_factory  # pylint: disable=no-name-in-module
 else:
     from .cython import _const_extrap_factory  # pylint: disable=no-name-in-module
+    from .cython import _linear_extrap_factory  # pylint: disable=no-name-in-module
 
 
 def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
@@ -77,9 +79,7 @@ def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
 
             # linear extrapolation BC
             elif bctp == "extrap":
-                # TODO: constant & inflow BC; make sure ghost depths are not negative
-                # funcs[ornt][i] = linear_extrap_factory(i, states.ngh, ornt, states.Q.dtype)
-                raise NotImplementedError
+                funcs[(ornt, i)] = _linear_extrap_factory[ornt, i]
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
