@@ -509,12 +509,6 @@ def add_axis_to_dataset(dset, name, values, global_n=None, idx_bounds=None, opti
     dset.createVariable(name, "f8", (name,))
     dset[name].setncatts(options)
 
-    try:
-        dset[name].set_collective(True)
-    except RuntimeError as err:
-        if "Parallel operation" not in str(err):  # only raise error if not complaining serial data
-            raise
-
     _copy_data(dset[name], values, slice(idx_bounds[0], idx_bounds[1]))
 
     return dset

@@ -44,7 +44,7 @@ def create_empty_soln_file(fpath, domain, t, **kwargs):
 
     fpath = _Path(fpath).expanduser().resolve()
 
-    data = {k: None for k in ["w", "hu", "hv", "h", "u", "v"]}
+    data = {k: None for k in ["w", "hu", "hv", "h"]}
 
     with _Dataset(fpath, "w", parallel=True, comm=domain.comm, **kwargs) as dset:
 
