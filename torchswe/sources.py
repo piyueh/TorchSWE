@@ -120,15 +120,16 @@ def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
     loc = _nplike.nonzero(states.H[1:-1, 1:-1] > 0.)
 
     # views
-    h = states.H[loc]
+    h = states.H[1:-1, 1:-1][loc]
     hu = states.Q[1, slc, slc][loc]  # hu & hv has ghost cells
     hv = states.Q[2, slc, slc][loc]  # hu & hv has ghost cells
 
     coef = runtime.fc_model(h, hu, hv, config.props.nu, runtime.roughness)
 
-    states.SS[1:, loc[0], loc[1]] += \
-        - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) \
-        / (8. * _nplike.power(h, 2))
+    states.SS[1:, loc[0], loc[1]] += (
+        - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) /
+        (8. * _nplike.power(h, 2))
+    )
 
     return states
 

@@ -60,7 +60,7 @@ def bellos_et_al_2018(h, hu, hv, viscosity, roughness):
     assert isinstance(hu, _nplike.ndarray)
     assert isinstance(hv, _nplike.ndarray)
 
-    # velocity
+    # velocity (actually, it is velocity x depth)
     velocity = _nplike.sqrt(hu**2+hv**2)
 
     # initialize coefficient array
@@ -70,7 +70,7 @@ def bellos_et_al_2018(h, hu, hv, viscosity, roughness):
     loc = velocity.astype(bool)
 
     # reynolds number defined by depth
-    re_h = velocity[loc] / viscosity
+    re_h = velocity[loc] / viscosity  # length scale (i.e., h) already included in `velocity`
 
     # probability
     alpha = _nplike.reciprocal(_nplike.power(re_h/678., 8.4)+1.)
