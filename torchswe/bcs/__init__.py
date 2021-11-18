@@ -24,9 +24,11 @@ if "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
 if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from ._cupy_const_extrap import const_extrap_factory  # pylint: disable=no-name-in-module
     from ._cupy_linear_extrap import linear_extrap_factory  # pylint: disable=no-name-in-module
+    from ._cupy_const_val import const_val_factory  # pylint: disable=no-name-in-module
 else:
     from ._cython_const_extrap import const_extrap_factory  # pylint: disable=no-name-in-module
     from ._cython_linear_extrap import linear_extrap_factory  # pylint: disable=no-name-in-module
+    from ._cython_const_val import const_val_factory  # pylint: disable=no-name-in-module
 
 
 def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
@@ -83,9 +85,7 @@ def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
-                # TODO: constant & inflow BC; make sure ghost depths are not negative
-                # funcs[ornt][i] = constant_bc_factory(i, states.ngh, ornt, states.Q.dtype, bcv)
-                raise NotImplementedError
+                funcs[(ornt, i)] = const_val_factory(ornt, i, states, topo, bcv)
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":

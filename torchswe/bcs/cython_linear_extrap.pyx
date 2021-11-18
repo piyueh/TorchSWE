@@ -171,7 +171,7 @@ cdef void _linear_extrap_bc_init(
         raise RuntimeError("Mismatched types")
     else:
         if ornt == 0:  # west
-            _lineart_extrap_bc_set_west(bc, Q, H, Bc, Bx, ngh, comp)
+            _linear_extrap_bc_set_west(bc, Q, H, Bc, Bx, ngh, comp)
         elif ornt == 1:  # east
             _linear_extrap_bc_set_east(bc, Q, H, Bc, Bx, ngh, comp)
         elif ornt == 2:  # south
@@ -240,7 +240,7 @@ cdef void _init_ghost_topo(
         bc.bcm2[i] = bc.bcm1[i] + db
 
 
-cdef void _lineart_extrap_bc_set_west(
+cdef void _linear_extrap_bc_set_west(
     LinearExtrapBC bc,
     cython.floating[:, :, ::1] Q,
     cython.floating[:, ::1] H,
