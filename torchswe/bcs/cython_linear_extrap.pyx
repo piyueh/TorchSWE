@@ -1,322 +1,381 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
+import numpy
+cimport numpy
+cimport cython
+from cpython.mem cimport PyMem_Malloc, PyMem_Free
 
 
-cpdef void _linear_extrap_west_w(
-    qtype q, htype h, const Py_ssize_t ngh, btype b, btype bx, *args
+cdef fused LinearExtrapBC:
+    LinearExtrapFloat
+    LinearExtrapDouble
+
+ctypedef void (*linear_extrap_kernel_double_t)(LinearExtrapDouble, const double) nogil except *;
+ctypedef void (*linear_extrap_kernel_float_t)(LinearExtrapFloat, const float) nogil except *;
+
+
+@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
+cdef class LinearExtrapDouble:
+    """Base class of linear extraption boundary coditions wiht 64-bit floating points.
+    """
+
+    cdef Py_ssize_t n
+    cdef readonly const double[:] qp1
+    cdef readonly const double[:] qp2
+    cdef readonly const double[:] hp1
+    cdef readonly const double[:] hp2
+    cdef readonly const double[:] bb
+    cdef readonly const double[:] bcp1
+    cdef readonly double[:] qm1
+    cdef readonly double[:] qm2
+    cdef readonly double[:] hm1
+    cdef double* _bcm1
+    cdef double* _bcm2
+    cdef readonly double[::1] bcm1
+    cdef readonly double[::1] bcm2
+    cdef linear_extrap_kernel_double_t kernel
+
+    def __cinit__(
+        self, double[:, :, ::1] Q, double[:, ::1] H,
+        const double[:, ::1] Bc, const double[:, ::1] Bx, const double[:, ::1] By,
+        const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
+    ):
+        _linear_extrap_bc_cinit[double](
+            Q, H, Bc, Bx, By, ngh, comp, ornt,
+            &self.n, &self._bcm1, &self._bcm2
+        )
+        self.bcm1 = <double[:self.n]>self._bcm1  # we prefer to access values using MemoryView
+        self.bcm2 = <double[:self.n]>self._bcm2  # we prefer to access values using MemoryView
+
+    def __init__(
+        self, double[:, :, ::1] Q, double[:, ::1] H,
+        const double[:, ::1] Bc, const double[:, ::1] Bx, const double[:, ::1] By,
+        const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
+    ):
+        _linear_extrap_bc_init[LinearExtrapDouble, double](self, Q, H, Bc, Bx, By, ngh, comp, ornt)
+
+    def __dealloc__(self):
+        PyMem_Free(self._bcm1)
+        PyMem_Free(self._bcm2)
+
+    def __call__(self):
+        self.kernel(self, 0.0)
+
+
+@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
+cdef class LinearExtrapFloat:
+    """Base class of linear extraption boundary coditions wiht 32-bit floating points.
+    """
+
+    cdef Py_ssize_t n
+    cdef readonly const float[:] qp1
+    cdef readonly const float[:] qp2
+    cdef readonly const float[:] hp1
+    cdef readonly const float[:] hp2
+    cdef readonly const float[:] bb
+    cdef readonly const float[:] bcp1
+    cdef readonly float[:] qm1
+    cdef readonly float[:] qm2
+    cdef readonly float[:] hm1
+    cdef float* _bcm1
+    cdef float* _bcm2
+    cdef readonly float[::1] bcm1
+    cdef readonly float[::1] bcm2
+    cdef linear_extrap_kernel_float_t kernel
+
+    def __cinit__(
+        self, float[:, :, ::1] Q, float[:, ::1] H,
+        const float[:, ::1] Bc, const float[:, ::1] Bx, const float[:, ::1] By,
+        const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
+    ):
+        _linear_extrap_bc_cinit[float](
+            Q, H, Bc, Bx, By, ngh, comp, ornt,
+            &self.n, &self._bcm1, &self._bcm2
+        )
+        self.bcm1 = <float[:self.n]>self._bcm1  # we prefer to access values using MemoryView
+        self.bcm2 = <float[:self.n]>self._bcm2  # we prefer to access values using MemoryView
+
+    def __init__(
+        self, float[:, :, ::1] Q, float[:, ::1] H,
+        const float[:, ::1] Bc, const float[:, ::1] Bx, const float[:, ::1] By,
+        const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
+    ):
+        _linear_extrap_bc_init[LinearExtrapFloat, float](self, Q, H, Bc, Bx, By, ngh, comp, ornt)
+
+    def __dealloc__(self):
+        PyMem_Free(self._bcm1)
+        PyMem_Free(self._bcm2)
+
+    def __call__(self):
+        self.kernel(self, 0.0)
+
+
+cdef void _linear_extrap_bc_cinit(
+    const cython.floating[:, :, ::1] Q,
+    const cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] Bc,
+    const cython.floating[:, ::1] Bx,
+    const cython.floating[:, ::1] By,
+    const Py_ssize_t ngh,
+    const unsigned comp,
+    const unsigned ornt,
+    Py_ssize_t* n,
+    cython.floating** _bcm1,
+    cython.floating** _bcm2,
+):
+
+    # runtime check for the shapes
+    assert ngh == 2, "Currently only support ngh = 2"
+    assert 0 <= comp <= 2, "comp should be 0 <= comp <= 2"
+    assert 0 <= ornt <= 3, "ornt should be 0 <= ornt <= 3"
+    assert Q.shape[0] == 3, f"{Q.shape}"
+    assert H.shape[0] == Q.shape[1] - 2, f"{H.shape[0]}, {Q.shape[1]-2}"
+    assert H.shape[1] == Q.shape[2] - 2, f"{H.shape[1]}, {Q.shape[2]-2}"
+    assert Bc.shape[0] == H.shape[0] - 2, f"{Bc.shape[0]}, {H.shape[0]-2}"
+    assert Bc.shape[1] == H.shape[1] - 2, f"{Bc.shape[1]}, {H.shape[1]-2}"
+    assert Bx.shape[0] == H.shape[0] - 2, f"{Bx.shape[0]}, {H.shape[0]-2}"
+    assert Bx.shape[1] == H.shape[1] - 1, f"{Bx.shape[1]}, {H.shape[1]-1}"
+    assert By.shape[0] == H.shape[0] - 1, f"{By.shape[0]}, {H.shape[0]-1}"
+    assert By.shape[1] == H.shape[1] - 2, f"{By.shape[1]}, {H.shape[1]-2}"
+
+    # note, cython doesn't use * to de-reference pointers, so we use `[0]` instead
+    if ornt == 0 or ornt == 1:  # west or east
+        n[0] = Q.shape[1] - 2 * ngh  # ny
+    elif ornt == 2 or ornt == 3:  # west or east
+        n[0] = Q.shape[2] - 2 * ngh  # nx
+    else:
+        raise ValueError(f"`ornt` should be >= 0 and <= 3: {ornt}")
+
+    _bcm1[0] = <cython.floating*>PyMem_Malloc(n[0]*sizeof(cython.floating))
+    _bcm2[0] = <cython.floating*>PyMem_Malloc(n[0]*sizeof(cython.floating))
+    if not _bcm1[0]: raise MemoryError()
+    if not _bcm2[0]: raise MemoryError()
+
+
+cdef void _linear_extrap_bc_init(
+    LinearExtrapBC bc,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] Bc,
+    const cython.floating[:, ::1] Bx,
+    const cython.floating[:, ::1] By,
+    const Py_ssize_t ngh,
+    const Py_ssize_t comp,
+    const unsigned ornt,
 ) nogil except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t i, j, jh, jb
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
 
-    cdef Py_ssize_t hg = 0
-    cdef Py_ssize_t hi1 = hg + 1
-    cdef Py_ssize_t hi2 = hi1 + 1
-
-    cdef Py_ssize_t qg1 = ngh - 1
-    cdef Py_ssize_t qi1 = qg1 + 1
-    cdef Py_ssize_t qi2 = qi1 + 1
-
-    jh = 1; jb = 0
-    for j in range(ngh, qyed):
-        h[jh, hg] = h[jh, hi1] * 2.0 - h[jh, hi2]
-
-        if h[jh, hg] <= 0.0:
-            h[jh, hg] = 0.0
-            delta = (bx[jb, 0] - b[jb, 0]) * 2.0  # delta represents db
-            q[0, j, qg1] = b[jb, 0] + delta  # interpolate topo elevation
+    # the first two combinations will be pruned by cython when translating to C/C++
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
+        raise RuntimeError("Mismatched types")
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
+        raise RuntimeError("Mismatched types")
+    else:
+        if ornt == 0:  # west
+            _lineart_extrap_bc_set_west(bc, Q, H, Bc, Bx, ngh, comp)
+        elif ornt == 1:  # east
+            _linear_extrap_bc_set_east(bc, Q, H, Bc, Bx, ngh, comp)
+        elif ornt == 2:  # south
+            _linear_extrap_bc_set_south(bc, Q, H, Bc, By, ngh, comp)
+        elif ornt == 3:  # north
+            _linear_extrap_bc_set_north(bc, Q, H, Bc, By, ngh, comp)
         else:
-            delta = q[0, j, qi1] - q[0, j, qi2]
-            q[0, j, qg1] = q[0, j, qi1] + delta  # interpolate water elevation
+            raise ValueError(f"orientation id {ornt} not accepted.")
 
-        for i in range(qg1-1, -1, -1):
-            q[0, j, i] = q[0, j, i+1] + delta
+        _init_ghost_topo(bc, 0.0)
 
-        jh += 1; jb += 1
-
-
-cpdef void _linear_extrap_west_hu(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t i, j, jh
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
-
-    cdef Py_ssize_t hg = 0
-    cdef Py_ssize_t qg1 = ngh - 1
-    cdef Py_ssize_t qi1 = qg1 + 1
-    cdef Py_ssize_t qi2 = qi1 + 1
-
-    jh = 1
-    for j in range(ngh, qyed):
-        if h[jh, hg] > 0.0:
-            delta = q[1, j, qi1] - q[1, j, qi2]
-            for i in range(qg1, -1, -1):
-                q[1, j, i] = q[1, j, i+1] + delta
+        if comp == 0:
+            bc.kernel = _linear_extrap_w_h_kernel[LinearExtrapBC, cython.floating]
+        elif comp <= 2:
+            bc.kernel = _linear_extrap_kernel[LinearExtrapBC, cython.floating]
         else:
-            for i in range(qg1, -1, -1):
-                q[1, j, i] = 0.0
-
-        jh += 1
+            raise ValueError(f"component id {comp} not accepted.")
 
 
-cpdef void _linear_extrap_west_hv(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t i, j, jh
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
-
-    cdef Py_ssize_t hg = 0
-    cdef Py_ssize_t qg1 = ngh - 1
-    cdef Py_ssize_t qi1 = qg1 + 1
-    cdef Py_ssize_t qi2 = qi1 + 1
-
-    jh = 1
-    for j in range(ngh, qyed):
-        if h[jh, hg] > 0.0:
-            delta = q[2, j, qi1] - q[2, j, qi2]
-            for i in range(qg1, -1, -1):
-                q[2, j, i] = q[2, j, i+1] + delta
-        else:
-            for i in range(qg1, -1, -1):
-                q[2, j, i] = 0.0
-
-        jh += 1
-
-
-cpdef void _linear_extrap_east_w(
-    qtype q, htype h, const Py_ssize_t ngh, btype b, btype bx, *args
+cdef void _linear_extrap_w_h_kernel(
+    LinearExtrapBC bc,
+    const cython.floating dummy  # dummy is used just for specializing templates/fused types
 ) nogil except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t bxed = bx.shape[1] - 1
-    cdef Py_ssize_t bed = b.shape[1] - 1
-    cdef Py_ssize_t i, j, jh, jb
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
+    cdef Py_ssize_t i
+    cdef cython.floating delta
 
-    cdef Py_ssize_t hg = h.shape[1] - 1
-    cdef Py_ssize_t hi1 = hg - 1
-    cdef Py_ssize_t hi2 = hi1 - 1
-
-    cdef Py_ssize_t qg1 = q.shape[2] - ngh
-    cdef Py_ssize_t qi1 = qg1 - 1
-    cdef Py_ssize_t qi2 = qi1 - 1
-
-    jh = 1; jb = 0
-    for j in range(ngh, qyed):
-        h[jh, hg] = h[jh, hi1] * 2.0 - h[jh, hi2]
-
-        if h[jh, hg] <= 0.0:
-            h[jh, hg] = 0.0
-            delta = (bx[jb, bxed] - b[jb, bed]) * 2.0  # delta represents db
-            q[0, j, qg1] = b[jb, bed] + delta  # interpolate topo elevation
+    for i in range(bc.n):
+        bc.hm1[i] = bc.hp1[i] * 2.0 - bc.hp2[i]
+        if bc.hm1[i] <= 0.0:
+            bc.hm1[i] = 0.0
+            bc.qm1[i] = bc.bcm1[i]
+            bc.qm2[i] = bc.bcm2[i]
         else:
-            delta = q[0, j, qi1] - q[0, j, qi2]
-            q[0, j, qg1] = q[0, j, qi1] + delta  # interpolate water elevation
-
-        for i in range(qg1+1, q.shape[2]):  # cythong works well with `range` and an implicit step
-            q[0, j, i] = q[0, j, i-1] + delta
-
-        jh += 1; jb += 1
+            delta = bc.qp1[i] - bc.qp2[i]
+            bc.qm1[i] = bc.qp1[i] + delta
+            bc.qm2[i] = bc.qm1[i] + delta
 
 
-cpdef void _linear_extrap_east_hu(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t i, j, jh
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
-
-    cdef Py_ssize_t hg = h.shape[1] - 1
-    cdef Py_ssize_t qg1 = q.shape[2] - ngh
-    cdef Py_ssize_t qi1 = qg1 - 1
-    cdef Py_ssize_t qi2 = qi1 - 1
-
-    jh = 1
-    for j in range(ngh, qyed):
-        if h[jh, hg] > 0.0:
-            delta = q[1, j, qi1] - q[1, j, qi2]
-            for i in range(qg1, q.shape[2]):
-                q[1, j, i] = q[1, j, i-1] + delta
-        else:
-            for i in range(qg1, q.shape[2]):
-                q[1, j, i] = 0.0
-
-        jh += 1
-
-
-cpdef void _linear_extrap_east_hv(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t i, j, jh
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
-
-    cdef Py_ssize_t hg = h.shape[1] - 1
-    cdef Py_ssize_t qg1 = q.shape[2] - ngh
-    cdef Py_ssize_t qi1 = qg1 - 1
-    cdef Py_ssize_t qi2 = qi1 - 1
-
-    jh = 1
-    for j in range(ngh, qyed):
-        if h[jh, hg] > 0.0:
-            delta = q[2, j, qi1] - q[2, j, qi2]
-            for i in range(qg1, q.shape[2]):
-                q[2, j, i] = q[2, j, i-1] + delta
-        else:
-            for i in range(qg1, q.shape[2]):
-                q[2, j, i] = 0.0
-
-        jh += 1
-
-
-cpdef void _linear_extrap_south_w(
-    qtype q, htype h, const Py_ssize_t ngh, btype b, btype by, *args
+cdef void _linear_extrap_kernel(
+    LinearExtrapBC bc,
+    const cython.floating dummy  # dummy is used just for specializing templates/fused types
 ) nogil except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t i, j, ih, ib
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
+    cdef Py_ssize_t i
+    cdef cython.floating delta
 
-    cdef Py_ssize_t hg = 0
-    cdef Py_ssize_t hi1 = hg + 1
-    cdef Py_ssize_t hi2 = hi1 + 1
-
-    cdef Py_ssize_t qg1 = ngh - 1
-    cdef Py_ssize_t qi1 = qg1 + 1
-    cdef Py_ssize_t qi2 = qi1 + 1
-
-    ih = 1; ib = 0
-    for i in range(ngh, qxed):  # not an efficient loop; cache miss
-        h[hg, ih] = h[hi1, ih] * 2.0 - h[hi2, ih]
-
-        if h[hg, ih] <= 0.0:
-            h[hg, ih] = 0.0
-            delta = (by[0, ib] - b[0, ib]) * 2.0
-            q[0, qg1, i] = b[0, ib] + delta
+    for i in range(bc.n):
+        if bc.hm1[i] <= 0.0:
+            bc.qm1[i] = 0.0
+            bc.qm2[i] = 0.0
         else:
-            delta = q[0, qi1, i] - q[0, qi2, i]
-            q[0, qg1, i] = q[0, qi1, i] + delta
-
-        for j in range(qg1-1, -1, -1):
-            q[0, j, i] = q[0, j+1, i] + delta
-        
-        ih += 1; ib += 1
+            delta = bc.qp1[i] - bc.qp2[i]
+            bc.qm1[i] = bc.qp1[i] + delta
+            bc.qm2[i] = bc.qm1[i] + delta
 
 
-cpdef void _linear_extrap_south_hu(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t i, j, ih
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
-
-    cdef Py_ssize_t hg = 0
-    cdef Py_ssize_t qg1 = ngh - 1
-    cdef Py_ssize_t qi1 = qg1 + 1
-    cdef Py_ssize_t qi2 = qi1 + 1
-
-    ih = 1
-    for i in range(ngh, qxed):  # not an efficient loop; cache miss
-        if h[hg, ih] > 0.0:
-            delta = q[1, qi1, i] - q[1, qi2, i]
-            for j in range(qg1, -1, -1):
-                q[1, j, i] = q[1, j+1, i] + delta
-        else:
-            for j in range(qg1, -1, -1):
-                q[1, j, i] = 0.0
-
-        ih += 1
-
-
-cpdef void _linear_extrap_south_hv(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t i, j, ih
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
-
-    cdef Py_ssize_t hg = 0
-    cdef Py_ssize_t qg1 = ngh - 1
-    cdef Py_ssize_t qi1 = qg1 + 1
-    cdef Py_ssize_t qi2 = qi1 + 1
-
-    ih = 1
-    for i in range(ngh, qxed):  # not an efficient loop; cache miss
-        if h[hg, ih] > 0.0:
-            delta = q[2, qi1, i] - q[2, qi2, i]
-            for j in range(qg1, -1, -1):
-                q[2, j, i] = q[2, j+1, i] + delta
-        else:
-            for j in range(qg1, -1, -1):
-                q[2, j, i] = 0.0
-
-        ih += 1
-
-
-cpdef void _linear_extrap_north_w(
-    qtype q, htype h, const Py_ssize_t ngh, btype b, btype by, *args
+cdef void _init_ghost_topo(
+    LinearExtrapBC bc,
+    const cython.floating dummy  # dummy is used just for specializing templates/fused types
 ) nogil except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t byed = by.shape[0] - 1
-    cdef Py_ssize_t bed = b.shape[0] - 1
-    cdef Py_ssize_t i, j, ih, ib
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
+    cdef Py_ssize_t i
+    cdef cython.floating db
 
-    cdef Py_ssize_t hg = h.shape[0] - 1
-    cdef Py_ssize_t hi1 = hg - 1
-    cdef Py_ssize_t hi2 = hi1 - 1
-
-    cdef Py_ssize_t qg1 = q.shape[1] - ngh
-    cdef Py_ssize_t qi1 = qg1 - 1
-    cdef Py_ssize_t qi2 = qi1 - 1
-
-    ih = 1; ib = 0
-    for i in range(ngh, qxed):
-        h[hg, ih] = h[hi1, ih] * 2.0 - h[hi2, ih]
-
-        if h[hg, ih] <= 0.0:
-            h[hg, ih] = 0.0
-            delta = (by[byed, ib] - b[bed, ib]) * 2.0
-            q[0, qg1, i] = b[bed, ib] + delta
-        else:
-            delta = q[0, qi1, i] - q[0, qi2, i]
-            q[0, qg1, i] = q[0, qi1, i] + delta
-
-        for j in range(qg1+1, q.shape[1]):
-            q[0, j, i] = q[0, j-1, i] + delta
-        
-        ih += 1; ib += 1
+    for i in range(bc.n):
+        db = (bc.bb[i] - bc.bcp1[i]) * 2.0
+        bc.bcm1[i] = bc.bcp1[i] + db
+        bc.bcm2[i] = bc.bcm1[i] + db
 
 
-cpdef void _linear_extrap_north_hu(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t i, j, ih
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
+cdef void _lineart_extrap_bc_set_west(
+    LinearExtrapBC bc,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] Bc,
+    const cython.floating[:, ::1] Bx,
+    const Py_ssize_t ngh,
+    const Py_ssize_t comp
+) nogil except *:
 
-    cdef Py_ssize_t hg = h.shape[0] - 1
-    cdef Py_ssize_t qg1 = q.shape[1] - ngh
-    cdef Py_ssize_t qi1 = qg1 - 1
-    cdef Py_ssize_t qi2 = qi1 - 1
+    # the first two combinations will be pruned by cython when translating to C/C++
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
+        raise RuntimeError("Mismatched types")
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
+        raise RuntimeError("Mismatched types")
+    else:
+        bc.qp1 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
+        bc.qp2 = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
+        bc.qm1 = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
+        bc.qm2 = Q[comp, ngh:Q.shape[1]-ngh, ngh-2]
+        bc.hp1 = H[1:H.shape[0]-1, 1]
+        bc.hp2 = H[1:H.shape[0]-1, 2]
+        bc.hm1 = H[1:H.shape[0]-1, 0]
+        bc.bb = Bx[:, 0]
+        bc.bcp1 = Bc[:, 0]
 
-    ih = 1
-    for i in range(ngh, qxed):
-        if h[hg, ih] > 0.0:
-            delta = q[1, qi1, i] - q[1, qi2, i]
-            for j in range(qg1, q.shape[1]):
-                q[1, j, i] = q[1, j-1, i] + delta
-        else:
-            for j in range(qg1, q.shape[1]):
-                q[1, j, i] = 0.0
-        
-        ih += 1
+
+cdef void _linear_extrap_bc_set_east(
+    LinearExtrapBC bc,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] Bc,
+    const cython.floating[:, ::1] Bx,
+    const Py_ssize_t ngh,
+    const Py_ssize_t comp
+) nogil except *:
+
+    # the first two combinations will be pruned by cython when translating to C/C++
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
+        raise RuntimeError("Mismatched types")
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
+        raise RuntimeError("Mismatched types")
+    else:
+        bc.qp1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
+        bc.qp2 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
+        bc.qm1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
+        bc.qm2 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh+1]
+        bc.hp1 = H[1:H.shape[0]-1, H.shape[1]-2]
+        bc.hp2 = H[1:H.shape[0]-1, H.shape[1]-3]
+        bc.hm1 = H[1:H.shape[0]-1, H.shape[1]-1]
+        bc.bb = Bx[:, Bx.shape[1]-1]
+        bc.bcp1 = Bc[:, Bc.shape[1]-1]
 
 
-cpdef void _linear_extrap_north_hv(qtype q, htype h, const Py_ssize_t ngh, *args) nogil except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t i, j, ih
-    cdef cython.floating delta  # actual FP type aligned with underlying type of qtype/htype
+cdef void _linear_extrap_bc_set_south(
+    LinearExtrapBC bc,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] Bc,
+    const cython.floating[:, ::1] By,
+    const Py_ssize_t ngh,
+    const Py_ssize_t comp
+) nogil except *:
 
-    cdef Py_ssize_t hg = h.shape[0] - 1
-    cdef Py_ssize_t qg1 = q.shape[1] - ngh
-    cdef Py_ssize_t qi1 = qg1 - 1
-    cdef Py_ssize_t qi2 = qi1 - 1
+    # the first two combinations will be pruned by cython when translating to C/C++
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
+        raise RuntimeError("Mismatched types")
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
+        raise RuntimeError("Mismatched types")
+    else:
+        bc.qp1 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
+        bc.qp2 = Q[comp, ngh+1, ngh:Q.shape[2]-ngh]
+        bc.qm1 = Q[comp, ngh-1, ngh:Q.shape[2]-ngh]
+        bc.qm2 = Q[comp, ngh-2, ngh:Q.shape[2]-ngh]
+        bc.hp1 = H[1, 1:H.shape[1]-1]
+        bc.hp2 = H[2, 1:H.shape[1]-1]
+        bc.hm1 = H[0, 1:H.shape[1]-1]
+        bc.bb = By[0, :]
+        bc.bcp1 = Bc[0, :]
 
-    ih = 1
-    for i in range(ngh, qxed):
-        if h[hg, ih] > 0.0:
-            delta = q[2, qi1, i] - q[2, qi2, i]
-            for j in range(qg1, q.shape[1]):
-                q[2, j, i] = q[2, j-1, i] + delta
-        else:
-            for j in range(qg1, q.shape[1]):
-                q[2, j, i] = 0.0
-        
-        ih += 1
+
+cdef void _linear_extrap_bc_set_north(
+    LinearExtrapBC bc,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] Bc,
+    const cython.floating[:, ::1] By,
+    const Py_ssize_t ngh,
+    const Py_ssize_t comp
+) nogil except *:
+
+    # the first two combinations will be pruned by cython when translating to C/C++
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
+        raise RuntimeError("Mismatched types")
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
+        raise RuntimeError("Mismatched types")
+    else:
+        bc.qp1 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
+        bc.qp2 = Q[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
+        bc.qm1 = Q[comp, Q.shape[1]-ngh, ngh:Q.shape[2]-ngh]
+        bc.qm2 = Q[comp, Q.shape[1]-ngh+1, ngh:Q.shape[2]-ngh]
+        bc.hp1 = H[H.shape[0]-2, 1:H.shape[1]-1]
+        bc.hp2 = H[H.shape[0]-3, 1:H.shape[1]-1]
+        bc.hm1 = H[H.shape[0]-1, 1:H.shape[1]-1]
+        bc.bb = By[By.shape[0]-1, :]
+        bc.bcp1 = Bc[Bc.shape[0]-1, :]
+
+
+def linear_extrap_factory(ornt, comp, states, topo, *args, **kwargs):
+    """Factory to create a linear extrapolation boundary condition callable object.
+    """
+
+    # aliases
+    cdef object dtype = states.domain.dtype
+    cdef numpy.ndarray Q = states.Q
+    cdef numpy.ndarray H = states.H
+    cdef numpy.ndarray Bc = topo.centers
+    cdef numpy.ndarray Bx = topo.xfcenters
+    cdef numpy.ndarray By = topo.yfcenters
+    cdef Py_ssize_t ngh = states.ngh
+
+    if isinstance(ornt, str):
+        if ornt in ["w", "west"]:
+            ornt = 0
+        elif ornt in ["e", "east"]:
+            ornt = 1
+        elif ornt in ["s", "south"]:
+            ornt = 2
+        elif ornt in ["n", "north"]:
+            ornt = 3
+
+    if dtype == numpy.double:
+        bc = LinearExtrapDouble(Q, H, Bc, Bx, By, ngh, comp, ornt)
+    elif dtype == numpy.single:
+        bc = LinearExtrapFloat(Q, H, Bc, Bx, By, ngh, comp, ornt)
+    else:
+        raise ValueError(f"Unrecognized data type: {dtype}")
+
+    return bc

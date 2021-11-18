@@ -22,11 +22,11 @@ if "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     raise NotImplementedError("PyTorch is deprecated.")
 
 if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
-    from .cupy import _const_extrap_factory  # pylint: disable=no-name-in-module
-    from .cupy import _linear_extrap_factory  # pylint: disable=no-name-in-module
+    from ._cupy_const_extrap import const_extrap_factory  # pylint: disable=no-name-in-module
+    from ._cupy_linear_extrap import linear_extrap_factory  # pylint: disable=no-name-in-module
 else:
-    from .cython import _const_extrap_factory  # pylint: disable=no-name-in-module
-    from .cython import _linear_extrap_factory  # pylint: disable=no-name-in-module
+    from ._cython_const_extrap import const_extrap_factory  # pylint: disable=no-name-in-module
+    from ._cython_linear_extrap import linear_extrap_factory  # pylint: disable=no-name-in-module
 
 
 def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
@@ -75,11 +75,11 @@ def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
 
             # constant extrapolation BC (outflow)
             if bctp == "outflow":
-                funcs[(ornt, i)] = _const_extrap_factory[ornt, i]
+                funcs[(ornt, i)] = const_extrap_factory(ornt, i, states)
 
             # linear extrapolation BC
             elif bctp == "extrap":
-                funcs[(ornt, i)] = _linear_extrap_factory[ornt, i]
+                funcs[(ornt, i)] = linear_extrap_factory(ornt, i, states, topo)
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
@@ -103,7 +103,7 @@ def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
     # this is the function that will be retuned by this function factory
     def updater(soln: _States):
         for func in funcs.values():  # if funcs is an empty dictionary, this will skip it
-            func(soln.Q, soln.H, soln.ngh)
+            func()
         return soln
 
     # store the functions as an attribute for debug

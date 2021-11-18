@@ -19,34 +19,32 @@ from Cython.Build import cythonize, build_ext
 
 exts = [
     Extension(
-        name="torchswe.kernels.cython",
-        sources=[
-            "torchswe/kernels/cython_kernels.pyx",
-        ],
+        name="torchswe.kernels.cython", sources=["torchswe/kernels/cython_kernels.pyx"],
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
-        name="torchswe.kernels.cupy",
-        sources=[
-            "torchswe/kernels/cupy_kernels.pyx",
-        ],
+        name="torchswe.kernels.cupy", sources=["torchswe/kernels/cupy_kernels.pyx"],
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
-        name="torchswe.bcs.cython",
-        sources=[
-            "torchswe/bcs/cython_bcs.pyx",
-        ],
+        name="torchswe.bcs._cython_const_extrap", sources=["torchswe/bcs/cython_const_extrap.pyx"],
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
-        name="torchswe.bcs.cupy",
-        sources=[
-            "torchswe/bcs/cupy_bcs.pyx",
-        ],
+        name="torchswe.bcs._cython_linear_extrap", sources=["torchswe/bcs/cython_linear_extrap.pyx"],
+        include_dirs=[numpy.get_include()], language="c",
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
+    ),
+    Extension(
+        name="torchswe.bcs._cupy_const_extrap", sources=["torchswe/bcs/cupy_const_extrap.pyx"],
+        include_dirs=[numpy.get_include()], language="c",
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
+    ),
+    Extension(
+        name="torchswe.bcs._cupy_linear_extrap", sources=["torchswe/bcs/cupy_linear_extrap.pyx"],
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
@@ -56,7 +54,6 @@ setup(
     cmdclass={"build_ext": build_ext},
     ext_modules=cythonize(
         exts,
-        force=True,
         compiler_directives={"language_level": "3", "boundscheck": False, "wraparound": False},
     )
 )

@@ -1,19 +1,64 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
+import cupy
 
 
-cdef _const_copy_kernel = cupy.ElementwiseKernel(
+cdef class ConstExtrapBC:
+    cdef object qp1
+    cdef object qm1
+    cdef object qm2
+    cdef object hp1
+    cdef object hm1
+
+    def __init__(
+        self, object Q, object H,
+        const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
+    ):
+
+        # runtime check for the shapes
+        assert ngh == 2, "Currently only support ngh = 2"
+        assert 0 <= comp <= 2, "comp should be 0 <= comp <= 2"
+        assert 0 <= ornt <= 3, "ornt should be 0 <= ornt <= 3"
+        assert Q.shape[0] == 3, f"{Q.shape}"
+        assert H.shape[0] == Q.shape[1] - 2, f"{H.shape[0]}, {Q.shape[1]-2}"
+        assert H.shape[1] == Q.shape[2] - 2, f"{H.shape[1]}, {Q.shape[2]-2}"
+
+        if ornt == 0:  # west
+            _const_extrap_bc_set_west(self, Q, H, ngh, comp)
+        elif ornt == 1:  # east
+            _const_extrap_bc_set_east(self, Q, H, ngh, comp)
+        elif ornt == 2:  # south
+            _const_extrap_bc_set_south(self, Q, H, ngh, comp)
+        elif ornt == 3:  # north
+            _const_extrap_bc_set_north(self, Q, H, ngh, comp)
+        else:
+            raise ValueError(f"orientation id {ornt} not accepted.")
+
+
+cdef class ConstExtrapWH(ConstExtrapBC):
+
+    def __call__(self):
+        _const_extrap_w_h_kernel(self.qp1, self.hp1, self.qm1, self.qm2, self.hm1)
+
+
+cdef class ConstExtrapOther(ConstExtrapBC):
+
+    def __call__(self):
+        _const_extrap_kernel(self.qp1, self.qm1, self.qm2)
+
+
+cdef _const_extrap_kernel = cupy.ElementwiseKernel(
     "T qr",
     "T ql1, T ql2",
     """
         ql1 = qr;
         ql2 = qr;
     """,
-    "_const_copy_kernel"
+    "_const_extrap_kernel"
 )
 
 
-cdef _const_copy_w_h_kernel = cupy.ElementwiseKernel(
+cdef _const_extrap_w_h_kernel = cupy.ElementwiseKernel(
     "T qr, T hr",
     "T ql1, T ql2, T hl",
     """
@@ -25,109 +70,82 @@ cdef _const_copy_w_h_kernel = cupy.ElementwiseKernel(
 )
 
 
-cpdef void _const_extrap_west_w(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t hyed = h.shape[0] - 1
-    assert ngh == 2, "Currently only support ngh = 2"
+cdef void _const_extrap_bc_set_west(
+    ConstExtrapBC bc, object Q, object H,
+    const Py_ssize_t ngh, const Py_ssize_t comp
+) except *:
 
-    _const_copy_w_h_kernel(
-        q[0, ngh:qyed, ngh], h[1:hyed, 1],
-        q[0, ngh:qyed, 0], q[0, ngh:qyed, 1], h[1:hyed, 0]
-    )
-
-
-cpdef void _const_extrap_west_hu(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
-
-    _const_copy_kernel(q[1, ngh:qyed, ngh], q[1, ngh:qyed, 0],  q[1, ngh:qyed, 1])
+    # these should be views into original data buffer
+    bc.qp1 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
+    bc.qm1 = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
+    bc.qm2 = Q[comp, ngh:Q.shape[1]-ngh, ngh-2]
+    bc.hp1 = H[1:H.shape[0]-1, 1]
+    bc.hm1 = H[1:H.shape[0]-1, 0]
 
 
-cpdef void _const_extrap_west_hv(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
+cdef void _const_extrap_bc_set_east(
+    ConstExtrapBC bc, object Q, object H,
+    const Py_ssize_t ngh, const Py_ssize_t comp
+) except *:
 
-    _const_copy_kernel(q[2, ngh:qyed, ngh], q[2, ngh:qyed, 0],  q[2, ngh:qyed, 1])
-
-
-cpdef void _const_extrap_east_w(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t hyed = h.shape[0] - 1
-    cdef Py_ssize_t hxed = h.shape[1] - 1
-    assert ngh == 2, "Currently only support ngh = 2"
-
-    _const_copy_w_h_kernel(
-        q[0, ngh:qyed, qxed-1], h[1:hyed, hxed-1],
-        q[0, ngh:qyed, qxed], q[0, ngh:qyed, qxed+1], h[1:hyed, hxed]
-    )
+    # these should be views into original data buffer
+    bc.qp1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
+    bc.qm1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
+    bc.qm2 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh+1]
+    bc.hp1 = H[1:H.shape[0]-1, H.shape[1]-2]
+    bc.hm1 = H[1:H.shape[0]-1, H.shape[1]-1]
 
 
-cpdef void _const_extrap_east_hu(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
+cdef void _const_extrap_bc_set_south(
+    ConstExtrapBC bc, object Q, object H,
+    const Py_ssize_t ngh, const Py_ssize_t comp
+) except *:
 
-    _const_copy_kernel(q[1, ngh:qyed, qxed-1], q[1, ngh:qyed, qxed],  q[1, ngh:qyed, qxed+1])
-
-
-cpdef void _const_extrap_east_hv(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
-
-    _const_copy_kernel(q[2, ngh:qyed, qxed-1], q[2, ngh:qyed, qxed],  q[2, ngh:qyed, qxed+1])
+    # these should be views into original data buffer
+    bc.qp1 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
+    bc.qm1 = Q[comp, ngh-1, ngh:Q.shape[2]-ngh]
+    bc.qm2 = Q[comp, ngh-2, ngh:Q.shape[2]-ngh]
+    bc.hp1 = H[1, 1:H.shape[1]-1]
+    bc.hm1 = H[0, 1:H.shape[1]-1]
 
 
-cpdef void _const_extrap_south_w(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t hxed = h.shape[1] - 1
-    assert ngh == 2, "Currently only support ngh = 2"
+cdef void _const_extrap_bc_set_north(
+    ConstExtrapBC bc, object Q, object H,
+    const Py_ssize_t ngh, const Py_ssize_t comp
+) except *:
 
-    _const_copy_w_h_kernel(
-        q[0, ngh, ngh:qxed], h[1, 1:hxed],
-        q[0, 0, ngh:qxed], q[0, 1, ngh:qxed], h[0, 1:hxed]
-    )
-
-
-cpdef void _const_extrap_south_hu(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
-
-    _const_copy_kernel(q[1, ngh, ngh:qxed], q[1, 0, ngh:qxed], q[1, 1, ngh:qxed])
+    # these should be views into original data buffer
+    bc.qp1 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
+    bc.qm1 = Q[comp, Q.shape[1]-ngh, ngh:Q.shape[2]-ngh]
+    bc.qm2 = Q[comp, Q.shape[1]-ngh+1, ngh:Q.shape[2]-ngh]
+    bc.hp1 = H[H.shape[0]-2, 1:H.shape[1]-1]
+    bc.hm1 = H[H.shape[0]-1, 1:H.shape[1]-1]
 
 
-cpdef void _const_extrap_south_hv(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
+def const_extrap_factory(ornt, comp, states, *args, **kwargs):
+    """Factory to create a constant extrapolation boundary condition callable object.
+    """
 
-    _const_copy_kernel(q[2, ngh, ngh:qxed], q[2, 0, ngh:qxed], q[2, 1, ngh:qxed])
+    # aliases
+    cdef object Q = states.Q
+    cdef object H = states.H
+    cdef Py_ssize_t ngh = states.ngh
 
+    if isinstance(ornt, str):
+        if ornt in ["w", "west"]:
+            ornt = 0
+        elif ornt in ["e", "east"]:
+            ornt = 1
+        elif ornt in ["s", "south"]:
+            ornt = 2
+        elif ornt in ["n", "north"]:
+            ornt = 3
 
-cpdef void _const_extrap_north_w(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    cdef Py_ssize_t hyed = h.shape[0] - 1
-    cdef Py_ssize_t hxed = h.shape[1] - 1
-    assert ngh == 2, "Currently only support ngh = 2"
+    if comp == 0:
+        bc = ConstExtrapWH(Q, H, ngh, comp, ornt)
+    elif comp == 1 or comp == 2:
+        bc = ConstExtrapOther(Q, H, ngh, comp, ornt)
+    else:
+        raise ValueError(f"Unrecognized component: {comp}")
 
-    _const_copy_w_h_kernel(
-        q[0, qyed-1, ngh:qxed], h[hyed-1, 1:hxed],
-        q[0, qyed, ngh:qxed], q[0, qyed+1, ngh:qxed], h[hyed, 1:hxed]
-    )
-
-
-cpdef void _const_extrap_north_hu(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
-
-    _const_copy_kernel(q[1, qyed-1, ngh:qxed], q[1, qyed, ngh:qxed], q[1, qyed+1, ngh:qxed])
-
-
-cpdef void _const_extrap_north_hv(q, h, const Py_ssize_t ngh) except *:
-    cdef Py_ssize_t qyed = q.shape[1] - ngh
-    cdef Py_ssize_t qxed = q.shape[2] - ngh
-    assert ngh == 2, "Currently only support ngh = 2"
-
-    _const_copy_kernel(q[2, qyed-1, ngh:qxed], q[2, qyed, ngh:qxed], q[2, qyed+1, ngh:qxed])
+    return bc
