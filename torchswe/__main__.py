@@ -173,7 +173,8 @@ def config_runtime(comm, config, logger):
     runtime.marching = MARCHING_OPTIONS[config.temporal.scheme]  # time marching scheme
     logger.info("Time marching scheme: %s", config.temporal.scheme)
 
-    runtime.gh_updater = get_ghost_cell_updaters(states, runtime.topo, config.bc)
+    runtime.gh_updater = get_ghost_cell_updaters(
+        states, runtime.topo, config.bc, runtime.tol, config.params.drytol)
     logger.info("Done setting ghost cell updaters")
 
     runtime.sources = [topography_gradient]

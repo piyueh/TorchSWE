@@ -31,17 +31,23 @@ else:
     from ._cython_const_val import const_val_factory  # pylint: disable=no-name-in-module
 
 
-def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
+def get_ghost_cell_updaters(
+    states: _States, topo: _Topography, bcs: _BCConfig, tol: float, drytol: float
+):
     """A function factory returning a function that updates all ghost cells.
 
     Arguments
     ---------
-    bcs : torchswe.utils.config.BCConfig
-        The configuration instance of boundary conditions.
     states : torchswe.mpi.data.States
         The States instance that will be updated in the simulation.
     topo : torchswe.tuils.data.Topography
         Topography instance. Some boundary conditions require topography elevations.
+    bcs : torchswe.utils.config.BCConfig
+        The configuration instance of boundary conditions.
+    tol : float
+        The tolerance for depths to be considered completely dry cells.
+    drytol : float
+        The tolerance for depths to be considered wet but static cells.
 
     Returns
     -------
@@ -77,15 +83,15 @@ def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
 
             # constant extrapolation BC (outflow)
             if bctp == "outflow":
-                funcs[(ornt, i)] = const_extrap_factory(ornt, i, states)
+                funcs[(ornt, i)] = const_extrap_factory(ornt, i, states, topo, tol, drytol)
 
             # linear extrapolation BC
             elif bctp == "extrap":
-                funcs[(ornt, i)] = linear_extrap_factory(ornt, i, states, topo)
+                funcs[(ornt, i)] = linear_extrap_factory(ornt, i, states, topo, tol, drytol)
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
-                funcs[(ornt, i)] = const_val_factory(ornt, i, states, topo, bcv)
+                funcs[(ornt, i)] = const_val_factory(ornt, i, states, topo, tol, drytol, bcv)
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
