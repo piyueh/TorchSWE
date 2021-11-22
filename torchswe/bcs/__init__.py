@@ -25,6 +25,7 @@ if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from ._cupy_const_extrap import const_extrap_factory  # pylint: disable=no-name-in-module
     from ._cupy_linear_extrap import linear_extrap_factory  # pylint: disable=no-name-in-module
     from ._cupy_const_val import const_val_factory  # pylint: disable=no-name-in-module
+    from ._cupy_inflow import inflow_factory  # pylint: disable=no-name-in-module
 else:
     from ._cython_const_extrap import const_extrap_factory  # pylint: disable=no-name-in-module
     from ._cython_linear_extrap import linear_extrap_factory  # pylint: disable=no-name-in-module
@@ -60,7 +61,7 @@ def get_ghost_cell_updaters(
     """
 
     bcs.check()
-    funcs = {}
+    funcs = []  # can be either a list or ordered dict, cannot be an unordered dict
     orientations = ["west", "east", "south", "north"]
 
     for ornt, bc in zip(orientations, _itemgetter(*orientations)(bcs)):
@@ -83,21 +84,19 @@ def get_ghost_cell_updaters(
 
             # constant extrapolation BC (outflow)
             if bctp == "outflow":
-                funcs[(ornt, i)] = const_extrap_factory(ornt, i, states, topo, tol, drytol)
+                funcs.append(const_extrap_factory(ornt, i, states, topo, tol, drytol))
 
             # linear extrapolation BC
             elif bctp == "extrap":
-                funcs[(ornt, i)] = linear_extrap_factory(ornt, i, states, topo, tol, drytol)
+                funcs.append(linear_extrap_factory(ornt, i, states, topo, tol, drytol))
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
-                funcs[(ornt, i)] = const_val_factory(ornt, i, states, topo, tol, drytol, bcv)
+                funcs.append(const_val_factory(ornt, i, states, topo, tol, drytol, bcv))
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
-                # topo.check()
-                # funcs[ornt][i] = inflow_bc_factory(i, states.ngh, ornt, states.Q.dtype, bcv, topo)
-                raise NotImplementedError
+                funcs.append(inflow_factory(ornt, i, states, topo, tol, drytol, bcv))
 
             # this shouldn't happen because pydantic should have catched the error
             else:
@@ -108,7 +107,7 @@ def get_ghost_cell_updaters(
 
     # this is the function that will be retuned by this function factory
     def updater(soln: _States):
-        for func in funcs.values():  # if funcs is an empty dictionary, this will skip it
+        for func in funcs:  # if funcs is an empty list, this will skip it
             func()
         return soln
 

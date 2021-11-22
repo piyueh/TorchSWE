@@ -60,6 +60,11 @@ exts = [
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
+    Extension(
+        name="torchswe.bcs._cupy_inflow", sources=["torchswe/bcs/cupy_inflow.pyx"],
+        include_dirs=[numpy.get_include()], language="c",
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
+    ),
 ]
 
 setup(

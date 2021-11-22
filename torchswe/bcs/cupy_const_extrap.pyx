@@ -97,6 +97,11 @@ cdef _const_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
             hother = 0.0;
         }
 
+        // reconstruct to eliminate rounding error-edffect in further calculations
+        wbci = hbci + bbc;
+        wother = hother + bother;
+
+        // outer side of the bc face
         wbco = wbci;
         hbco = hbci;
     """,
@@ -110,10 +115,16 @@ cdef _const_extrap_bc_kernel = cupy.ElementwiseKernel(
     """
         qbci = qc0;
         ubci = qbci / hbci;
-        qbco = qbci;
-        ubco = ubci;
         qother = qc0;
         uother = qother / hother;
+
+        // reconstruct to eliminate rounding error-edffect in further calculations
+        qbci = hbci * ubci;
+        qother = hother * uother;
+
+        // outer side of the bc face
+        qbco = qbci;
+        ubco = ubci;
 
         if (hbci < drytol) {
             qbci = 0.0;

@@ -63,7 +63,7 @@ cdef class ConstValCuPy:
         self.drytol = drytol
 
 
-cdef class ConstValCuPyWH:
+cdef class ConstValCuPyWH(ConstValCuPy):
     """Constant-value (conservative quantities) boundary condition for updating w and h.
     """
 
@@ -74,7 +74,7 @@ cdef class ConstValCuPyWH:
         )
 
 
-cdef class ConstValCuPyOther:
+cdef class ConstValCuPyOther(ConstValCuPy):
     """Constant-value (conservative quantities) boundary condition for updating hu or hv.
     """
 
@@ -90,12 +90,12 @@ cdef _const_val_bc_w_h_kernel = cupy.ElementwiseKernel(
     "T wbci, T wbco, T wother, T hbci, T hbco, T hother",
     """
         wbci = val;
-        wother = wc0 * 2.0 - val;
+        hbci = wbci - bbc;
 
         wbco = wbci;
-        hbco = hbco;
+        hbco = hbci;
 
-        hbci = wbci - bbc;
+        wother = wc0 * 2.0 - val;
         hother = wother - bother;
 
         // `hbci` shouldn't be negative, otherwise it's an user's error

@@ -3,11 +3,12 @@
 import cupy
 
 
-cdef class LinearExtrapBC:
+cdef class InflowCuPy:
+    """Inflow (const non-conservative quantities) boundary condition.
+    """
 
     # conservatives
     cdef object qc0  # q at the cell centers of the 1st internal cell layer
-    cdef object qc1  # q at the cell centers of the 2nd internal cell layer
     cdef object qbci  # q at the inner side of the boundary cell faces
     cdef object qbco  # q at the outer side of the boundary cell faces
     cdef object qother  # q at the inner side of the another face of the 1st internal cell
@@ -30,130 +31,118 @@ cdef class LinearExtrapBC:
     cdef double tol  # depths under this tolerance are considered dry cells
     cdef double drytol  # depths under this values are considered wet but still cells
 
+    # read-only values (boundary target value)
+    cdef double val
+
     def __init__(
         self,
         object Q, object Qmx, object Qpx, object Qmy, object Qpy,
         object Hmx, object Hpx, object Hmy, object Hpy,
         object Bx, object By,
+        const double val,
         const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
         const double tol, const double drytol
     ):
-
         # runtime check for the shapes
         _shape_checker(Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, ngh, comp, ornt)
 
         if ornt == 0:  # west
-            _linear_extrap_bc_set_west(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
+            _inflow_bc_set_west(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
         elif ornt == 1:  # east
-            _linear_extrap_bc_set_east(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
+            _inflow_bc_set_east(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
         elif ornt == 2:  # south
-            _linear_extrap_bc_set_south(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
+            _inflow_bc_set_south(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
         elif ornt == 3:  # north
-            _linear_extrap_bc_set_north(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
+            _inflow_bc_set_north(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
+        # store boundary value
+        self.val = val
         self.tol = tol
         self.drytol = drytol
 
 
-cdef class LinearExtrapWH(LinearExtrapBC):
+cdef class InflowCuPyWH(InflowCuPy):
+    """Constant-value (conservative quantities) boundary condition for updating w and h.
+    """
 
     def __call__(self):
-        _linear_extrap_bc_w_h_kernel(
-            self.qc0, self.qc1, self.bbc, self.bother, self.tol,
+        _inflow_bc_w_h_kernel(
+            self.qc0, self.val, self.bbc, self.bother, self.tol,
             self.qbci, self.qbco, self.qother, self.hbci, self.hbco, self.hother
         )
 
 
-cdef class LinearExtrapOther(LinearExtrapBC):
+cdef class InflowCuPyOther(InflowCuPy):
+    """Constant-value (conservative quantities) boundary condition for updating hu or hv.
+    """
 
     def __call__(self):
-        _linear_extrap_bc_kernel(
-            self.qc0, self.qc1, self.hbci, self.hbco, self.hother, self.drytol,
+        _inflow_bc_kernel(
+            self.qc0, self.val, self.hbci, self.hbco, self.hother, self.drytol,
             self.qbci, self.qbco, self.qother, self.ubci, self.ubco, self.uother
         )
 
 
-cdef _linear_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
-    "T wc0, T wc1, T bbc, T bother, T tol",
+cdef _inflow_bc_w_h_kernel = cupy.ElementwiseKernel(
+    "T wc0, T val, T bbc, T bother, T tol",
     "T wbci, T wbco, T wother, T hbci, T hbco, T hother",
     """
-        T dw = (wc0 - wc1) / 2.0;
-        wbci = wc0 + dw;
-        wother = wc0 - dw;
+        hbci = val;
+        wbci = val + bbc;
 
-        hbci = wbci - bbc;
+        hbco = hbci;
+        wbco = wbci;
+
+        wother = wc0 * 2.0 - wbci;
         hother = wother - bother;
 
-        // fix negative depth
-        if (hbci < tol) {
-            wbci = bbc;
-            wother = wc0 * 2.0 - bbc;
-            hbci = 0.0;
-            hother = wother - bother;
-        } else if (hother < tol) {
+        // `hbci` shouldn't be negative, otherwise it's an user's error
+        // `hother` may be negative, in this case, we fix `bci` and `other` but keep `bco` the same
+        if (hother < tol) {
             wbci = wc0 * 2.0 - bother;
             wother = bother;
             hbci = wbci - bbc;
             hother = 0.0;
         }
-
-        // reconstruct to eliminate rounding error-edffect in further calculations
-        wbci = hbci + bbc;
-        wother = hother + bother;
-
-        wbco = wbci;
-        hbco = hbci;
     """,
-    "_linear_extrap_bc_w_h_kernel"
+    "_inflow_bc_w_h_kernel"
 )
 
 
-cdef _linear_extrap_bc_kernel = cupy.ElementwiseKernel(
-    "T qc0, T qc1, T hbci, T hbco, T hother, T drytol",
+cdef _inflow_bc_kernel = cupy.ElementwiseKernel(
+    "T qc0, T val, T hbci, T hbco, T hother, T drytol",
     "T qbci, T qbco, T qother, T ubci, T ubco, T uother",
     """
-        T dq = (qc0 - qc1) / 2.0;
-        qbci = qc0 + dq;
-        qother = qc0 - dq;
+        ubci = val;
+        qbci = hbci * val;
+        ubco = ubci;
+        qbco = qbci;
 
-        ubci = qbci / hbci;
+        qother = qc0 * 2.0 - qbci;
         uother = qother / hother;
 
-        // reconstruct to eliminate rounding error-edffect in further calculations
-        qbci = hbci * ubci;
-        qother = hother * uother;
+        // we don't fix the case when h is extremely small for bci and bco, because u or v are
+        // BC values and should not be changed.
 
-        // outer side of the bc face
-        qbco = qbci;
-        ubco = ubci;
-
-        if (hbci < drytol) {
-            qbci = 0.0;
-            ubci = 0.0;
-            qbco = 0.0;
-            ubco = 0.0;
-        }
-
+        // we can however fix the other end, which is not restricted to BC values
         if (hother < drytol) {
             qother = 0.0;
             uother = 0.0;
         }
     """,
-    "_linear_extrap_bc_kernel"
+    "_inflow_bc_kernel"
 )
 
 
-cdef void _linear_extrap_bc_set_west(
-    LinearExtrapBC bc,
-    object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
+cdef void _inflow_bc_set_west(
+    InflowCuPy bc, object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
-    bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
     bc.qbci = Qpx[comp, :, 0]
     bc.qbco = Qmx[comp, :, 0]
     bc.qother = Qmx[comp, :, 1]
@@ -175,15 +164,13 @@ cdef void _linear_extrap_bc_set_west(
         bc.uother = None
 
 
-cdef void _linear_extrap_bc_set_east(
-    LinearExtrapBC bc,
-    object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
+cdef void _inflow_bc_set_east(
+    InflowCuPy bc, object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
-    bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
     bc.qbci = Qmx[comp, :, Qmx.shape[2]-1]
     bc.qbco = Qpx[comp, :, Qpx.shape[2]-1]
     bc.qother = Qpx[comp, :, Qpx.shape[2]-2]
@@ -205,15 +192,13 @@ cdef void _linear_extrap_bc_set_east(
         bc.uother = None
 
 
-cdef void _linear_extrap_bc_set_south(
-    LinearExtrapBC bc,
-    object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
+cdef void _inflow_bc_set_south(
+    InflowCuPy bc, object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
-    bc.qc1 = Q[comp, ngh+1, ngh:Q.shape[2]-ngh]
     bc.qbci = Qpy[comp, 0, :]
     bc.qbco = Qmy[comp, 0, :]
     bc.qother = Qmy[comp, 1, :]
@@ -235,15 +220,13 @@ cdef void _linear_extrap_bc_set_south(
         bc.uother = None
 
 
-cdef void _linear_extrap_bc_set_north(
-    LinearExtrapBC bc,
-    object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
+cdef void _inflow_bc_set_north(
+    InflowCuPy bc, object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
-    bc.qc1 = Q[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
     bc.qbci = Qmy[comp, Qmy.shape[1]-1, :]
     bc.qbco = Qpy[comp, Qpy.shape[1]-1, :]
     bc.qother = Qpy[comp, Qpy.shape[1]-2, :]
@@ -309,7 +292,7 @@ cdef _shape_checker(
     assert Hpy.shape[2] == Q.shape[2] - 2 * ngh, f"{Hpy.shape}"
 
 
-def linear_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs):
+def inflow_factory(ornt, comp, states, topo, tol, drytol, const double val, *args, **kwargs):
     """Factory to create a constant extrapolation boundary condition callable object.
     """
 
@@ -338,11 +321,11 @@ def linear_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs
             ornt = 3
 
     if comp == 0:
-        bc = LinearExtrapWH(
-            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
+        bc = InflowCuPyWH(
+            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, val, ngh, comp, ornt, tol, drytol)
     elif comp == 1 or comp == 2:
-        bc = LinearExtrapOther(
-            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
+        bc = InflowCuPyOther(
+            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, val, ngh, comp, ornt, tol, drytol)
     else:
         raise ValueError(f"Unrecognized component: {comp}")
 
