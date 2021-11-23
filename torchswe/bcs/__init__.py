@@ -33,7 +33,7 @@ else:
 
 
 def get_ghost_cell_updaters(
-    states: _States, topo: _Topography, bcs: _BCConfig, tol: float, drytol: float
+    states: _States, topo: _Topography, bcs: _BCConfig, theta: float, tol: float, drytol: float
 ):
     """A function factory returning a function that updates all ghost cells.
 
@@ -92,11 +92,11 @@ def get_ghost_cell_updaters(
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
-                funcs.append(const_val_factory(ornt, i, states, topo, tol, drytol, bcv))
+                funcs.append(const_val_factory(ornt, i, states, topo, theta, tol, drytol, bcv))
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
-                funcs.append(inflow_factory(ornt, i, states, topo, tol, drytol, bcv))
+                funcs.append(inflow_factory(ornt, i, states, topo, theta, tol, drytol, bcv))
 
             # this shouldn't happen because pydantic should have catched the error
             else:

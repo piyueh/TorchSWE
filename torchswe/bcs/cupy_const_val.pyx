@@ -9,6 +9,7 @@ cdef class ConstValCuPy:
 
     # conservatives
     cdef object qc0  # q at the cell centers of the 1st internal cell layer
+    cdef object qc1  # q at the cell centers of the 2nd internal cell layer
     cdef object qbci  # q at the inner side of the boundary cell faces
     cdef object qbco  # q at the outer side of the boundary cell faces
     cdef object qother  # q at the inner side of the another face of the 1st internal cell
@@ -18,6 +19,7 @@ cdef class ConstValCuPy:
     cdef object bother  # topo elevation at cell faces between the 1st and 2nd internal cell layers
 
     # depth
+    cdef object hc0  # depth at the cell centers of the 1st internal cell layer
     cdef object hbci  # depth at the inner side of the boundary cell faces
     cdef object hbco  # depth at the outer side of the boundary cell faces
     cdef object hother  # depth at the inner side of the another face of the 1st internal cell
@@ -31,29 +33,30 @@ cdef class ConstValCuPy:
     cdef double tol  # depths under this tolerance are considered dry cells
     cdef double drytol  # depths under this values are considered wet but still cells
 
-    # read-only values (boundary target value)
+    # read-only values (boundary target value & theta)
     cdef double val
+    cdef double theta
 
     def __init__(
         self,
         object Q, object Qmx, object Qpx, object Qmy, object Qpy,
-        object Hmx, object Hpx, object Hmy, object Hpy,
+        object H, object Hmx, object Hpx, object Hmy, object Hpy,
         object Bx, object By,
         const double val,
         const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
-        const double tol, const double drytol
+        const double theta, const double tol, const double drytol
     ):
         # runtime check for the shapes
         _shape_checker(Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, ngh, comp, ornt)
 
         if ornt == 0:  # west
-            _const_val_bc_set_west(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
+            _const_val_bc_set_west(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
         elif ornt == 1:  # east
-            _const_val_bc_set_east(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
+            _const_val_bc_set_east(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
         elif ornt == 2:  # south
-            _const_val_bc_set_south(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
+            _const_val_bc_set_south(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
         elif ornt == 3:  # north
-            _const_val_bc_set_north(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
+            _const_val_bc_set_north(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
@@ -61,6 +64,7 @@ cdef class ConstValCuPy:
         self.val = val
         self.tol = tol
         self.drytol = drytol
+        self.theta = theta
 
 
 cdef class ConstValCuPyWH(ConstValCuPy):
@@ -69,7 +73,7 @@ cdef class ConstValCuPyWH(ConstValCuPy):
 
     def __call__(self):
         _const_val_bc_w_h_kernel(
-            self.qc0, self.val, self.bbc, self.bother, self.tol,
+            self.qc0, self.qc1, self.hc0, self.val, self.bbc, self.bother, self.theta, self.tol,
             self.qbci, self.qbco, self.qother, self.hbci, self.hbco, self.hother
         )
 
@@ -80,52 +84,95 @@ cdef class ConstValCuPyOther(ConstValCuPy):
 
     def __call__(self):
         _const_val_bc_kernel(
-            self.qc0, self.val, self.hbci, self.hbco, self.hother, self.drytol,
+            self.qc0, self.qc1, self.val, self.hbci, self.hbco, self.hother, self.theta, self.drytol,
             self.qbci, self.qbco, self.qother, self.ubci, self.ubco, self.uother
         )
 
 
 cdef _const_val_bc_w_h_kernel = cupy.ElementwiseKernel(
-    "T wc0, T val, T bbc, T bother, T tol",
+    "T wc0, T wc1, T hc0, T val, T bbc, T bother, T theta, T tol",
     "T wbci, T wbco, T wother, T hbci, T hbco, T hother",
     """
-        wbci = val;
+        T denominator;
+        T slp;
+
+        // outer side follows desired values (but can't be negative depth)
+        wbco = max(val, bbc);
+        hbco = max(val-bbc, 0.0);
+
+        // inner side depends on minmod reconstruction as if there's a ghost cell
+        denominator = wc1 - wc0;
+        slp = (wc0 - val) / denominator;
+        slp = min(slp*theta, (slp + 1.0) / 2.0);
+        slp = min(slp, theta);
+        slp = max(slp, 0.0);
+        slp *= denominator;
+        slp /= 2.0;
+        wbci = wc0 - slp;
+        wother = wc0 + slp;
         hbci = wbci - bbc;
-
-        wbco = wbci;
-        hbco = hbci;
-
-        wother = wc0 * 2.0 - val;
         hother = wother - bother;
 
-        // `hbci` shouldn't be negative, otherwise it's an user's error
-        // `hother` may be negative, in this case, we fix `bci` and `other` but keep `bco` the same
-        if (hother < tol) {
+        // fix negative depth
+        if (hc0 < tol) {
+            wbci = bbc;
+            wother = bother;
+            hbci = 0.0;
+            hother = 0.0;
+        } else if (hbci < tol) {
+            wbci = bbc;
+            wother = wc0 * 2.0 - bbc;
+            hbci = 0.0;
+            hother = wother - bother;
+        } else if (hother < tol) {
             wbci = wc0 * 2.0 - bother;
             wother = bother;
             hbci = wbci - bbc;
             hother = 0.0;
         }
+
+        // reconstruct to eliminate rounding error-edffect in further calculations
+        wbci = hbci + bbc;
+        wother = hother + bother;
     """,
     "_const_val_bc_w_h_kernel"
 )
 
 
 cdef _const_val_bc_kernel = cupy.ElementwiseKernel(
-    "T qc0, T val, T hbci, T hbco, T hother, T drytol",
+    "T qc0, T qc1, T val, T hbci, T hbco, T hother, T theta, T drytol",
     "T qbci, T qbco, T qother, T ubci, T ubco, T uother",
     """
-        qbci = val;
+        T denominator;
+        T slp;
+
+        // outer side follows desired values
+        qbco = val;
+        ubco = val / hbci;
+
+        // inner side depends on minmod reconstruction as if there's a ghost cell
+        denominator = qc1 - qc0;
+        slp = (qc0 - val) / denominator;
+        slp = min(slp*theta, (slp + 1.0) / 2.0);
+        slp = min(slp, theta);
+        slp = max(slp, 0.0);
+        slp *= denominator;
+        slp /= 2.0;
+        qbci = qc0 - slp;
+        qother = qc0 + slp;
         ubci = qbci / hbci;
-        qbco = qbci;
-        ubco = ubci;
-        qother = qc0 * 2.0 - val;
         uother = qother / hother;
 
-        // we don't fix the case when h is extremely small for bci and bco, because hu or hv are
-        // BC values and should not be changed.
+        // reconstruct to eliminate rounding error-edffect in further calculations
+        qbci = hbci * ubci;
+        qother = hother * uother;
 
-        // we can however fix the other end, which is not restricted to BC values
+        if (hbci < drytol) {
+            // we don't fix values at the outer side -> they follow desired BC values
+            qbci = 0.0;
+            ubci = 0.0;
+        }
+
         if (hother < drytol) {
             qother = 0.0;
             uother = 0.0;
@@ -136,16 +183,20 @@ cdef _const_val_bc_kernel = cupy.ElementwiseKernel(
 
 
 cdef void _const_val_bc_set_west(
-    ConstValCuPy bc, object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
+    ConstValCuPy bc,
+    object Q, object Bx, object Qmx, object Qpx,
+    object H, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
+    bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
     bc.qbci = Qpx[comp, :, 0]
     bc.qbco = Qmx[comp, :, 0]
     bc.qother = Qmx[comp, :, 1]
 
+    bc.hc0 = H[1:H.shape[0]-1, 1]
     bc.hbci = Hpx[0, :, 0]
     bc.hbco = Hmx[0, :, 0]
     bc.hother = Hmx[0, :, 1]
@@ -164,16 +215,20 @@ cdef void _const_val_bc_set_west(
 
 
 cdef void _const_val_bc_set_east(
-    ConstValCuPy bc, object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
+    ConstValCuPy bc,
+    object Q, object Bx, object Qmx, object Qpx,
+    object H, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
+    bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
     bc.qbci = Qmx[comp, :, Qmx.shape[2]-1]
     bc.qbco = Qpx[comp, :, Qpx.shape[2]-1]
     bc.qother = Qpx[comp, :, Qpx.shape[2]-2]
 
+    bc.hc0 = H[1:H.shape[0]-1, H.shape[1]-2]
     bc.hbci = Hmx[0, :, Hmx.shape[2]-1]
     bc.hbco = Hpx[0, :, Hpx.shape[2]-1]
     bc.hother = Hpx[0, :, Hpx.shape[2]-2]
@@ -192,16 +247,20 @@ cdef void _const_val_bc_set_east(
 
 
 cdef void _const_val_bc_set_south(
-    ConstValCuPy bc, object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
+    ConstValCuPy bc,
+    object Q, object By, object Qmy, object Qpy,
+    object H, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
+    bc.qc1 = Q[comp, ngh+1, ngh:Q.shape[2]-ngh]
     bc.qbci = Qpy[comp, 0, :]
     bc.qbco = Qmy[comp, 0, :]
     bc.qother = Qmy[comp, 1, :]
 
+    bc.hc0 = H[1, 1:H.shape[1]-1]
     bc.hbci = Hpy[0, 0, :]
     bc.hbco = Hmy[0, 0, :]
     bc.hother = Hmy[0, 1, :]
@@ -220,16 +279,20 @@ cdef void _const_val_bc_set_south(
 
 
 cdef void _const_val_bc_set_north(
-    ConstValCuPy bc, object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
+    ConstValCuPy bc,
+    object Q, object By, object Qmy, object Qpy,
+    object H, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
+    bc.qc1 = Q[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
     bc.qbci = Qmy[comp, Qmy.shape[1]-1, :]
     bc.qbco = Qpy[comp, Qpy.shape[1]-1, :]
     bc.qother = Qpy[comp, Qpy.shape[1]-2, :]
 
+    bc.hc0 = H[H.shape[0]-2, 1:H.shape[1]-1]
     bc.hbci = Hmy[0, Hmy.shape[1]-1, :]
     bc.hbco = Hpy[0, Hpy.shape[1]-1, :]
     bc.hother = Hpy[0, Hpy.shape[1]-2, :]
@@ -291,7 +354,7 @@ cdef _shape_checker(
     assert Hpy.shape[2] == Q.shape[2] - 2 * ngh, f"{Hpy.shape}"
 
 
-def const_val_factory(ornt, comp, states, topo, tol, drytol, const double val, *args, **kwargs):
+def const_val_factory(ornt, comp, states, topo, theta, tol, drytol, const double val, *args, **kwargs):
     """Factory to create a constant extrapolation boundary condition callable object.
     """
 
@@ -301,6 +364,7 @@ def const_val_factory(ornt, comp, states, topo, tol, drytol, const double val, *
     cdef object Qpx = states.face.x.plus.Q
     cdef object Qmy = states.face.y.minus.Q
     cdef object Qpy = states.face.y.plus.Q
+    cdef object H = states.H
     cdef object Hmx = states.face.x.minus.U
     cdef object Hpx = states.face.x.plus.U
     cdef object Hmy = states.face.y.minus.U
@@ -321,10 +385,14 @@ def const_val_factory(ornt, comp, states, topo, tol, drytol, const double val, *
 
     if comp == 0:
         bc = ConstValCuPyWH(
-            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, val, ngh, comp, ornt, tol, drytol)
+            Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By,
+            val, ngh, comp, ornt, theta, tol, drytol
+        )
     elif comp == 1 or comp == 2:
         bc = ConstValCuPyOther(
-            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, val, ngh, comp, ornt, tol, drytol)
+            Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By,
+            val, ngh, comp, ornt, theta, tol, drytol
+        )
     else:
         raise ValueError(f"Unrecognized component: {comp}")
 

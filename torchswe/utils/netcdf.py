@@ -196,24 +196,31 @@ def read_from_dataset(dset, data_keys, domain=None):
     if domain is None:
         ibg, ied, jbg, jed = None, None, None, None  # standard slicing: None:None means all
     else:
+
+        # tol (single precision and double precision will use different tolerance)
+        try:
+            tol = 1e-12 if domain[0].dtype == "float64" else 1e-6
+        except AttributeError:  # not a numpy or cupy datatype -> Python's native floating point
+            tol = 1e-12
+
         # make sure the whole raster covers the required domain
         for i in (0, 2):
             assert extent[i] <= domain[i], f"{extent[i]}, {domain[i]}"
             assert extent[i+1] >= domain[i+1], f"{extent[i+1]}, {domain[i+1]}"
 
         # left-search the start/end indices containing the provided domain (with rounding errors)
-        ibg, ied = _nplike.searchsorted(data["x"]+1e-12, _nplike.array(domain[:2]))
-        jbg, jed = _nplike.searchsorted(data["y"]+1e-12, _nplike.array(domain[2:]))
+        ibg, ied = _nplike.searchsorted(data["x"]+tol, _nplike.array(domain[:2]))
+        jbg, jed = _nplike.searchsorted(data["y"]+tol, _nplike.array(domain[2:]))
 
         # torch's searchsorted signature differs, so no right search; manual adjustment instead
         ied = len(data["x"]) - 1 if ied >= len(data["x"]) else ied
         jed = len(data["y"]) - 1 if jed >= len(data["y"]) else jed
 
         # make sure the target domain is big enough for interpolation, except for edge cases
-        ibg = int(ibg-1) if data["x"][ibg]-1e-12 > domain[0] else int(ibg)
-        ied = int(ied+1) if data["x"][ied]+1e-12 < domain[1] else int(ied)
-        jbg = int(jbg-1) if data["y"][jbg]-1e-12 > domain[2] else int(jbg)
-        jed = int(jed+1) if data["y"][jed]+1e-12 < domain[3] else int(jed)
+        ibg = int(ibg-1) if data["x"][ibg]-tol > domain[0] else int(ibg)
+        ied = int(ied+1) if data["x"][ied]+tol < domain[1] else int(ied)
+        jbg = int(jbg-1) if data["y"][jbg]-tol > domain[2] else int(jbg)
+        jed = int(jed+1) if data["y"][jed]+tol < domain[3] else int(jed)
 
         assert ibg >= 0, f"{data['x'][0]} not smaller enough to cover {domain[0]}"
         assert ied < len(data["x"]), f"{data['x'][-1]} not big enough to cover {domain[1]}"

@@ -117,7 +117,7 @@ def get_local_speed(object states, double gravity):
     """
 
     # for convenience
-    zero = cupy.array(0.)
+    zero = cupy.array(0., dtype=states.Q.dtype)
 
     # faces normal to x-direction
     sqrt_gh_plus = cupy.sqrt(gravity*states.face.x.plus.U[0])

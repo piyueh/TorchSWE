@@ -17,6 +17,7 @@ cdef class LinearExtrapBC:
     cdef object bother  # topo elevation at cell faces between the 1st and 2nd internal cell layers
 
     # depth
+    cdef object hc0  # depth at the cell centers of the 1st internal cell layer
     cdef object hbci  # depth at the inner side of the boundary cell faces
     cdef object hbco  # depth at the outer side of the boundary cell faces
     cdef object hother  # depth at the inner side of the another face of the 1st internal cell
@@ -33,7 +34,7 @@ cdef class LinearExtrapBC:
     def __init__(
         self,
         object Q, object Qmx, object Qpx, object Qmy, object Qpy,
-        object Hmx, object Hpx, object Hmy, object Hpy,
+        object H, object Hmx, object Hpx, object Hmy, object Hpy,
         object Bx, object By,
         const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
         const double tol, const double drytol
@@ -43,13 +44,13 @@ cdef class LinearExtrapBC:
         _shape_checker(Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, ngh, comp, ornt)
 
         if ornt == 0:  # west
-            _linear_extrap_bc_set_west(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
+            _linear_extrap_bc_set_west(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
         elif ornt == 1:  # east
-            _linear_extrap_bc_set_east(self, Q, Bx, Qmx, Qpx, Hmx, Hpx, ngh, comp)
+            _linear_extrap_bc_set_east(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
         elif ornt == 2:  # south
-            _linear_extrap_bc_set_south(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
+            _linear_extrap_bc_set_south(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
         elif ornt == 3:  # north
-            _linear_extrap_bc_set_north(self, Q, By, Qmy, Qpy, Hmy, Hpy, ngh, comp)
+            _linear_extrap_bc_set_north(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
@@ -61,7 +62,7 @@ cdef class LinearExtrapWH(LinearExtrapBC):
 
     def __call__(self):
         _linear_extrap_bc_w_h_kernel(
-            self.qc0, self.qc1, self.bbc, self.bother, self.tol,
+            self.qc0, self.qc1, self.hc0, self.bbc, self.bother, self.tol,
             self.qbci, self.qbco, self.qother, self.hbci, self.hbco, self.hother
         )
 
@@ -76,7 +77,7 @@ cdef class LinearExtrapOther(LinearExtrapBC):
 
 
 cdef _linear_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
-    "T wc0, T wc1, T bbc, T bother, T tol",
+    "T wc0, T wc1, T hc0, T bbc, T bother, T tol",
     "T wbci, T wbco, T wother, T hbci, T hbco, T hother",
     """
         T dw = (wc0 - wc1) / 2.0;
@@ -87,7 +88,12 @@ cdef _linear_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
         hother = wother - bother;
 
         // fix negative depth
-        if (hbci < tol) {
+        if (hc0 < tol) {
+            wbci = bbc;
+            wother = bother;
+            hbci = 0.0;
+            hother = 0.0;
+        } else if (hbci < tol) {
             wbci = bbc;
             wother = wc0 * 2.0 - bbc;
             hbci = 0.0;
@@ -103,6 +109,7 @@ cdef _linear_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
         wbci = hbci + bbc;
         wother = hother + bother;
 
+        // outer side of the bc face
         wbco = wbci;
         hbco = hbci;
     """,
@@ -147,7 +154,8 @@ cdef _linear_extrap_bc_kernel = cupy.ElementwiseKernel(
 
 cdef void _linear_extrap_bc_set_west(
     LinearExtrapBC bc,
-    object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
+    object Q, object Bx, object Qmx, object Qpx,
+    object H, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
@@ -158,6 +166,7 @@ cdef void _linear_extrap_bc_set_west(
     bc.qbco = Qmx[comp, :, 0]
     bc.qother = Qmx[comp, :, 1]
 
+    bc.hc0 = H[1:H.shape[0]-1, 1]
     bc.hbci = Hpx[0, :, 0]
     bc.hbco = Hmx[0, :, 0]
     bc.hother = Hmx[0, :, 1]
@@ -177,7 +186,8 @@ cdef void _linear_extrap_bc_set_west(
 
 cdef void _linear_extrap_bc_set_east(
     LinearExtrapBC bc,
-    object Q, object Bx, object Qmx, object Qpx, object Hmx, object Hpx,
+    object Q, object Bx, object Qmx, object Qpx,
+    object H, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
@@ -188,6 +198,7 @@ cdef void _linear_extrap_bc_set_east(
     bc.qbco = Qpx[comp, :, Qpx.shape[2]-1]
     bc.qother = Qpx[comp, :, Qpx.shape[2]-2]
 
+    bc.hc0 = H[1:H.shape[0]-1, H.shape[1]-2]
     bc.hbci = Hmx[0, :, Hmx.shape[2]-1]
     bc.hbco = Hpx[0, :, Hpx.shape[2]-1]
     bc.hother = Hpx[0, :, Hpx.shape[2]-2]
@@ -207,7 +218,8 @@ cdef void _linear_extrap_bc_set_east(
 
 cdef void _linear_extrap_bc_set_south(
     LinearExtrapBC bc,
-    object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
+    object Q, object By, object Qmy, object Qpy,
+    object H, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
@@ -218,6 +230,7 @@ cdef void _linear_extrap_bc_set_south(
     bc.qbco = Qmy[comp, 0, :]
     bc.qother = Qmy[comp, 1, :]
 
+    bc.hc0 = H[1, 1:H.shape[1]-1]
     bc.hbci = Hpy[0, 0, :]
     bc.hbco = Hmy[0, 0, :]
     bc.hother = Hmy[0, 1, :]
@@ -237,7 +250,8 @@ cdef void _linear_extrap_bc_set_south(
 
 cdef void _linear_extrap_bc_set_north(
     LinearExtrapBC bc,
-    object Q, object By, object Qmy, object Qpy, object Hmy, object Hpy,
+    object Q, object By, object Qmy, object Qpy,
+    object H, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
@@ -248,6 +262,7 @@ cdef void _linear_extrap_bc_set_north(
     bc.qbco = Qpy[comp, Qpy.shape[1]-1, :]
     bc.qother = Qpy[comp, Qpy.shape[1]-2, :]
 
+    bc.hc0 = H[H.shape[0]-2, 1:H.shape[1]-1]
     bc.hbci = Hmy[0, Hmy.shape[1]-1, :]
     bc.hbco = Hpy[0, Hpy.shape[1]-1, :]
     bc.hother = Hpy[0, Hpy.shape[1]-2, :]
@@ -319,6 +334,7 @@ def linear_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs
     cdef object Qpx = states.face.x.plus.Q
     cdef object Qmy = states.face.y.minus.Q
     cdef object Qpy = states.face.y.plus.Q
+    cdef object H = states.H
     cdef object Hmx = states.face.x.minus.U
     cdef object Hpx = states.face.x.plus.U
     cdef object Hmy = states.face.y.minus.U
@@ -339,10 +355,10 @@ def linear_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs
 
     if comp == 0:
         bc = LinearExtrapWH(
-            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
+            Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
     elif comp == 1 or comp == 2:
         bc = LinearExtrapOther(
-            Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
+            Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
     else:
         raise ValueError(f"Unrecognized component: {comp}")
 

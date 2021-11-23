@@ -549,9 +549,9 @@ class HaloRingOSC(_BaseConfig):
 
         # only check the sending array shapes because receivers may have different global shapes
         gshape = sends["w"][1:1+ndim]
-        assert gshape == sends["e"][1:1+ndim], f"ws and es have different global shapes."
-        assert gshape == sends["s"][1:1+ndim], f"ws and ss have different global shapes."
-        assert gshape == sends["n"][1:1+ndim], f"ws and ns have different global shapes."
+        assert gshape == sends["e"][1:1+ndim], "ws and es have different global shapes."
+        assert gshape == sends["s"][1:1+ndim], "ws and ss have different global shapes."
+        assert gshape == sends["n"][1:1+ndim], "ws and ns have different global shapes."
 
         bg, ed = 1 + ndim, 1 + 2 * ndim
         assert sends["w"][bg:ed] == recvs["w"][bg:ed], "ws and wr have different subarray shapes."

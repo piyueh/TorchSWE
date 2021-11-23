@@ -21,6 +21,7 @@ cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
 )
 
 
+# unused
 cdef _fix_rounding_err_kernel = cupy.ElementwiseKernel(
     "T depth, float64 tol",
     "T ans",
@@ -35,11 +36,7 @@ cdef _recnstrt_face_vel_kernel = cupy.ElementwiseKernel(
     "T depth, T hu, T hv, float64 drytol, float64 tol",
     "T h, T u, T v",
     r"""
-        if (depth < tol) {
-            h = 0.0;
-            u = 0.0;
-            v = 0.0;
-        } else if (depth < drytol) {
+        if (depth < drytol) {
             u = 0.0;
             v = 0.0;
         } else {
@@ -64,13 +61,16 @@ cdef _recnstrt_face_conservatives = cupy.ElementwiseKernel(
 
 
 cdef _correct_neg_depth_internal = cupy.ElementwiseKernel(
-    "T hc, T hl, T hr",
+    "T hc, T hl, T hr, T tol",
     "T nhl, T nhr",
     r"""
-        if (hl < 0.0) {
+        if (hc < tol) {
+            nhl = 0.0;
+            nhr = 0.0;
+        } else if (hl < tol) {
             nhl = 0.;
             nhr = hc * 2.0;
-        } else if (hr < 0.0) {
+        } else if (hr < tol) {
             nhr = 0.0;
             nhl = hc * 2.0;
         }
@@ -79,6 +79,7 @@ cdef _correct_neg_depth_internal = cupy.ElementwiseKernel(
 )
 
 
+# unused
 cdef _correct_neg_depth_edge = cupy.ElementwiseKernel(
     "T h, T hc",
     "T nh",
@@ -160,21 +161,23 @@ cpdef reconstruct(object states, object runtime, object config):
     cupy.add(Q[:, ybg-1:yed, xbg:xed], slpy[:, :ny+1, :], out=ymQ)
     cupy.subtract(Q[:, ybg:yed+1, xbg:xed], slpy[:, 1:, :], out=ypQ)
 
-    # calculate depth at cell centers and faces
+    # calculate depth at cell faces
     cupy.subtract(xmQ[0], topo.xfcenters, out=xmU[0])
     cupy.subtract(xpQ[0], topo.xfcenters, out=xpU[0])
     cupy.subtract(ymQ[0], topo.yfcenters, out=ymU[0])
     cupy.subtract(ypQ[0], topo.yfcenters, out=ypU[0])
 
-    # fix negative depths in x direction
-    _correct_neg_depth_internal(H[1:ny+1, 1:nx+1], xpU[0, :, :nx], xmU[0, :, 1:], xpU[0, :, :nx], xmU[0, :, 1:])
-    _correct_neg_depth_edge(xpU[0, :, nx], H[1:ny+1, nx+1], xpU[0, :, nx])
-    _correct_neg_depth_edge(xmU[0, :, 0], H[1:ny+1, 0], xmU[0, :, 0])
+    # fix negative depths in x direction (note, negative depth on boundaries are handled by BCs)
+    _correct_neg_depth_internal(
+        H[1:ny+1, 1:nx+1], xpU[0, :, :nx], xmU[0, :, 1:], tol,
+        xpU[0, :, :nx], xmU[0, :, 1:]
+    )
 
-    # fix negative depths in x direction
-    _correct_neg_depth_internal(H[1:ny+1, 1:nx+1], ypU[0, :ny, :], ymU[0, 1:, :], ypU[0, :ny, :], ymU[0, 1:, :])
-    _correct_neg_depth_edge(ypU[0, ny, :], H[ny+1, 1:nx+1], ypU[0, ny, :])
-    _correct_neg_depth_edge(ymU[0, 0, :], H[0, 1:nx+1], ymU[0, 0, :])
+    # fix negative depths in y direction (note, negative depth on boundaries are handled by BCs)
+    _correct_neg_depth_internal(
+        H[1:ny+1, 1:nx+1], ypU[0, :ny, :], ymU[0, 1:, :], tol,
+        ypU[0, :ny, :], ymU[0, 1:, :]
+    )
 
     # reconstruct velocity at cell faces
     _recnstrt_face_vel_kernel(xmU[0], xmQ[1], xmQ[2], drytol, tol, xmU[0], xmU[1], xmU[2])
