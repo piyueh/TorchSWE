@@ -199,6 +199,13 @@ def get_domain(comm: _MPI.Comm, config: _Config):
         "y", data.comm.dims[0], data.comm.coords[0], config.spatial.discretization[1],
         config.spatial.domain[2], config.spatial.domain[3], config.params.dtype)
 
+    # halo-ring related
+    data.nhalo = 2
+    data.effxbg = 2
+    data.effybg = 2
+    data.effxed = data.effxbg + data.x.n
+    data.effyed = data.effybg + data.y.n
+
     return _Domain(**data)
 
 

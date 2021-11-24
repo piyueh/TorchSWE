@@ -213,6 +213,27 @@ class Domain(_BaseConfig):
     x: Gridline
     y: Gridline
 
+    # number of halo-ring layers (currently only supports 2)
+    nhalo: _Literal[2]
+
+    # internal ranges (i.e., ranges of non-halo cells)
+    effxbg: _Literal[2]
+    effxed: _conint(gt=2)
+    effybg: _Literal[2]
+    effyed: _conint(gt=2)
+
+    @_validator("effxed")
+    def _val_effxed(cls, val, values):
+        """Validate effxed."""
+        assert val - values["effxbg"] == values["x"].n, "effxed - effxbg != x.n"
+        return val
+
+    @_validator("effyed")
+    def _val_effyed(cls, val, values):
+        """Validate effxed and effyed."""
+        assert val - values["effybg"] == values["y"].n, "effyed - effybg != y.n"
+        return val
+
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_indices(cls, values):
 
@@ -311,6 +332,11 @@ class Domain(_BaseConfig):
         return self.y.n, self.x.n
 
     @property
+    def hshape(self):
+        """The shape of local grid w/ halo/ghost cells"""
+        return self.y.n+2*self.nhalo, self.x.n+2*self.nhalo
+
+    @property
     def gshape(self):
         """The shape of the global computational grid."""
         return self.y.gn, self.x.gn
@@ -335,6 +361,31 @@ class Domain(_BaseConfig):
         """The cell sizes in y and x."""
         return self.y.delta, self.x.delta
 
+    @property
+    def internal(self):
+        """The slicing of internal (non halo) region."""
+        return (slice(self.effybg, self.effyed), slice(self.effxbg, self.effxed))
+
+    @property
+    def whalo(self):
+        """The slicing of the halo ring in west."""
+        return (slice(self.effybg, self.effyed), slice(0, self.nhalo))
+
+    @property
+    def ehalo(self):
+        """The slicing of the halo ring in east ."""
+        return (slice(self.effybg, self.effyed), slice(self.effxed, self.effxed+self.nhalo))
+
+    @property
+    def shalo(self):
+        """The slicing of the halo ring in south."""
+        return (slice(0, self.nhalo), slice(self.effxbg, self.effxed))
+
+    @property
+    def nhalo(self):
+        """The slicing of the halo ring in north."""
+        return (slice(self.effyed, self.effyed+self.nhalo), slice(self.effxbg, self.effxed))
+
 
 class Topography(_BaseConfig):
     """Data model for digital elevation.
@@ -354,6 +405,8 @@ class Topography(_BaseConfig):
     grad : (2, ny, nx) array
         Derivatives w.r.t. x and y at cell centers.
     """
+
+    # associated domain
     domain: Domain
     vertices: _nplike.ndarray
     centers: _nplike.ndarray
