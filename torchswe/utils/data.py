@@ -664,7 +664,9 @@ class States(_BaseConfig):
                 },
                 H: ndarray                                  # shape: (3, ny+1, nx)
             }
-        }
+        },
+        slpx: ndarray                                       # shape: (3, ny, nx+2)
+        slpy: ndarray                                       # shape: (3, ny+2, nx)
     }
 
     Attributes
@@ -743,10 +745,10 @@ class States(_BaseConfig):
             assert values["SS"].shape == (3, ny, nx), "SS: incorrect shape"
             assert values["SS"].dtype == dtype, "SS: incorrect dtype"
 
-        assert values["slpx"].shape == (3, ny, nx+1), "slpx: incorrect shape"
+        assert values["slpx"].shape == (3, ny, nx+2), "slpx: incorrect shape"
         assert values["slpx"].dtype == dtype, "slpx: incorrect dtype"
 
-        assert values["slpy"].shape == (3, ny+1, nx), "slpy: incorrect shape"
+        assert values["slpy"].shape == (3, ny+2, nx), "slpy: incorrect shape"
         assert values["slpy"].dtype == dtype, "slpy: incorrect dtype"
 
         return values
