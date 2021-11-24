@@ -29,9 +29,10 @@ from torchswe.utils.init import get_pointsource
 from torchswe.utils.init import get_friction_roughness
 from torchswe.utils.misc import DummyDict
 from torchswe.utils.misc import set_device
+from torchswe.utils.misc import exchange_states
 from torchswe.utils.io import create_empty_soln_file, write_soln_to_file
 from torchswe.utils.friction import bellos_et_al_2018
-from torchswe.kernels import get_cell_center_depth
+from torchswe.kernels import reconstruct_cell_centers
 from torchswe.bcs import get_ghost_cell_updaters
 from torchswe.temporal import euler, ssprk2, ssprk3
 from torchswe.sources import topography_gradient, point_mass_source, friction, zero_stiff_terms
@@ -139,8 +140,8 @@ def config_runtime(comm, config, logger):
     logger.info("Obtained a Topography object")
 
     # make sure initial depths are non-negative
-    states.Q[0, states.ngh:-states.ngh, states.ngh:-states.ngh] = nplike.maximum(
-        runtime.topo.centers, states.Q[0, states.ngh:-states.ngh, states.ngh:-states.ngh])
+    states.Q[(0,)+states.domain.internal] = nplike.maximum(
+        runtime.topo.centers, states.Q[(0,)+states.domain.internal])
     states.check()
 
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
@@ -267,11 +268,13 @@ def main():
     # update data if this is a continued run
     soln, runtime = restart(soln, runtime, args.cont, logger)
 
-    # calculate cell-centered depths
-    soln = get_cell_center_depth(soln, runtime, config)
-
     # create an NetCDF file and append I.C.
     if runtime.times.save and runtime.tidx == 0:
+        # exchange halo information and calculate cell-centered depths
+        soln = exchange_states(soln)
+        soln = reconstruct_cell_centers(soln, runtime, config)
+
+        # write
         create_empty_soln_file(runtime.outfile, soln.domain, runtime.times)
         write_soln_to_file(runtime.outfile, soln, runtime.times[0], 0)
         logger.info("Done writing the initial solution to the NetCDF file.")

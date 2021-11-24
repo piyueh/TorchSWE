@@ -396,11 +396,10 @@ def reconstruct(object states, object runtime, object config):
     return states
 
 
-cdef inline void recnstrt_cell_center(
-    cython.floating[:, ::1] H,
+cdef inline void _recnstrt_cell_centers(
     cython.floating[:, :, ::1] Q,
+    cython.floating[:, :, ::1] U,
     cython.floating[:, ::1] B,  # TODO: read-only buffer
-    const Py_ssize_t ngh,
     const double drytol,
     const double tol
 ) nogil except *:
@@ -408,34 +407,34 @@ cdef inline void recnstrt_cell_center(
 
     Arguments
     ---------
-    H : memoryview with shape (ny+2, nx+2)
     Q : memoryview with shape (ny+2*ngh, nx+2*ngh)
-    B : memoryview with shape (ny, nx)
+    U : memoryview with shape (ny+2*ngh, nx+2*ngh)
+    B : memoryview with shape (ny+2*ngh, nx+2*ngh)
     """
-    cdef Py_ssize_t ny = H.shape[0] - 2
-    cdef Py_ssize_t nx = H.shape[1] - 2
-    cdef Py_ssize_t i, j, iq, jq, ih, jh
+    cdef Py_ssize_t i, j
 
-    jq = ngh; jh = 1
-    for j in range(ny):
-        iq = ngh; ih = 1
-        for i in range(nx):
-            H[jh, ih] = Q[0, jq, iq] - B[j, i]
+    for j in range(Q.shape[1]):
+        for i in range(Q.shape[2]):
+            U[0, j, i] = Q[0, j, i] - B[j, i]
 
-            if H[jh, ih] < tol:  # completely dry cells
-                H[jh, ih] = 0.0
-                Q[0, jq, iq] = B[j, i]
-                Q[1, jq, iq] = 0.0
-                Q[2, jq, iq] = 0.0
-            elif H[jh, ih] < drytol:  # wet but still cells
-                Q[1, jq, iq] = 0.0
-                Q[2, jq, iq] = 0.0
+            if U[0, j, i] < tol:  # completely dry cells
+                U[0, j, i] = 0.0
+                U[1, j, i] = 0.0
+                U[2, j, i] = 0.0
+                Q[0, j, i] = B[j, i]
+                Q[1, j, i] = 0.0
+                Q[2, j, i] = 0.0
+            elif U[0, j, i] < drytol:  # wet but still cells
+                U[1, j, i] = 0.0
+                U[2, j, i] = 0.0
+                Q[1, j, i] = 0.0
+                Q[2, j, i] = 0.0
+            else:
+                U[1, j, i] = Q[1, j, i] / U[0, j, i]
+                U[2, j, i] = Q[2, j, i] / U[0, j, i]
 
-            iq += 1; ih += 1
-        jq += 1; jh += 1
 
-
-def get_cell_center_depth(object states, object runtime, object config):
+def reconstruct_cell_centers(object states, object runtime, object config):
     """Calculate cell-centered depths for non-halo-ring cells.
 
     `states.H` will be updated in this function.
@@ -455,13 +454,11 @@ def get_cell_center_depth(object states, object runtime, object config):
     dtype = states.Q.dtype
 
     if dtype == numpy.single:
-        recnstrt_cell_center[cython.float](
-            states.H, states.Q, runtime.topo.centers,
-            states.ngh, config.params.drytol, runtime.tol)
+        _recnstrt_cell_centers[cython.float](
+            states.Q, states.U, runtime.topo.centers, config.params.drytol, runtime.tol)
     elif dtype == numpy.double:
-        recnstrt_cell_center[cython.double](
-            states.H, states.Q, runtime.topo.centers,
-            states.ngh, config.params.drytol, runtime.tol)
+        _recnstrt_cell_centers[cython.double](
+            states.Q, states.U, runtime.topo.centers, config.params.drytol, runtime.tol)
     else:
         raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 

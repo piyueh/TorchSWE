@@ -194,57 +194,54 @@ cpdef reconstruct(object states, object runtime, object config):
     return states
 
 
-cdef _recnstrt_cell_center = cupy.ElementwiseKernel(
-    "T ow, T b, float64 drytol, float64 tol",
-    "T h, T w, T hu, T hv",
+cdef _recnstrt_cell_centers = cupy.ElementwiseKernel(
+    "T win, T huin, T hvin, T bin, float64 drytol, float64 tol",
+    "T wout, T huout, T hvout, T hout, T uout, T vout",
     """
-        h = ow - b;
-        if (h < tol) {
-            h = 0.0;
-            w = b;
-            hu = 0.0;
-            hv = 0.0;
-        } else if (h < drytol) {
-            hu = 0.0;
-            hv = 0.0;
+        hout = win - bin;
+        uout = huin / hout;
+        vout = hvin / hout;
+
+        if (hout < tol) {
+            hout = 0.0;
+            uout = 0.0;
+            vout = 0.0;
+            wout = bin;
+            huout = 0.0;
+            hvout = 0.0;
+        } else if (hout < drytol) {
+            uout = 0.0;
+            vout = 0.0;
+            huout = 0.0;
+            hvout = 0.0;
         }
     """,
-    "_recnstrt_cell_center"
+    "_recnstrt_cell_centers"
 )
 
 
-cpdef get_cell_center_depth(object states, object runtime, object config):
-    """Calculate cell-centered depths for non-halo-ring cells.
+cpdef reconstruct_cell_centers(object states, object runtime, object config):
+    """Calculate cell-centered non-conservatives.
 
-    `states.H` will be updated in this function.
+    `states.U` will be updated in this function, and `states.Q` may be changed, too.
 
     Arguments
     ---------
     states : torchswe.utils.data.States
     runtime : torchswe.utils.misc.DummyDict
+    config : torchswe.utils.config.Config
 
     Returns
     -------
     states : torchswe.utils.data.States
-        The same object as the input. Returning it just for coding style. The values are actually
-        updated in-place.
     """
 
-    cdef Py_ssize_t ngh = states.ngh
-    cdef Py_ssize_t ny = states.H.shape[0] - 2
-    cdef Py_ssize_t nx = states.H.shape[1] - 2
     cdef double tol = runtime.tol
     cdef double drytol = config.params.drytol
 
-    _recnstrt_cell_center(
-        states.Q[0, ngh:ngh+ny, ngh:ngh+nx],
-        runtime.topo.centers,
-        drytol,
-        tol,
-        states.H[1:1+ny, 1:1+nx],
-        states.Q[0, ngh:ngh+ny, ngh:ngh+nx],
-        states.Q[1, ngh:ngh+ny, ngh:ngh+nx],
-        states.Q[2, ngh:ngh+ny, ngh:ngh+nx]
+    _recnstrt_cell_centers(
+        states.Q[0], states.Q[1], states.Q[2], runtime.topo.centers, drytol, tol,
+        states.Q[0], states.Q[1], states.Q[2], states.U[0], states.U[1], states.U[2]
     )
 
     return states

@@ -17,7 +17,7 @@ from torchswe.utils.data import States as _States
 from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import exchange_states as _exchange_states
-from torchswe.kernels import get_cell_center_depth
+from torchswe.kernels import reconstruct_cell_centers as _reconstruct_cell_centers
 
 _logger = _logging.getLogger("torchswe.temporal")
 
@@ -74,14 +74,15 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
+    # update values of the halo-ring cells and calculate cell-centered non-conservatives
+    states = _exchange_states(states)
+    states = _reconstruct_cell_centers(states, runtime, config)
+
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
         # re-initialize time-step size constraint by not exceeding the next output time
         runtime.dt_constraint = runtime.next_t - runtime.cur_t
-
-        # update values of the halo-ring cells
-        states = _exchange_states(states)
 
         # Euler step
         states, max_dt = _prepare_rhs(states, runtime, config)
@@ -100,8 +101,9 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[:, internal, internal] += (states.S * runtime.dt)
         states = semi_implicit_step(states, internal, runtime.dt)
 
-        # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime, config)
+        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        states = _exchange_states(states)
+        states = _reconstruct_cell_centers(states, runtime, config)
 
         # update iteration index and time
         runtime.counter += 1
@@ -160,14 +162,15 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     # to hold previous solution
     prev_q = _copy.deepcopy(states.Q[:, nongh, nongh])
 
+    # update values of the halo-ring cells and calculate cell-centered non-conservatives
+    states = _exchange_states(states)
+    states = _reconstruct_cell_centers(states, runtime, config)
+
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
         # re-initialize time-step size constraint by not exceeding the next output time
         runtime.dt_constraint = runtime.next_t - runtime.cur_t
-
-        # update values of the halo-ring cells
-        states = _exchange_states(states)
 
         # stage 1: now states.rhs is RHS(u_{n})
         states, max_dt = _prepare_rhs(states, runtime, config)
@@ -185,11 +188,9 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
 
-        # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime, config)
-
-        # update values of the halo-ring cells
+        # update values of the halo-ring cells and calculate cell-centered non-conservatives
         states = _exchange_states(states)
+        states = _reconstruct_cell_centers(states, runtime, config)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -198,8 +199,9 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[:, nongh, nongh] += (prev_q + states.S * runtime.dt)
         states.Q /= 2  # doesn't matter whether ghost cells are also divided by 2
 
-        # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime, config)
+        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        states = _exchange_states(states)
+        states = _reconstruct_cell_centers(states, runtime, config)
 
         # update iteration index and time
         runtime.counter += 1
@@ -263,14 +265,15 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     # to hold previous solution
     prev_q = _copy.deepcopy(states.Q[:, nongh, nongh])
 
+    # update values of the halo-ring cells and calculate cell-centered non-conservatives
+    states = _exchange_states(states)
+    states = _reconstruct_cell_centers(states, runtime, config)
+
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
 
         # re-initialize time-step size constraint by not exceeding the next output time
         runtime.dt_constraint = runtime.next_t - runtime.cur_t
-
-        # update values of the halo-ring cells
-        states = _exchange_states(states)
 
         # stage 1: now states.rhs is RHS(u_{n})
         states, max_dt = _prepare_rhs(states, runtime, config)
@@ -288,11 +291,9 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[:, nongh, nongh] += (states.S * runtime.dt)
 
-        # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime, config)
-
-        # update values of the halo-ring cells
+        # update values of the halo-ring cells and calculate cell-centered non-conservatives
         states = _exchange_states(states)
+        states = _reconstruct_cell_centers(states, runtime, config)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -301,11 +302,9 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[:, nongh, nongh] += (prev_q * 3. + states.S * runtime.dt)
         states.Q /= 4.
 
-        # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime, config)
-
-        # update values of the halo-ring cells
+        # update values of the halo-ring cells and calculate cell-centered non-conservatives
         states = _exchange_states(states)
+        states = _reconstruct_cell_centers(states, runtime, config)
 
         # stage 3: now states.rhs is RHS(u^2)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -316,8 +315,9 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[:, nongh, nongh] += prev_q
         states.Q /= 3.
 
-        # update cell-centered depths for non-halo cells
-        states = get_cell_center_depth(states, runtime, config)
+        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        states = _exchange_states(states)
+        states = _reconstruct_cell_centers(states, runtime, config)
 
         # update iteration index and time
         runtime.counter += 1

@@ -17,7 +17,7 @@ elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from .cupy import central_scheme
     from .cupy import get_local_speed
     from .cupy import reconstruct
-    from .cupy import get_cell_center_depth
+    from .cupy import reconstruct_cell_centers
 elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     raise NotImplementedError("PyTorch is deprecated.")
 else:
@@ -25,4 +25,4 @@ else:
     from .cython import central_scheme
     from .cython import get_local_speed
     from .cython import reconstruct
-    from .cython import get_cell_center_depth
+    from .cython import reconstruct_cell_centers
