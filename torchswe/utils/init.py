@@ -501,6 +501,8 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     data.S = _nplike.zeros((3, ny, nx), dtype=dtype)
     data.SS = _nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None
     data.face = get_empty_facequantitymodel(nx, ny, dtype)
+    data.slpx = _nplike.zeros((3, ny, nx+1), dtype=dtype)
+    data.slpy = _nplike.zeros((3, ny+1, nx), dtype=dtype)
 
     # get one-sided communication windows and datatypes
     data.osc = _DummyDict()

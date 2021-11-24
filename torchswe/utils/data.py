@@ -693,6 +693,10 @@ class States(_BaseConfig):
     SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
 
+    # intermediate quantities that we want to pre-allocate memory to save time allocating memory
+    slpx: _nplike.ndarray
+    slpy: _nplike.ndarray
+
     @_validator("osc")
     def _val_osc(cls, val):
         """Manually validate each item in the osc field.
@@ -733,6 +737,12 @@ class States(_BaseConfig):
         if values["SS"] is not None:
             assert values["SS"].shape == (3, ny, nx), "SS: incorrect shape"
             assert values["SS"].dtype == dtype, "SS: incorrect dtype"
+
+        assert values["slpx"].shape == (3, ny, nx+1), "slpx: incorrect shape"
+        assert values["slpx"].dtype == dtype, "slpx: incorrect dtype"
+
+        assert values["slpy"].shape == (3, ny+1, nx), "slpy: incorrect shape"
+        assert values["slpy"].dtype == dtype, "slpy: incorrect dtype"
 
         return values
 
