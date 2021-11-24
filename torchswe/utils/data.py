@@ -367,22 +367,22 @@ class Domain(_BaseConfig):
         return (slice(self.effybg, self.effyed), slice(self.effxbg, self.effxed))
 
     @property
-    def whalo(self):
+    def westhalo(self):
         """The slicing of the halo ring in west."""
         return (slice(self.effybg, self.effyed), slice(0, self.nhalo))
 
     @property
-    def ehalo(self):
+    def easthalo(self):
         """The slicing of the halo ring in east ."""
         return (slice(self.effybg, self.effyed), slice(self.effxed, self.effxed+self.nhalo))
 
     @property
-    def shalo(self):
+    def southhalo(self):
         """The slicing of the halo ring in south."""
         return (slice(0, self.nhalo), slice(self.effxbg, self.effxed))
 
     @property
-    def nhalo(self):
+    def northhalo(self):
         """The slicing of the halo ring in north."""
         return (slice(self.effyed, self.effyed+self.nhalo), slice(self.effxbg, self.effxed))
 
@@ -408,10 +408,14 @@ class Topography(_BaseConfig):
 
     # associated domain
     domain: Domain
+
+    # elevations
     vertices: _nplike.ndarray
     centers: _nplike.ndarray
     xfcenters: _nplike.ndarray
     yfcenters: _nplike.ndarray
+
+    # cell-centered gradients
     grad: _nplike.ndarray
 
     @_root_validator(pre=False, skip_on_failure=True)
@@ -434,7 +438,7 @@ class Topography(_BaseConfig):
         assert grad.dtype == domain.dtype, "grad: dtype does not match"
 
         # check shapes
-        ny, nx = domain.shape
+        ny, nx = domain.hshape
         assert vertices.shape == (ny+1, nx+1), "vertices: shape does not match."
         assert centers.shape == (ny, nx), "centers: shape does not match."
         assert xfcenters.shape == (ny, nx+1), "xfcenters: shape does not match."

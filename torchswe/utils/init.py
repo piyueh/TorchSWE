@@ -225,12 +225,22 @@ def get_topography(domain, elev, demx, demy):
     except ValueError:  # assume this excpetion means a shape mismatch
         interp = True
 
+    # initialize vert
+    vert = _nplike.zeros(tuple(i+1 for i in domain.hshape), dtype=dtype)
+
     if interp:  # unfortunately, we need to do interpolation in such a situation
         _logger.warning("Grids do not match. Doing spline interpolation.")
-        vert = _nplike.array(
-            _interpolate(demx, demy, elev.T, domain.x.vertices, domain.y.vertices).T).astype(dtype)
+        vert[domain.effybg:domain.effyed+1, domain.effxbg:domain.effxed+1] = _nplike.array(
+            _interpolate(
+                demx, demy, elev.T,
+                domain.x.vertices, domain.y.vertices
+            ).T
+        ).astype(domain.dtype)
     else:  # no need for interpolation
-        vert = elev.astype(dtype)
+        vert[domain.effybg:domain.effyed+1, domain.effxbg:domain.effxed+1] = elev.astype(dtype)
+
+    # exchange vertices' elevations in halo rings
+    vert = exchange_topo_vertices(domain, vert)
 
     # topography elevation at cell centers through linear interpolation
     cntr = (vert[:-1, :-1] + vert[:-1, 1:] + vert[1:, :-1] + vert[1:, 1:]) / 4.
@@ -250,46 +260,51 @@ def get_topography(domain, elev, demx, demy):
         domain=domain, vertices=vert, centers=cntr, xfcenters=xface, yfcenters=yface, grad=grad)
 
 
-def exchange_topo(domain, xface, yface):
-    """Exchange the halo ring information of xfcenters and yfcenters.
+def exchange_topo_vertices(domain: _Domain, vertices: _nplike.ndarray):
+    """Exchange the halo ring information of vertices.
     """
 
+    assert len(vertices.shape) == 2
+    assert vertices.shape == tuple(i+1 for i in domain.hshape)
+
     # aliases
-    comm: _MPI.Comm = domain.comm
-    dtype = domain.dtype
-    ny, nx = domain.shape
-    fp_t: _MPI.Datatype = _from_numpy_dtype(dtype)
+    nhalo = domain.nhalo
+    hshape = vertices.shape  # vertices has one more element in both x and y
+    ny, nx = hshape[0] - 2 * nhalo, hshape[1] - 2 * nhalo
+    ybg, yed = nhalo, nhalo + ny
+    xbg, xed = nhalo, nhalo + nx
+    fp_t: _MPI.Datatype = _from_numpy_dtype(domain.dtype)
 
     # make sure all GPU calculations are done
     _nplike.sync()
 
     # sending buffer datatypes
     send_t = _DummyDict()
-    send_t.s = fp_t.Create_subarray((ny+3, nx), (1, nx), (2, 0)).Commit()
-    send_t.n = fp_t.Create_subarray((ny+3, nx), (1, nx), (ny, 0)).Commit()
-    send_t.w = fp_t.Create_subarray((ny, nx+3), (ny, 1), (0, 2)).Commit()
-    send_t.e = fp_t.Create_subarray((ny, nx+3), (ny, 1), (0, nx)).Commit()
+    send_t.s = fp_t.Create_subarray(hshape, (nhalo, nx), (ybg+1, xbg)).Commit()
+    send_t.n = fp_t.Create_subarray(hshape, (nhalo, nx), (yed-nhalo-1, xbg)).Commit()
+    send_t.w = fp_t.Create_subarray(hshape, (ny, nhalo), (ybg, xbg+1)).Commit()
+    send_t.e = fp_t.Create_subarray(hshape, (ny, nhalo), (ybg, xed-nhalo-1)).Commit()
 
     # receiving buffer datatypes
     recv_t = _DummyDict()
-    recv_t.s = fp_t.Create_subarray((ny+3, nx), (1, nx), (0, 0)).Commit()
-    recv_t.n = fp_t.Create_subarray((ny+3, nx), (1, nx), (ny+2, 0)).Commit()
-    recv_t.w = fp_t.Create_subarray((ny, nx+3), (ny, 1), (0, 0)).Commit()
-    recv_t.e = fp_t.Create_subarray((ny, nx+3), (ny, 1), (0, nx+2)).Commit()
+    recv_t.s = fp_t.Create_subarray(hshape, (nhalo, nx), (0, xbg)).Commit()
+    recv_t.n = fp_t.Create_subarray(hshape, (nhalo, nx), (yed, xbg)).Commit()
+    recv_t.w = fp_t.Create_subarray(hshape, (ny, nhalo), (ybg, 0)).Commit()
+    recv_t.e = fp_t.Create_subarray(hshape, (ny, nhalo), (ybg, xed)).Commit()
 
     # send & receive
     reqs = []
-    reqs.append(comm.Isend([yface, 1, send_t.s], domain.s, 10))
-    reqs.append(comm.Isend([yface, 1, send_t.n], domain.n, 11))
-    reqs.append(comm.Isend([xface, 1, send_t.w], domain.w, 12))
-    reqs.append(comm.Isend([xface, 1, send_t.e], domain.e, 13))
-    reqs.append(comm.Irecv([yface, 1, recv_t.s], domain.s, 11))
-    reqs.append(comm.Irecv([yface, 1, recv_t.n], domain.n, 10))
-    reqs.append(comm.Irecv([xface, 1, recv_t.w], domain.w, 13))
-    reqs.append(comm.Irecv([xface, 1, recv_t.e], domain.e, 12))
+    reqs.append(domain.comm.Isend([vertices, 1, send_t.s], domain.s, 10))
+    reqs.append(domain.comm.Isend([vertices, 1, send_t.n], domain.n, 11))
+    reqs.append(domain.comm.Isend([vertices, 1, send_t.w], domain.w, 12))
+    reqs.append(domain.comm.Isend([vertices, 1, send_t.e], domain.e, 13))
+    reqs.append(domain.comm.Irecv([vertices, 1, recv_t.s], domain.s, 11))
+    reqs.append(domain.comm.Irecv([vertices, 1, recv_t.n], domain.n, 10))
+    reqs.append(domain.comm.Irecv([vertices, 1, recv_t.w], domain.w, 13))
+    reqs.append(domain.comm.Irecv([vertices, 1, recv_t.e], domain.e, 12))
     _MPI.Request.Waitall(reqs)
 
-    return xface, yface
+    return vertices
 
 
 def get_topography_from_file(file: _pathlib.Path, key: str, domain: _Domain):

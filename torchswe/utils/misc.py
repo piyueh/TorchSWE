@@ -93,7 +93,7 @@ def interpolate(x_in, y_in, data_in, x_out, y_out):
     """
 
     try:
-        func = _RectBivariateSpline(x_in, y_in, data_in)
+        func = _RectBivariateSpline(x_in, y_in, data_in, kx=1, ky=1)
     except TypeError as err:
         if str(err).startswith("Implicit conversion to a NumPy array is not allowe"):
             func = _RectBivariateSpline(x_in.get(), y_in.get(), data_in.get())  # cupy
