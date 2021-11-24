@@ -625,7 +625,7 @@ class States(_BaseConfig):
     A brief overview of the structure in this jumbo model (ignoring scalars):
     State: {
         Q: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
-        H: ndarray                                          # shape: (ny+2, nx+2)
+        U: ndarray                                          # shape: (3, ny+2*ngh, nx+2*ngh)
         S: ndarray                                          # shape: (3, ny, nx)
         SS: ndarray                                         # shape: (3, ny, nx)
         face: {
@@ -666,11 +666,9 @@ class States(_BaseConfig):
     ----------
     domain : torchswe.utils.data.Domain
         The domain associated to this state object.
-    ngh : int
-        Number of ghost cell layers.
-    Q : nplike.ndarray of shape (3, ny+2*ngh, nx+2*ngh)
+    Q : nplike.ndarray of shape (3, ny+2*nhalo, nx+2*nhalo)
         The conservative quantities defined at cell centers.
-    U : nplike.ndarray of shape (3, ny+2*ngh, nx+2*ngh)
+    U : nplike.ndarray of shape (3, ny+2*nhalo, nx+2*nhalo)
         The non-conservative quantities defined at cell centers.
     S : nplike.ndarray of shape (3, ny, nx)
         The explicit right-hand-side terms when during time integration. Defined at cell centers.
@@ -688,12 +686,9 @@ class States(_BaseConfig):
     # one-sided communication windows and datatypes
     osc: _DummyDict
 
-    # number of ghost cell layers
-    ngh: _conint(strict=True, ge=0)
-
     # quantities defined at cell centers and faces
     Q: _nplike.ndarray
-    H: _nplike.ndarray
+    U: _nplike.ndarray
     S: _nplike.ndarray
     SS: _Optional[_nplike.ndarray]
     face: FaceQuantityModel
@@ -702,7 +697,7 @@ class States(_BaseConfig):
     def _val_osc(cls, val):
         """Manually validate each item in the osc field.
         """
-        for name in ["H", "Q"]:
+        for name in ["Q"]:
             assert name in val, f"The solver expected \"{name}\" in the osc field."
 
             if not isinstance(val[name], HaloRingOSC):
@@ -717,14 +712,14 @@ class States(_BaseConfig):
 
         # aliases
         ny, nx = values["domain"].shape
-        ngh = values["ngh"]
+        ngh = values["domain"].nhalo
         dtype = values["domain"].dtype
 
         assert values["Q"].shape == (3, ny+2*ngh, nx+2*ngh), "Q: incorrect shape"
         assert values["Q"].dtype == dtype, "Q: incorrect dtype"
 
-        assert values["H"].shape == (ny+2, nx+2), "H: incorrect shape"
-        assert values["H"].dtype == dtype, "H: incorrect dtype"
+        assert values["U"].shape == (3, ny+2*ngh, nx+2*ngh), "U: incorrect shape"
+        assert values["U"].dtype == dtype, "U: incorrect dtype"
 
         assert values["S"].shape == (3, ny, nx), "S: incorrect shape"
         assert values["S"].dtype == dtype, "S: incorrect dtype"
@@ -748,7 +743,7 @@ class States(_BaseConfig):
         domain = values["domain"]
         comm = domain.comm
         ny, nx = domain.shape
-        ngh = values["ngh"]
+        ngh = values["domain"].nhalo
         osc = values["osc"].Q
 
         data = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=values["Q"].dtype)

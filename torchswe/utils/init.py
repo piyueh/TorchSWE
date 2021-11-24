@@ -489,15 +489,15 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     """
     ny, nx = domain.shape
     dtype = domain.dtype
+    ngh = domain.nhalo
 
     # to hold data for initializing a Domain instance
     data = _DummyDict()
     data.domain = domain
-    data.ngh = ngh
 
     # arrays
     data.Q = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype)
-    data.H = _nplike.zeros((ny+2, nx+2), dtype=dtype)
+    data.U = _nplike.zeros((3, ny+2*ngh, nx+2*ngh), dtype=dtype)
     data.S = _nplike.zeros((3, ny, nx), dtype=dtype)
     data.SS = _nplike.zeros((3, ny, nx), dtype=dtype) if use_stiff else None
     data.face = get_empty_facequantitymodel(nx, ny, dtype)
@@ -505,7 +505,6 @@ def get_empty_states(domain: _Domain, ngh: int, use_stiff: bool):
     # get one-sided communication windows and datatypes
     data.osc = _DummyDict()
     data.osc.Q = get_osc_conservative_mpi_datatype(domain.comm, data.Q, ngh)
-    data.osc.H = get_osc_cell_depth_mpi_datatype(domain.comm, data.H)
 
     return _States(**data)
 
