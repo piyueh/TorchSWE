@@ -215,6 +215,7 @@ def get_topography(domain, elev, demx, demy):
 
     # alias
     dtype = domain.dtype
+    ngh = domain.nhalo
 
     # see if we need to do interpolation
     try:
@@ -246,12 +247,12 @@ def get_topography(domain, elev, demx, demy):
     cntr = (vert[:-1, :-1] + vert[:-1, 1:] + vert[1:, :-1] + vert[1:, 1:]) / 4.
 
     # topography elevation at cell faces' midpoints through linear interpolation
-    xface = (vert[:-1, :] + vert[1:, :]) / 2.
-    yface = (vert[:, :-1] + vert[:, 1:]) / 2.
+    xface = (vert[ngh:-ngh-1, ngh:-ngh] + vert[ngh+1:-ngh, ngh:-ngh]) / 2.
+    yface = (vert[ngh:-ngh, ngh:-ngh-1] + vert[ngh:-ngh, ngh+1:-ngh]) / 2.
 
     # gradient at cell centers through central difference; here allows nonuniform grids
     dy, dx = domain.delta
-    grad = _nplike.zeros((2,)+cntr.shape, dtype=dtype)
+    grad = _nplike.zeros((2,)+domain.shape, dtype=dtype)
     grad[0, ...] = (xface[:, 1:] - xface[:, :-1]) / dx
     grad[1, ...] = (yface[1:, :] - yface[:-1, :]) / dy
 

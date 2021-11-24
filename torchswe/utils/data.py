@@ -439,23 +439,28 @@ class Topography(_BaseConfig):
 
         # check shapes
         ny, nx = domain.hshape
+        ngh = domain.nhalo
         assert vertices.shape == (ny+1, nx+1), "vertices: shape does not match."
         assert centers.shape == (ny, nx), "centers: shape does not match."
-        assert xfcenters.shape == (ny, nx+1), "xfcenters: shape does not match."
-        assert yfcenters.shape == (ny+1, nx), "yfcenters: shape does not match."
-        assert grad.shape == (2, ny, nx), "grad: shape does not match."
+        assert xfcenters.shape == (ny-2*ngh, nx-2*ngh+1), "xfcenters: shape does not match."
+        assert yfcenters.shape == (ny-2*ngh+1, nx-2*ngh), "yfcenters: shape does not match."
+        assert grad.shape == (2, ny-2*ngh, nx-2*ngh), "grad: shape does not match."
 
         # check linear interpolation
-        assert _nplike.allclose(xfcenters, (vertices[1:, :]+vertices[:-1, :])/2.), \
+        assert _nplike.allclose(
+            xfcenters, (vertices[ngh+1:-ngh, ngh:-ngh]+vertices[ngh:-ngh-1, ngh:-ngh])/2.), \
             "The solver requires xfcenters to be linearly interpolated from vertices"
-        assert _nplike.allclose(yfcenters, (vertices[:, 1:]+vertices[:, :-1])/2.), \
+        assert _nplike.allclose(
+            yfcenters, (vertices[ngh:-ngh, ngh+1:-ngh]+vertices[ngh:-ngh, ngh:-ngh-1])/2.), \
             "The solver requires yfcenters to be linearly interpolated from vertices"
-        assert _nplike.allclose(centers, (
-            vertices[:-1, :-1]+vertices[:-1, 1:]+vertices[1:, :-1]+vertices[1:, 1:])/4.), \
+        assert _nplike.allclose(centers,
+            (vertices[:-1, :-1]+vertices[:-1, 1:]+vertices[1:, :-1]+vertices[1:, 1:])/4.), \
             "The solver requires centers to be linearly interpolated from vertices"
-        assert _nplike.allclose(centers, (xfcenters[:, 1:]+xfcenters[:, :-1])/2.), \
+        assert _nplike.allclose(
+            centers[ngh:-ngh, ngh:-ngh], (xfcenters[:, 1:]+xfcenters[:, :-1])/2.), \
             "The solver requires centers to be linearly interpolated from xfcenters"
-        assert _nplike.allclose(centers, (yfcenters[1:, :]+yfcenters[:-1, :])/2.), \
+        assert _nplike.allclose(
+            centers[ngh:-ngh, ngh:-ngh], (yfcenters[1:, :]+yfcenters[:-1, :])/2.), \
             "The solver requires centers to be linearly interpolated from yfcenters"
 
         # check central difference
