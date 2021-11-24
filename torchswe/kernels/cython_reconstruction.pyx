@@ -1,357 +1,282 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
-# TODO: once cython 0.3 is released, use `const cython.floating` for read-only buffers
+cimport cython
+cimport numpy
 
 
-cdef inline cython.floating non_zero_slope(
-    cython.floating qi,
-    cython.floating qim1,
-    cython.floating denominator,
-    cython.floating theta
+cdef inline void _minmod_slope_kernel(
+    const cython.floating[:, :, :] s1,
+    const cython.floating[:, :, :] s2,
+    const cython.floating[:, :, :] s3,
+    const cython.floating theta,
+    cython.floating[:, :, ::1] slp
 ) nogil except *:
     """Uitlity function helping calculate slops.
 
     Note: the delta (dx or dy) is already eliminated, because (diff/dx) * (dx/2) = diff / 2.
     However, this is based on the assumption that dx (or dy) is a constant, i.e., uniform grid.
     """
-    cdef cython.floating slp = (qi - qim1) / denominator
-    slp = max(min(min(theta*slp, (1.0+slp)/2.0), theta), 0.)
-    slp *= denominator
-    slp /= 2.0
-    return slp
+    cdef Py_ssize_t nfields = slp.shape[0];
+    cdef Py_ssize_t ny = slp.shape[1];
+    cdef Py_ssize_t nx = slp.shape[2];
+    cdef Py_ssize_t k, j, i;
+
+    cdef cython.floating denominator;
+    cdef cython.floating ans;
+
+    for k in range(nfields):
+        for j in range(ny):
+            for i in range(nx):
+                denominator = s3[k, j, i] - s2[k, j, i];
+                if denominator == 0.0: # exact zero; no tolerance
+                    slp[k, j, i] = 0.0;
+                    break;
+
+                ans = s2[k, j, i] - s3[k, j, i];
+                if ans == 0.0 or ans == - 1.0:  # exact zero or -1; no tolerance
+                    slp[k, j, i] == 0.0;
+                    break;
+
+                ans /= denominator;
+                ans = min(ans*theta, (1.0+ans)/2.0);
+                ans = min(ans, theta);
+                ans = max(ans, 0.0);
+                ans *= denominator;
+                ans /= 2.0;
+                slp[k, j, i] = ans;
 
 
-cdef void extrapolate_minmod_x(
+cdef inline void _add3(
+    const cython.floating[:, :, :] x,
+    const cython.floating[:, :, :] y,
+    cython.floating[:, :, :] out,
+) nogil except *:
+    """Addition.
+
+    Note sure why, but cython kernel is faster than numpy's.
+    """
+    cdef Py_ssize_t n1 = out.shape[0];
+    cdef Py_ssize_t n2 = out.shape[1];
+    cdef Py_ssize_t n3 = out.shape[2];
+    cdef Py_ssize_t k, j, i;
+
+    for k in range(n1):
+        for j in range(n2):
+            for i in range(n3):
+                out[k, j, i] = x[k, j, i] + y[k, j, i]
+
+
+cdef inline void _subtract3(
+    const cython.floating[:, :, :] x,
+    const cython.floating[:, :, :] y,
+    cython.floating[:, :, :] out,
+) nogil except *:
+    """Subtraction.
+
+    Note sure why, but cython kernel is faster than numpy's.
+    """
+    cdef Py_ssize_t n1 = out.shape[0];
+    cdef Py_ssize_t n2 = out.shape[1];
+    cdef Py_ssize_t n3 = out.shape[2];
+    cdef Py_ssize_t k, j, i;
+
+    for k in range(n1):
+        for j in range(n2):
+            for i in range(n3):
+                out[k, j, i] = x[k, j, i] - y[k, j, i]
+
+
+cdef inline void _subtract2(
+    const cython.floating[:, :, :] x,
+    const cython.floating[:, :] y,
+    cython.floating[:, :, :] out,
+) nogil except *:
+    """Subtraction.
+
+    Note sure why, but cython kernel is faster than numpy's.
+    """
+    cdef Py_ssize_t n1 = out.shape[0];
+    cdef Py_ssize_t n2 = out.shape[1];
+    cdef Py_ssize_t n3 = out.shape[2];
+    cdef Py_ssize_t k, j, i;
+
+    for k in range(n1):
+        for j in range(n2):
+            for i in range(n3):
+                out[k, j, i] = x[k, j, i] - y[j, i]
+
+
+cdef inline void _fix_face_depth_internal(
+    const cython.floating[:, :] Hc,
+    const cython.floating tol,
+    cython.floating[:, :] Hl,
+    cython.floating[:, :] Hr
+) nogil except *:
+    cdef Py_ssize_t ny = Hc.shape[0];
+    cdef Py_ssize_t nx = Hc.shape[1];
+    cdef Py_ssize_t j, i;
+
+    cdef cython.floating hc;
+
+    for j in range(ny):
+        for i in range(nx):
+            hc = Hc[j, i];  # aliases to reduce calculation of raveled indices
+            if (hc < tol):
+                Hl[j, i] = 0.0;
+                Hr[j, i] = 0.0;
+            elif (Hl[j, i] < tol):
+                Hl[j, i] = 0.0;
+                Hr[j, i] = hc * 2.0;
+            elif (Hr[j, i] < tol):
+                Hr[j, i] = 0.0;
+                Hl[j, i] = hc * 2.0;
+
+
+cdef inline void _fix_face_depth_edge(
+    const cython.floating[:] Hc,
+    const cython.floating tol,
+    cython.floating[:] H,
+) nogil except *:
+    cdef Py_ssize_t n = H.shape[0];
+    cdef Py_ssize_t i;
+
+    cdef cython.floating h, hc, hc2;
+
+    for i in range(n):
+        h = H[i];
+        hc = Hc[i];
+        hc2 = hc * 2.0;
+        if hc < tol:
+            H[i] = 0.0;
+        elif h < tol:
+            H[i] = 0.0;
+        elif h < hc2:
+            H[i] = hc2;
+
+
+cdef inline void _fix_face_velocity(
+    const cython.floating[:, ::1] H,
+    const cython.floating drytol,
+    cython.floating[:, ::1] U,
+    cython.floating[:, ::1] V
+) nogil except *:
+    cdef Py_ssize_t ny = H.shape[0];
+    cdef Py_ssize_t nx = H.shape[1];
+    cdef Py_ssize_t j, i;
+
+    for j in range(ny):
+        for i in range(nx):
+            if H[j, i] < drytol:
+                U[j, i] = 0.0;
+                V[j, i] = 0.0;
+
+
+cdef inline void _recnstrt_face_conservatives(
+    const cython.floating[:, ::1] H,
+    const cython.floating[:, ::1] U,
+    const cython.floating[:, ::1] V,
+    const cython.floating[:, ::1] B,
+    cython.floating[:, ::1] W,
+    cython.floating[:, ::1] HU,
+    cython.floating[:, ::1] HV,
+) nogil except *:
+    cdef Py_ssize_t ny = H.shape[0];
+    cdef Py_ssize_t nx = H.shape[1];
+    cdef Py_ssize_t j, i;
+    cdef cython.floating h;
+
+    for j in range(ny):
+        for i in range(nx):
+            h = H[j, i];
+            W[j, i] = h + B[j, i];
+            HU[j, i] = h * U[j, i];
+            HV[j, i] = h * V[j, i];
+
+
+cdef inline void _reconstruct(
+    const cython.floating[:, :, ::1] Q,
+    const cython.floating[:, :, ::1] U,
+    const cython.floating[:, ::1] xfcenters,
+    const cython.floating[:, ::1] yfcenters,
+    const Py_ssize_t ngh,
+    const cython.floating theta,
+    const cython.floating drytol,
+    const cython.floating tol,
+    cython.floating[:, :, ::1] slpx,
+    cython.floating[:, :, ::1] slpy,
     cython.floating[:, :, ::1] xmQ,
+    cython.floating[:, :, ::1] xmU,
     cython.floating[:, :, ::1] xpQ,
-    cython.floating[:, :, ::1] cQ,  # TODO: read-only buffer
-    const double theta,
-    const Py_ssize_t ngh
-) nogil except *:
-    cdef Py_ssize_t ny = cQ.shape[1] - 2 * ngh
-    cdef Py_ssize_t nx = cQ.shape[2] - 2 * ngh
-    cdef Py_ssize_t i, j, k
-    cdef Py_ssize_t jgh, igh_i, igh_im1, igh_ip1, im
-
-    cdef cython.floating qi
-    cdef cython.floating slp
-    cdef cython.floating ip1mi
-
-    # initialize xmQ
-    for k in range(3):
-        for j in range(ny):
-            for i in range(nx+1):
-                xmQ[k, j, i] = cQ[k, j+ngh, i+ngh-1]
-
-    # initialize xpQ
-    for k in range(3):
-        for j in range(ny):
-            for i in range(nx+1):
-                xpQ[k, j, i] = cQ[k, j+ngh, i+ngh]
-
-    for k in range(3):
-        jgh = ngh
-        for j in range(ny):
-            igh_i = ngh - 1; igh_im1 = ngh - 2; igh_ip1 = ngh; im = 0
-
-            # edge @ igh_i = ngh - 1 (the ghost cell immediately next to the left boundary)
-            qi = cQ[k, jgh, igh_i]
-            ip1mi = cQ[k, jgh, igh_ip1] - qi
-            if ip1mi != 0.:  # if it's exactly zero, imnplying a zero slope, no need to exrtapolate
-                xmQ[k, j, im] += non_zero_slope(qi, cQ[k, jgh, igh_im1], ip1mi, theta)
-            igh_i += 1; igh_im1 +=1; igh_ip1 += 1; im += 1
-
-            # internal cells
-            for i in range(nx):
-                qi = cQ[k, jgh, igh_i]
-                ip1mi = cQ[k, jgh, igh_ip1] - qi
-                if ip1mi != 0.0:
-                    slp = non_zero_slope(qi, cQ[k, jgh, igh_im1], ip1mi, theta)
-                    xmQ[k, j, im] += slp
-                    xpQ[k, j, i] -= slp
-                igh_i += 1; igh_im1 +=1; igh_ip1 += 1; im += 1
-
-            # edge @ igh_i = nx + ngh (the ghost cell immediately next to the right boundary)
-            qi = cQ[k, jgh, igh_i]
-            ip1mi = cQ[k, jgh, igh_ip1] - qi
-            if ip1mi != 0.:
-                xpQ[k, j, nx] -= non_zero_slope(qi, cQ[k, jgh, igh_im1], ip1mi, theta)
-
-            # update counter
-            jgh += 1
-
-
-cdef void extrapolate_minmod_y(
+    cython.floating[:, :, ::1] xpU,
     cython.floating[:, :, ::1] ymQ,
+    cython.floating[:, :, ::1] ymU,
     cython.floating[:, :, ::1] ypQ,
-    cython.floating[:, :, ::1] cQ,  # TODO: read-only buffer
-    const double theta,
-    const Py_ssize_t ngh
-) nogil except *:
-    cdef Py_ssize_t ny = cQ.shape[1] - 2 * ngh
-    cdef Py_ssize_t nx = cQ.shape[2] - 2 * ngh
-    cdef Py_ssize_t i, j, k
-    cdef Py_ssize_t igh, jgh_i, jgh_im1, jgh_ip1, jm
-
-    cdef cython.floating qi
-    cdef cython.floating slp
-    cdef cython.floating ip1mi
-
-    # initialize ymQ
-    for k in range(3):
-        for j in range(ny+1):
-            for i in range(nx):
-                ymQ[k, j, i] = cQ[k, j+ngh-1, i+ngh]
-
-    # initialize ypQ
-    for k in range(3):
-        for j in range(ny+1):
-            for i in range(nx):
-                ypQ[k, j, i] = cQ[k, j+ngh, i+ngh]
-
-    for k in range(3):
-        jgh_i = ngh - 1; jgh_im1 = ngh - 2; jgh_ip1 = ngh; jm = 0
-
-        # edge case jgh_i = ngh-1 (the ghost cell immediately below the bottom boundary)
-        igh = ngh
-        for i in range(nx):
-            qi = cQ[k, jgh_i, igh]
-            ip1mi = cQ[k, jgh_ip1, igh] - qi
-            if ip1mi != 0.:
-                ymQ[k, jm, i] += non_zero_slope(qi, cQ[k, jgh_im1, igh], ip1mi, theta)
-            igh += 1
-        jgh_i += 1; jgh_im1 += 1; jgh_ip1 += 1; jm += 1
-
-        # internal
-        for j in range(ny):
-            igh = ngh
-            for i in range(nx):
-                qi = cQ[k, jgh_i, igh]
-                ip1mi = cQ[k, jgh_ip1, igh] - qi
-                if ip1mi != 0.0:
-                    slp = non_zero_slope(qi, cQ[k, jgh_im1, igh], ip1mi, theta)
-                    ymQ[k, jm, i] += slp
-                    ypQ[k, j, i] -= slp
-                igh += 1
-            jgh_i += 1; jgh_im1 += 1; jgh_ip1 += 1; jm += 1
-
-        # edge case jgh_i = ny+ngh (the ghost cell immediately on top of the upper boundary)
-        igh = ngh
-        for i in range(nx):
-            qi = cQ[k, jgh_i, igh]
-            ip1mi = cQ[k, jgh_ip1, igh] - qi
-            if ip1mi != 0.:
-                ypQ[k, ny, i] -= non_zero_slope(qi, cQ[k, jgh_im1, igh], ip1mi, theta)
-            igh += 1
-
-
-cdef inline void recnstrt_face_depth(
-    cython.floating[:, :, ::1] U,
-    cython.floating[:, :, ::1] Q,  # TODO: read-only buffer
-    cython.floating[:, ::1] B,  # TODO: read-only buffer
-) nogil except *:
-    cdef Py_ssize_t ny = U.shape[1]
-    cdef Py_ssize_t nx = U.shape[2]
-    cdef Py_ssize_t i, j
-    for j in range(ny):
-        for i in range(nx):
-            U[0, j, i] = Q[0, j, i] - B[j, i]
-
-
-cdef inline void fix_face_negative_depth_x(
-    cython.floating[:, :, ::1] mU,
-    cython.floating[:, :, ::1] pU,
-    cython.floating[:, ::1] cH  # TODO: read-only buffer
-) nogil except *:
-    """Fix negative depths at cell faces normal to x axis.
-
-    Arguments
-    ---------
-    mU : memoryview with shape (3, ny, nx+1)
-    pU : memoryview with shape (3, ny, nx+1)
-    cH : memoryview with shape (ny+2, nx+2)
-    """
-    cdef Py_ssize_t ny = cH.shape[0] - 2
-    cdef Py_ssize_t nx = cH.shape[1] - 2
-    cdef Py_ssize_t i, j, im
-    cdef cython.floating cHij_2, mUij, pUij
-
-    for j in range(ny):
-        # minus sign at the most left cell face
-        mUij = mU[0, j, 0]
-        cHij_2 = cH[j+1, 0] * 2.0
-        if mUij < 0.0:
-            mU[0, j, 0] = 0.0
-        elif mUij > cHij_2:
-            mU[0, j, 0] = cHij_2
-
-        # the left and right faces of non-ghost cells
-        im = 1
-        for i in range(nx):
-            mUij = mU[0, j, im]
-            cHij_2 = cH[j+1, i+1] * 2.0
-            if mUij < 0.0:
-                mU[0, j, im] = 0.0
-                pU[0, j, i] = cHij_2
-            elif mUij > cHij_2:
-                mU[0, j, im] = cHij_2
-                pU[0, j, i] = 0.0
-            im += 1
-
-        # plus sign at the most left cell face
-        pUij = pU[0, j, nx]
-        cHij_2 = cH[j+1, nx+1] * 2.0
-        if pUij < 0.0:
-            pU[0, j, nx] = 0.0
-        elif pUij > cHij_2:
-            pU[0, j, nx] = cHij_2
-
-
-cdef inline void fix_face_negative_depth_y(
-    cython.floating[:, :, ::1] mU,
-    cython.floating[:, :, ::1] pU,
-    cython.floating[:, ::1] cH  # TODO: read-only buffer
-) nogil except *:
-    """Fix negative depths at cell faces normal to y axis.
-
-    Arguments
-    ---------
-    mU : memoryview with shape (3, ny+1, nx)
-    pU : memoryview with shape (3, ny+1, nx)
-    cH : memoryview with shape (ny+2, nx+2)
-    """
-    cdef Py_ssize_t ny = cH.shape[0] - 2
-    cdef Py_ssize_t nx = cH.shape[1] - 2
-    cdef Py_ssize_t i, j, jm
-    cdef cython.floating cHij_2, mUij, pUij
-
-    # minus sign at the most bottom cell face
-    for i in range(nx):
-        mUij = mU[0, 0, i]
-        cHij_2 = cH[0, i+1] * 2.0
-        if mUij < 0.0:
-            mU[0, 0, i] = 0.0
-        elif mUij > cHij_2:
-            mU[0, 0, i] = cHij_2
-
-    # the bottom and top faces of non-ghost cells
-    jm = 1
-    for j in range(ny):
-        for i in range(nx):
-            mUij = mU[0, jm, i]
-            cHij_2 = cH[j+1, i+1] * 2.0
-            if mUij < 0.0:
-                mU[0, jm, i] = 0.0
-                pU[0, j, i] = cHij_2
-            elif mUij > cHij_2:
-                mU[0, jm, i] = cHij_2
-                pU[0, j, i] = 0.0
-        jm += 1
-
-    # plus sign at the most top cell face
-    for i in range(nx):
-        pUij = pU[0, ny, i]
-        cHij_2 = cH[ny+1, i+1] * 2.0
-        if pUij < 0.0:
-            pU[0, ny, i] = 0.0
-        elif pUij > cHij_2:
-            pU[0, ny, i] = cHij_2
-
-
-cdef inline void recnstrt_face_velocity(
-    cython.floating[:, :, ::1] U,
-    cython.floating[:, :, ::1] Q,  # TODO: read-only buffer
-    const double drytol,
-    const double tol
+    cython.floating[:, :, ::1] ypU,
 ) nogil except *:
 
-    cdef Py_ssize_t n1 = U.shape[1]
-    cdef Py_ssize_t n2 = U.shape[2]
-    cdef Py_ssize_t i, j
+    cdef Py_ssize_t ny = Q.shape[1] - 2 * ngh
+    cdef Py_ssize_t nx = Q.shape[2] - 2 * ngh
+    cdef Py_ssize_t xbg = ngh
+    cdef Py_ssize_t xed = ngh + nx
+    cdef Py_ssize_t ybg = ngh
+    cdef Py_ssize_t yed = ngh + ny
 
-    for j in range(n1):
-        for i in range(n2):
-            if U[0, j, i] < tol:  # smaller than floating point tolerance, treat as a dry cell
-                U[0, j, i] = 0.0
-                U[1, j, i] = 0.0
-                U[2, j, i] = 0.0
-            elif U[0, j, i] < drytol:  # a wet cell but not flowing
-                U[1, j, i] = 0.0
-                U[2, j, i] = 0.0
-            else:  # a wet and flowing cell
-                U[1, j, i] = Q[1, j, i] / U[0, j, i]
-                U[2, j, i] = Q[2, j, i] / U[0, j, i]
+    # slopes for w, u, and v (not hu nor hv!) in x
+    _minmod_slope_kernel[cython.floating](Q[:1, ybg:yed, xbg-2:xed], Q[:1, ybg:yed, xbg-1:xed+1], Q[:1, ybg:yed, xbg:xed+2], theta, slpx[:1])
+    _minmod_slope_kernel[cython.floating](U[1:, ybg:yed, xbg-2:xed], U[1:, ybg:yed, xbg-1:xed+1], U[1:, ybg:yed, xbg:xed+2], theta, slpx[1:])
 
+    # slopes for w, u, and v (not hu nor hv!) in x
+    _minmod_slope_kernel[cython.floating](Q[:1, ybg-2:yed, xbg:xed], Q[:1, ybg-1:yed+1, xbg:xed], Q[:1, ybg:yed+2, xbg:xed], theta, slpy[:1])
+    _minmod_slope_kernel[cython.floating](U[1:, ybg-2:yed, xbg:xed], U[1:, ybg-1:yed+1, xbg:xed], U[1:, ybg:yed+2, xbg:xed], theta, slpy[1:])
 
-cdef inline void recnstrt_face_conservatives(
-    cython.floating[:, :, ::1] Q,
-    cython.floating[:, :, ::1] U,  # TODO: read-only buffer
-    cython.floating[:, ::1] B,  # TODO: read-only buffer
-) nogil except *:
+    # extrapolate discontinuous w
+    _add3[cython.floating](Q[:1, ybg:yed, xbg-1:xed], slpx[:1, :, :nx+1], xmQ[:1])
+    _subtract3[cython.floating](Q[:1, ybg:yed, xbg:xed+1], slpx[:1, :, 1:], xpQ[:1])
+    _add3[cython.floating](Q[:1, ybg-1:yed, xbg:xed], slpy[:1, :ny+1, :], ymQ[:1])
+    _subtract3[cython.floating](Q[:1, ybg:yed+1, xbg:xed], slpy[:1, 1:, :], ypQ[:1])
 
-    cdef Py_ssize_t n1 = U.shape[1]
-    cdef Py_ssize_t n2 = U.shape[2]
-    cdef Py_ssize_t i, j
+    # extrapolate discontinuous u and v
+    _add3[cython.floating](U[1:, ybg:yed, xbg-1:xed], slpx[1:, :, :nx+1], xmU[1:])
+    _subtract3[cython.floating](U[1:, ybg:yed, xbg:xed+1], slpx[1:, :, 1:], xpU[1:])
+    _add3[cython.floating](U[1:, ybg-1:yed, xbg:xed], slpy[1:, :ny+1, :], ymU[1:])
+    _subtract3[cython.floating](U[1:, ybg:yed+1, xbg:xed], slpy[1:, 1:, :], ypU[1:])
 
-    for j in range(n1):
-        for i in range(n2):
-            Q[0, j, i] = U[0, j, i] + B[j, i]  # w = h + b
+    # calculate depth at cell faces
+    _subtract2[cython.floating](xmQ[:1], xfcenters, xmU[:1])
+    _subtract2[cython.floating](xpQ[:1], xfcenters, xpU[:1])
+    _subtract2[cython.floating](ymQ[:1], yfcenters, ymU[:1])
+    _subtract2[cython.floating](ypQ[:1], yfcenters, ypU[:1])
 
-    for j in range(n1):
-        for i in range(n2):
-            Q[1, j, i] = U[0, j, i] * U[1, j, i]  # hu = h * u
+    # fix negative depths in x direction
+    _fix_face_depth_internal[cython.floating](U[0, ybg:yed, xbg:xed], tol, xpU[0, :, :nx], xmU[0, :, 1:])
+    _fix_face_depth_edge[cython.floating](U[0, ybg:yed, xbg-1], tol, xmU[0, :, 0])
+    _fix_face_depth_edge[cython.floating](U[0, ybg:yed, xed], tol, xpU[0, :, nx])
 
-    for j in range(n1):
-        for i in range(n2):
-            Q[2, j, i] = U[0, j, i] * U[2, j, i]  # hv = h * v
+    # fix negative depths in y direction
+    _fix_face_depth_internal[cython.floating](U[0, ybg:yed, xbg:xed], tol, ypU[0, :ny, :], ymU[0, 1:, :])
+    _fix_face_depth_edge[cython.floating](U[0, ybg-1, xbg:xed], tol, ymU[0, 0, :])
+    _fix_face_depth_edge[cython.floating](U[0, yed, xbg:xed], tol, ypU[0, ny, :])
 
+    # reconstruct velocity at cell faces
+    _fix_face_velocity[cython.floating](xmU[0], drytol, xmU[1], xmU[2])
+    _fix_face_velocity[cython.floating](xpU[0], drytol, xpU[1], xpU[2])
+    _fix_face_velocity[cython.floating](ymU[0], drytol, ymU[1], ymU[2])
+    _fix_face_velocity[cython.floating](ypU[0], drytol, ypU[1], ypU[2])
 
-cdef void reconstruct_kernel(
-    cython.floating[:, :, ::1] xmQ, cython.floating[:, :, ::1] xpQ,
-    cython.floating[:, :, ::1] ymQ, cython.floating[:, :, ::1] ypQ,
-    cython.floating[:, :, ::1] xmU, cython.floating[:, :, ::1] xpU,
-    cython.floating[:, :, ::1] ymU, cython.floating[:, :, ::1] ypU,
-    cython.floating[:, :, ::1] cQ,  # TODO: read-only buffer
-    cython.floating[:, ::1] cH,   # TODO: read-only buffer
-    cython.floating[:, ::1] cB,  # TODO: read-only buffer
-    cython.floating[:, ::1] xB,  # TODO: read-only buffer
-    cython.floating[:, ::1] yB,   # TODO: read-only buffer
-    const Py_ssize_t ngh, const double drytol, const double theta, const double tol
-) nogil except *:
-
-    # extrapolate conservative quantites to cell faces; got xmQ, xpQ, ymQ, and ypQ
-    extrapolate_minmod_x(xmQ, xpQ, cQ, theta, ngh)
-    extrapolate_minmod_y(ymQ, ypQ, cQ, theta, ngh)
-
-    # calculate depths at xm, xp, ym, and yp
-    recnstrt_face_depth(xmU, xmQ, xB)
-    recnstrt_face_depth(xpU, xpQ, xB)
-    recnstrt_face_depth(ymU, ymQ, yB)
-    recnstrt_face_depth(ypU, ypQ, yB)
-
-    # fix negative depths at cell faces
-    fix_face_negative_depth_x(xmU, xpU, cH)
-    fix_face_negative_depth_y(ymU, ypU, cH)
-
-    # calculate cell faces' velocity at x minus side
-    recnstrt_face_velocity(xmU, xmQ, drytol, tol)
-    recnstrt_face_velocity(xpU, xpQ, drytol, tol)
-    recnstrt_face_velocity(ymU, ymQ, drytol, tol)
-    recnstrt_face_velocity(ypU, ypQ, drytol, tol)
-
-    # reconstruct cell faces' conservative quantities at x minus side
-    recnstrt_face_conservatives(xmQ, xmU, xB)
-    recnstrt_face_conservatives(xpQ, xpU, xB)
-    recnstrt_face_conservatives(ymQ, ymU, yB)
-    recnstrt_face_conservatives(ypQ, ypU, yB)
+    # reconstruct conservative quantities at cell faces
+    _recnstrt_face_conservatives[cython.floating](xmU[0], xmU[1], xmU[2], xfcenters, xmQ[0], xmQ[1], xmQ[2])
+    _recnstrt_face_conservatives[cython.floating](xpU[0], xpU[1], xpU[2], xfcenters, xpQ[0], xpQ[1], xpQ[2])
+    _recnstrt_face_conservatives[cython.floating](ymU[0], ymU[1], ymU[2], yfcenters, ymQ[0], ymQ[1], ymQ[2])
+    _recnstrt_face_conservatives[cython.floating](ypU[0], ypU[1], ypU[2], yfcenters, ypQ[0], ypQ[1], ypQ[2])
 
 
-def reconstruct(object states, object runtime, object config):
+def reconstruct(object states, object runtime, object config) -> object:
     """Reconstructs quantities at cell interfaces and centers.
 
     The following quantities in `states` are updated in this function:
-        1. discontinuous non-conservative quantities defined at cell interfaces
-        2. discontinuous conservative quantities defined at cell interfaces
+        1. non-conservative quantities defined at cell centers (states.U)
+        2. discontinuous non-conservative quantities defined at cell interfaces
+        3. discontinuous conservative quantities defined at cell interfaces
 
     Arguments
     ---------
@@ -366,34 +291,48 @@ def reconstruct(object states, object runtime, object config):
         updated in-place.
     """
 
-    # aliases
-    face = states.face
-    x = face.x
-    xm = x.minus
-    xp = x.plus
-    y = face.y
-    ym = y.minus
-    yp = y.plus
-    topo = runtime.topo
-    params = config.params
-    dtype = states.Q.dtype
+    # aliases to save object look-up time in Python's underlying dictionary
+    cdef object Q = states.Q
+    cdef object U = states.U
+    cdef object slpx = states.slpx
+    cdef object slpy = states.slpy
+    cdef object face = states.face
+    cdef object fx = face.x
+    cdef object xm = fx.minus
+    cdef object xmQ = xm.Q
+    cdef object xmU = xm.U
+    cdef object xp = fx.plus
+    cdef object xpQ = xp.Q
+    cdef object xpU = xp.U
+    cdef object fy = face.y
+    cdef object ym = fy.minus
+    cdef object ymQ = ym.Q
+    cdef object ymU = ym.U
+    cdef object yp = fy.plus
+    cdef object ypQ = yp.Q
+    cdef object ypU = yp.U
+    cdef object xfcenters = runtime.topo.xfcenters
+    cdef object yfcenters = runtime.topo.yfcenters
 
-    if dtype == numpy.single:
-        reconstruct_kernel[cython.float](
-            xm.Q, xp.Q, ym.Q, yp.Q, xm.U, xp.U, ym.U, yp.U, states.Q, states.H,
-            runtime.topo.centers, topo.xfcenters, topo.yfcenters,
-            states.ngh, params.drytol, params.theta, runtime.tol
+    cdef Py_ssize_t ngh = states.domain.nhalo
+    cdef double theta = config.params.theta
+    cdef double drytol = config.params.drytol
+    cdef double tol = runtime.tol
+
+    cdef object dtype = Q.dtype
+
+    if dtype == "float32":
+        _reconstruct[float](
+            Q, U, xfcenters, yfcenters, ngh, theta, drytol, tol,
+            slpx, slpy, xmQ, xmU, xpQ, xpU, ymQ, ymU, ypQ, ypU
         )
-    elif dtype == numpy.double:
-        reconstruct_kernel[cython.double](
-            xm.Q, xp.Q, ym.Q, yp.Q, xm.U, xp.U, ym.U, yp.U, states.Q, states.H,
-            runtime.topo.centers, topo.xfcenters, topo.yfcenters,
-            states.ngh, params.drytol, params.theta, runtime.tol
+    elif dtype == "float64":
+        _reconstruct[double](
+            Q, U, xfcenters, yfcenters, ngh, theta, drytol, tol,
+            slpx, slpy, xmQ, xmU, xpQ, xpU, ymQ, ymU, ypQ, ypU
         )
     else:
-        raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
-
-    return states
+        raise TypeError(f"Unacceptable type {dtype}")
 
 
 cdef inline void _recnstrt_cell_centers(

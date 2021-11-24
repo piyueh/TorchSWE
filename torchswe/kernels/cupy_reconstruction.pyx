@@ -6,7 +6,7 @@
 
 
 cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
-    "T s1, T s2, T s3, float64 theta",
+    "T s1, T s2, T s3, T theta",
     "T slp",
     """
         T denominator = s3 - s2;
@@ -21,47 +21,8 @@ cdef _minmod_slope_kernel = cupy.ElementwiseKernel(
 )
 
 
-# unused
-cdef _fix_rounding_err_kernel = cupy.ElementwiseKernel(
-    "T depth, float64 tol",
-    "T ans",
-    """
-        if (depth < tol) ans = 0.0;
-    """,
-    "fix_rounding_err_kernel",
-)
-
-
-cdef _recnstrt_face_vel_kernel = cupy.ElementwiseKernel(
-    "T depth, T hu, T hv, float64 drytol, float64 tol",
-    "T h, T u, T v",
-    r"""
-        if (depth < drytol) {
-            u = 0.0;
-            v = 0.0;
-        } else {
-            u = hu / depth;
-            v = hv / depth;
-        }
-    """,
-    "recnstrt_face_vel_kernel",
-)
-
-
-cdef _recnstrt_face_conservatives = cupy.ElementwiseKernel(
-    "T h, T u, T v, T b",
-    "T w, T hu, T hv",
-    r"""
-        w = h + b;
-        hu = h * u;
-        hv = h * v;
-    """,
-    "recnstrt_face_conservatives"
-)
-
-
-cdef _correct_neg_depth_internal = cupy.ElementwiseKernel(
-    "T hc, T hl, T hr, T tol",
+cdef _fix_face_depth_internal = cupy.ElementwiseKernel(
+    "T hl, T hc, T hr, T tol",
     "T nhl, T nhr",
     r"""
         if (hc < tol) {
@@ -75,23 +36,49 @@ cdef _correct_neg_depth_internal = cupy.ElementwiseKernel(
             nhl = hc * 2.0;
         }
     """,
-    "_correct_neg_depth_internal"
+    "_fix_face_depth_internal"
 )
 
 
-# unused
-cdef _correct_neg_depth_edge = cupy.ElementwiseKernel(
-    "T h, T hc",
+cdef _fix_face_depth_edge = cupy.ElementwiseKernel(
+    "T h, T hc, T tol",
     "T nh",
     r"""
         T hc2 = 2 * hc;
-        if (h < 0.0) {
+        if (hc < tol) {
+            nh = 0.0;
+        } else if (h < tol) {
             nh = 0.0;
         } else if (h > hc2) {
             nh = hc2;
         }
     """,
-    "_correct_neg_depth_edge"
+    "_fix_face_depth_edge"
+)
+
+
+cdef _fix_face_velocity = cupy.ElementwiseKernel(
+    "T depth, T drytol",
+    "T u, T v",
+    r"""
+        if (depth < drytol) {
+            u = 0.0;
+            v = 0.0;
+        }
+    """,
+    "fix_face_velocity",
+)
+
+
+cdef _recnstrt_face_conservatives = cupy.ElementwiseKernel(
+    "T h, T u, T v, T b",
+    "T w, T hu, T hv",
+    r"""
+        w = h + b;
+        hu = h * u;
+        hv = h * v;
+    """,
+    "recnstrt_face_conservatives"
 )
 
 
@@ -117,85 +104,93 @@ cpdef reconstruct(object states, object runtime, object config):
     """
 
     # aliases to save object look-up time in Python's underlying dictionary
-    cdef object face = states.face
-    cdef object x = face.x
-    cdef object xm = face.x.minus
-    cdef object xp = face.x.plus
-    cdef object y = face.y
-    cdef object ym = face.y.minus
-    cdef object yp = face.y.plus
     cdef object Q = states.Q
-    cdef object H = states.H
+    cdef object U = states.U
+    cdef object slpx = states.slpx
+    cdef object slpy = states.slpy
+    cdef object face = states.face
+    cdef object fx = face.x
+    cdef object xm = fx.minus
     cdef object xmQ = xm.Q
-    cdef object xpQ = xp.Q
-    cdef object ymQ = ym.Q
-    cdef object ypQ = yp.Q
     cdef object xmU = xm.U
+    cdef object xp = fx.plus
+    cdef object xpQ = xp.Q
     cdef object xpU = xp.U
+    cdef object fy = face.y
+    cdef object ym = fy.minus
+    cdef object ymQ = ym.Q
     cdef object ymU = ym.U
+    cdef object yp = fy.plus
+    cdef object ypQ = yp.Q
     cdef object ypU = yp.U
+    cdef object xfcenters = runtime.topo.xfcenters
+    cdef object yfcenters = runtime.topo.yfcenters
 
-    cdef object topo = runtime.topo
-
-    cdef Py_ssize_t ngh = states.ngh
-    cdef Py_ssize_t ny = Q.shape[1] - 2 * ngh
-    cdef Py_ssize_t nx = Q.shape[2] - 2 * ngh
+    cdef Py_ssize_t ny = states.domain.y.n
+    cdef Py_ssize_t nx = states.domain.x.n
+    cdef Py_ssize_t ngh = states.domain.nhalo
     cdef Py_ssize_t xbg = ngh
-    cdef Py_ssize_t xed = nx+ngh
+    cdef Py_ssize_t xed = nx + ngh
     cdef Py_ssize_t ybg = ngh
-    cdef Py_ssize_t yed = ny+ngh
+    cdef Py_ssize_t yed = ny + ngh
 
     cdef double theta = config.params.theta
     cdef double drytol = config.params.drytol
     cdef double tol = runtime.tol
 
-    # get slopes
-    cdef object slpx = _minmod_slope_kernel(
-            Q[:, ybg:yed, xbg-2:xed], Q[:, ybg:yed, xbg-1:xed+1], Q[:, ybg:yed, xbg:xed+2], theta)
-    cdef object slpy = _minmod_slope_kernel(
-            Q[:, ybg-2:yed, xbg:xed], Q[:, ybg-1:yed+1, xbg:xed], Q[:, ybg:yed+2, xbg:xed], theta)
+    # slopes for w, u, and v (not hu nor hv!) in x
+    _minmod_slope_kernel(Q[0, ybg:yed, xbg-2:xed], Q[0, ybg:yed, xbg-1:xed+1], Q[0, ybg:yed, xbg:xed+2], theta, slpx[0])
+    _minmod_slope_kernel(U[1:, ybg:yed, xbg-2:xed], U[1:, ybg:yed, xbg-1:xed+1], U[1:, ybg:yed, xbg:xed+2], theta, slpx[1:])
 
-    # get discontinuous conservative quantities at cell faces
-    cupy.add(Q[:, ybg:yed, xbg-1:xed], slpx[:, :, :nx+1], out=xmQ)
-    cupy.subtract(Q[:, ybg:yed, xbg:xed+1], slpx[:, :, 1:], out=xpQ)
-    cupy.add(Q[:, ybg-1:yed, xbg:xed], slpy[:, :ny+1, :], out=ymQ)
-    cupy.subtract(Q[:, ybg:yed+1, xbg:xed], slpy[:, 1:, :], out=ypQ)
+    # slopes for w, u, and v (not hu nor hv!) in x
+    _minmod_slope_kernel(Q[0, ybg-2:yed, xbg:xed], Q[0, ybg-1:yed+1, xbg:xed], Q[0, ybg:yed+2, xbg:xed], theta, slpy[0])
+    _minmod_slope_kernel(U[1:, ybg-2:yed, xbg:xed], U[1:, ybg-1:yed+1, xbg:xed], U[1:, ybg:yed+2, xbg:xed], theta, slpy[1:])
+
+    # extrapolate discontinuous w
+    cupy.add(Q[0, ybg:yed, xbg-1:xed], slpx[0, :, :nx+1], out=xmQ[0])
+    cupy.subtract(Q[0, ybg:yed, xbg:xed+1], slpx[0, :, 1:], out=xpQ[0])
+    cupy.add(Q[0, ybg-1:yed, xbg:xed], slpy[0, :ny+1, :], out=ymQ[0])
+    cupy.subtract(Q[0, ybg:yed+1, xbg:xed], slpy[0, 1:, :], out=ypQ[0])
+
+    # extrapolate discontinuous u and v
+    cupy.add(U[1:, ybg:yed, xbg-1:xed], slpx[1:, :, :nx+1], out=xmU[1:])
+    cupy.subtract(U[1:, ybg:yed, xbg:xed+1], slpx[1:, :, 1:], out=xpU[1:])
+    cupy.add(U[1:, ybg-1:yed, xbg:xed], slpy[1:, :ny+1, :], out=ymU[1:])
+    cupy.subtract(U[1:, ybg:yed+1, xbg:xed], slpy[1:, 1:, :], out=ypU[1:])
 
     # calculate depth at cell faces
-    cupy.subtract(xmQ[0], topo.xfcenters, out=xmU[0])
-    cupy.subtract(xpQ[0], topo.xfcenters, out=xpU[0])
-    cupy.subtract(ymQ[0], topo.yfcenters, out=ymU[0])
-    cupy.subtract(ypQ[0], topo.yfcenters, out=ypU[0])
+    cupy.subtract(xmQ[0], xfcenters, out=xmU[0])
+    cupy.subtract(xpQ[0], xfcenters, out=xpU[0])
+    cupy.subtract(ymQ[0], yfcenters, out=ymU[0])
+    cupy.subtract(ypQ[0], yfcenters, out=ypU[0])
 
-    # fix negative depths in x direction (note, negative depth on boundaries are handled by BCs)
-    _correct_neg_depth_internal(
-        H[1:ny+1, 1:nx+1], xpU[0, :, :nx], xmU[0, :, 1:], tol,
-        xpU[0, :, :nx], xmU[0, :, 1:]
-    )
+    # fix negative depths in x direction
+    _fix_face_depth_internal(xpU[0, :, :nx], U[0, ybg:yed, xbg:xed], xmU[0, :, 1:], tol, xpU[0, :, :nx], xmU[0, :, 1:])
+    _fix_face_depth_edge(xmU[0, :, 0], U[0, ybg:yed, xbg-1], tol, xmU[0, :, 0])
+    _fix_face_depth_edge(xpU[0, :, nx], U[0, ybg:yed, xed], tol, xpU[0, :, nx])
 
-    # fix negative depths in y direction (note, negative depth on boundaries are handled by BCs)
-    _correct_neg_depth_internal(
-        H[1:ny+1, 1:nx+1], ypU[0, :ny, :], ymU[0, 1:, :], tol,
-        ypU[0, :ny, :], ymU[0, 1:, :]
-    )
+    # fix negative depths in y direction
+    _fix_face_depth_internal(ypU[0, :ny, :], U[0, ybg:yed, xbg:xed], ymU[0, 1:, :], tol, ypU[0, :ny, :], ymU[0, 1:, :])
+    _fix_face_depth_edge(ymU[0, 0, :], U[0, ybg-1, xbg:xed], tol, ymU[0, 0, :])
+    _fix_face_depth_edge(ypU[0, ny, :], U[0, yed, xbg:xed], tol, ypU[0, ny, :])
 
     # reconstruct velocity at cell faces
-    _recnstrt_face_vel_kernel(xmU[0], xmQ[1], xmQ[2], drytol, tol, xmU[0], xmU[1], xmU[2])
-    _recnstrt_face_vel_kernel(xpU[0], xpQ[1], xpQ[2], drytol, tol, xpU[0], xpU[1], xpU[2])
-    _recnstrt_face_vel_kernel(ymU[0], ymQ[1], ymQ[2], drytol, tol, ymU[0], ymU[1], ymU[2])
-    _recnstrt_face_vel_kernel(ypU[0], ypQ[1], ypQ[2], drytol, tol, ypU[0], ypU[1], ypU[2])
+    _fix_face_velocity(xmU[0], drytol, xmU[1], xmU[2])
+    _fix_face_velocity(xpU[0], drytol, xpU[1], xpU[2])
+    _fix_face_velocity(ymU[0], drytol, ymU[1], ymU[2])
+    _fix_face_velocity(ypU[0], drytol, ypU[1], ypU[2])
 
     # reconstruct conservative quantities at cell faces
-    _recnstrt_face_conservatives(xmU[0], xmU[1], xmU[2], topo.xfcenters, xmQ[0], xmQ[1], xmQ[2])
-    _recnstrt_face_conservatives(xpU[0], xpU[1], xpU[2], topo.xfcenters, xpQ[0], xpQ[1], xpQ[2])
-    _recnstrt_face_conservatives(ymU[0], ymU[1], ymU[2], topo.yfcenters, ymQ[0], ymQ[1], ymQ[2])
-    _recnstrt_face_conservatives(ypU[0], ypU[1], ypU[2], topo.yfcenters, ypQ[0], ypQ[1], ypQ[2])
+    _recnstrt_face_conservatives(xmU[0], xmU[1], xmU[2], xfcenters, xmQ[0], xmQ[1], xmQ[2])
+    _recnstrt_face_conservatives(xpU[0], xpU[1], xpU[2], xfcenters, xpQ[0], xpQ[1], xpQ[2])
+    _recnstrt_face_conservatives(ymU[0], ymU[1], ymU[2], yfcenters, ymQ[0], ymQ[1], ymQ[2])
+    _recnstrt_face_conservatives(ypU[0], ypU[1], ypU[2], yfcenters, ypQ[0], ypQ[1], ypQ[2])
 
     return states
 
 
 cdef _recnstrt_cell_centers = cupy.ElementwiseKernel(
-    "T win, T huin, T hvin, T bin, float64 drytol, float64 tol",
+    "T win, T huin, T hvin, T bin, T drytol, T tol",
     "T wout, T huout, T hvout, T hout, T uout, T vout",
     """
         hout = win - bin;

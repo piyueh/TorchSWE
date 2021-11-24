@@ -71,6 +71,11 @@ setup(
     cmdclass={"build_ext": build_ext},
     ext_modules=cythonize(
         exts,
-        compiler_directives={"language_level": "3", "boundscheck": False, "wraparound": False},
+        compiler_directives={
+            "language_level": "3",
+            "boundscheck": False,
+            "wraparound": False,
+            "initializedcheck": False
+        },
     )
 )
