@@ -3,7 +3,7 @@
 import cupy
 
 
-cdef class ConstExtrapBC:
+cdef class OutflowBC:
 
     # conservatives
     cdef object qc0  # q at the cell centers of the 1st internal cell layer
@@ -43,13 +43,13 @@ cdef class ConstExtrapBC:
         _shape_checker(Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, ngh, comp, ornt)
 
         if ornt == 0:  # west
-            _const_extrap_bc_set_west(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
+            _outflow_bc_set_west(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
         elif ornt == 1:  # east
-            _const_extrap_bc_set_east(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
+            _outflow_bc_set_east(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
         elif ornt == 2:  # south
-            _const_extrap_bc_set_south(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
+            _outflow_bc_set_south(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
         elif ornt == 3:  # north
-            _const_extrap_bc_set_north(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
+            _outflow_bc_set_north(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
@@ -57,25 +57,25 @@ cdef class ConstExtrapBC:
         self.drytol = drytol
 
 
-cdef class ConstExtrapWH(ConstExtrapBC):
+cdef class OutflowWH(OutflowBC):
 
     def __call__(self):
-        _const_extrap_bc_w_h_kernel(
+        _outflow_bc_w_h_kernel(
             self.qc0, self.hc0, self.bbc, self.bother, self.tol,
             self.qbci, self.qbco, self.qother, self.hbci, self.hbco, self.hother
         )
 
 
-cdef class ConstExtrapOther(ConstExtrapBC):
+cdef class OutflowOther(OutflowBC):
 
     def __call__(self):
-        _const_extrap_bc_kernel(
+        _outflow_bc_kernel(
             self.qc0, self.hbci, self.hbco, self.hother, self.drytol,
             self.qbci, self.qbco, self.qother, self.ubci, self.ubco, self.uother
         )
 
 
-cdef _const_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
+cdef _outflow_bc_w_h_kernel = cupy.ElementwiseKernel(
     "T wc0, T hc0, T bbc, T bother, T tol",
     "T wbci, T wbco, T wother, T hbci, T hbco, T hother",
     """
@@ -115,7 +115,7 @@ cdef _const_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
 )
 
 
-cdef _const_extrap_bc_kernel = cupy.ElementwiseKernel(
+cdef _outflow_bc_kernel = cupy.ElementwiseKernel(
     "T qc0, T hbci, T hbco, T hother, T drytol",
     "T qbci, T qbco, T qother, T ubci, T ubco, T uother",
     """
@@ -145,12 +145,12 @@ cdef _const_extrap_bc_kernel = cupy.ElementwiseKernel(
             uother = 0.0;
         }
     """,
-    "_const_extrap_bc_kernel"
+    "_outflow_bc_kernel"
 )
 
 
-cdef void _const_extrap_bc_set_west(
-    ConstExtrapBC bc,
+cdef void _outflow_bc_set_west(
+    OutflowBC bc,
     object Q, object Bx, object Qmx, object Qpx,
     object H, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
@@ -180,8 +180,8 @@ cdef void _const_extrap_bc_set_west(
         bc.uother = None
 
 
-cdef void _const_extrap_bc_set_east(
-    ConstExtrapBC bc,
+cdef void _outflow_bc_set_east(
+    OutflowBC bc,
     object Q, object Bx, object Qmx, object Qpx,
     object H, object Hmx, object Hpx,
     const Py_ssize_t ngh, const Py_ssize_t comp
@@ -211,8 +211,8 @@ cdef void _const_extrap_bc_set_east(
         bc.uother = None
 
 
-cdef void _const_extrap_bc_set_south(
-    ConstExtrapBC bc,
+cdef void _outflow_bc_set_south(
+    OutflowBC bc,
     object Q, object By, object Qmy, object Qpy,
     object H, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
@@ -242,8 +242,8 @@ cdef void _const_extrap_bc_set_south(
         bc.uother = None
 
 
-cdef void _const_extrap_bc_set_north(
-    ConstExtrapBC bc,
+cdef void _outflow_bc_set_north(
+    OutflowBC bc,
     object Q, object By, object Qmy, object Qpy,
     object H, object Hmy, object Hpy,
     const Py_ssize_t ngh, const Py_ssize_t comp
@@ -317,8 +317,8 @@ cdef _shape_checker(
     assert Hpy.shape[2] == Q.shape[2] - 2 * ngh, f"{Hpy.shape}"
 
 
-def const_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs):
-    """Factory to create a constant extrapolation boundary condition callable object.
+def outflow_bc_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs):
+    """Factory to create a outflow (constant extrapolation) boundary condition callable object.
     """
 
     # aliases
@@ -347,10 +347,10 @@ def const_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs)
             ornt = 3
 
     if comp == 0:
-        bc = ConstExtrapWH(
+        bc = OutflowWH(
             Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
     elif comp == 1 or comp == 2:
-        bc = ConstExtrapOther(
+        bc = OutflowOther(
             Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
     else:
         raise ValueError(f"Unrecognized component: {comp}")

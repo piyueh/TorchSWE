@@ -5,17 +5,17 @@ cimport numpy
 cimport cython
 
 
-cdef fused ConstExtrapBC:
-    ConstExtrapFloat
-    ConstExtrapDouble
+cdef fused OutflowBC:
+    OutflowFloat
+    OutflowDouble
 
-ctypedef void (*const_extrap_kernel_double_t)(ConstExtrapDouble) nogil except *;
-ctypedef void (*const_extrap_kernel_float_t)(ConstExtrapFloat) nogil except *;
+ctypedef void (*outflow_bc_kernel_double_t)(OutflowDouble) nogil except *;
+ctypedef void (*outflow_bc_kernel_float_t)(OutflowFloat) nogil except *;
 
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
-cdef class ConstExtrapDouble:
-    """Base class of constant extraption boundary coditions with 64-bit floating points.
+cdef class OutflowDouble:
+    """Base class of outflow (constant extraption) boundary coditions with 64-bit floating points.
     """
 
     cdef Py_ssize_t n
@@ -24,21 +24,21 @@ cdef class ConstExtrapDouble:
     cdef readonly double[:] qm1
     cdef readonly double[:] qm2
     cdef readonly double[:] hm1
-    cdef const_extrap_kernel_double_t kernel
+    cdef outflow_bc_kernel_double_t kernel
 
     def __init__(
         self, double[:, :, ::1] Q, double[:, ::1] H,
         const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
     ):
-        _const_extrap_bc_init[ConstExtrapDouble, double](self, Q, H, ngh, comp, ornt)
+        _outflow_bc_init[OutflowDouble, double](self, Q, H, ngh, comp, ornt)
 
     def __call__(self):
         self.kernel(self)
 
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
-cdef class ConstExtrapFloat:
-    """Base class of constant extraption boundary coditions with 32-bit floating points.
+cdef class OutflowFloat:
+    """Base class of outflow (constant extraption) boundary coditions with 32-bit floating points.
     """
 
     cdef Py_ssize_t n
@@ -47,27 +47,27 @@ cdef class ConstExtrapFloat:
     cdef readonly float[:] qm1
     cdef readonly float[:] qm2
     cdef readonly float[:] hm1
-    cdef const_extrap_kernel_float_t kernel
+    cdef outflow_bc_kernel_float_t kernel
 
     def __init__(
         self, float[:, :, ::1] Q, float[:, ::1] H,
         const Py_ssize_t ngh, const unsigned comp, const unsigned ornt
     ):
-        _const_extrap_bc_init[ConstExtrapFloat, float](self, Q, H, ngh, comp, ornt)
+        _outflow_bc_init[OutflowFloat, float](self, Q, H, ngh, comp, ornt)
 
     def __call__(self):
         self.kernel(self)
 
 
-cdef void _const_extrap_bc_init(
-    ConstExtrapBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
+cdef void _outflow_bc_init(
+    OutflowBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
     const Py_ssize_t ngh, const Py_ssize_t comp, const unsigned ornt,
 ) nogil except *:
 
     # the first two combinations will be pruned by cython when translating to C/C++
-    if cython.floating is float and ConstExtrapBC is ConstExtrapDouble:
+    if cython.floating is float and OutflowBC is OutflowDouble:
         raise RuntimeError("Mismatched types")
-    elif cython.floating is double and ConstExtrapBC is ConstExtrapFloat:
+    elif cython.floating is double and OutflowBC is OutflowFloat:
         raise RuntimeError("Mismatched types")
     else:
         # runtime check for the shapes
@@ -87,25 +87,25 @@ cdef void _const_extrap_bc_init(
             raise ValueError(f"`ornt` should be >= 0 and <= 3: {ornt}")
 
         if ornt == 0:  # west
-            _const_extrap_bc_set_west[ConstExtrapBC, cython.floating](bc, Q, H, ngh, comp)
+            _outflow_bc_set_west[OutflowBC, cython.floating](bc, Q, H, ngh, comp)
         elif ornt == 1:  # east
-            _const_extrap_bc_set_east[ConstExtrapBC, cython.floating](bc, Q, H, ngh, comp)
+            _outflow_bc_set_east[OutflowBC, cython.floating](bc, Q, H, ngh, comp)
         elif ornt == 2:  # south
-            _const_extrap_bc_set_south[ConstExtrapBC, cython.floating](bc, Q, H, ngh, comp)
+            _outflow_bc_set_south[OutflowBC, cython.floating](bc, Q, H, ngh, comp)
         elif ornt == 3:  # north
-            _const_extrap_bc_set_north[ConstExtrapBC, cython.floating](bc, Q, H, ngh, comp)
+            _outflow_bc_set_north[OutflowBC, cython.floating](bc, Q, H, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
         if comp == 0:
-            bc.kernel = _const_extrap_w_h_kernel[ConstExtrapBC]
+            bc.kernel = _outflow_bc_w_h_kernel[OutflowBC]
         elif comp <= 2:
-            bc.kernel = _const_extrap_kernel[ConstExtrapBC]
+            bc.kernel = _outflow_bc_kernel[OutflowBC]
         else:
             raise ValueError(f"component id {comp} not accepted.")
 
 
-cdef void _const_extrap_w_h_kernel(ConstExtrapBC bc) nogil except *:
+cdef void _outflow_bc_w_h_kernel(OutflowBC bc) nogil except *:
     cdef Py_ssize_t i
     for i in range(bc.n):
         bc.hm1[i] = bc.hp1[i]
@@ -113,22 +113,22 @@ cdef void _const_extrap_w_h_kernel(ConstExtrapBC bc) nogil except *:
         bc.qm2[i] = bc.qp1[i]
 
 
-cdef void _const_extrap_kernel(ConstExtrapBC bc) nogil except *:
+cdef void _outflow_bc_kernel(OutflowBC bc) nogil except *:
     cdef Py_ssize_t i
     for i in range(bc.n):
         bc.qm1[i] = bc.qp1[i]
         bc.qm2[i] = bc.qp1[i]
 
 
-cdef void _const_extrap_bc_set_west(
-    ConstExtrapBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
+cdef void _outflow_bc_set_west(
+    OutflowBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) nogil except *:
 
     # the first two combinations will be pruned by cython when translating to C/C++
-    if cython.floating is float and ConstExtrapBC is ConstExtrapDouble:
+    if cython.floating is float and OutflowBC is OutflowDouble:
         raise RuntimeError("Mismatched types")
-    elif cython.floating is double and ConstExtrapBC is ConstExtrapFloat:
+    elif cython.floating is double and OutflowBC is OutflowFloat:
         raise RuntimeError("Mismatched types")
     else:
         bc.qp1 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
@@ -138,15 +138,15 @@ cdef void _const_extrap_bc_set_west(
         bc.hm1 = H[1:H.shape[0]-1, 0]
 
 
-cdef void _const_extrap_bc_set_east(
-    ConstExtrapBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
+cdef void _outflow_bc_set_east(
+    OutflowBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) nogil except *:
 
     # the first two combinations will be pruned by cython when translating to C/C++
-    if cython.floating is float and ConstExtrapBC is ConstExtrapDouble:
+    if cython.floating is float and OutflowBC is OutflowDouble:
         raise RuntimeError("Mismatched types")
-    elif cython.floating is double and ConstExtrapBC is ConstExtrapFloat:
+    elif cython.floating is double and OutflowBC is OutflowFloat:
         raise RuntimeError("Mismatched types")
     else:
         bc.qp1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
@@ -156,15 +156,15 @@ cdef void _const_extrap_bc_set_east(
         bc.hm1 = H[1:H.shape[0]-1, H.shape[1]-1]
 
 
-cdef void _const_extrap_bc_set_south(
-    ConstExtrapBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
+cdef void _outflow_bc_set_south(
+    OutflowBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) nogil except *:
 
     # the first two combinations will be pruned by cython when translating to C/C++
-    if cython.floating is float and ConstExtrapBC is ConstExtrapDouble:
+    if cython.floating is float and OutflowBC is OutflowDouble:
         raise RuntimeError("Mismatched types")
-    elif cython.floating is double and ConstExtrapBC is ConstExtrapFloat:
+    elif cython.floating is double and OutflowBC is OutflowFloat:
         raise RuntimeError("Mismatched types")
     else:
         bc.qp1 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
@@ -174,15 +174,15 @@ cdef void _const_extrap_bc_set_south(
         bc.hm1 = H[0, 1:H.shape[1]-1]
 
 
-cdef void _const_extrap_bc_set_north(
-    ConstExtrapBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
+cdef void _outflow_bc_set_north(
+    OutflowBC bc, cython.floating[:, :, ::1] Q, cython.floating[:, ::1] H,
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) nogil except *:
 
     # the first two combinations will be pruned by cython when translating to C/C++
-    if cython.floating is float and ConstExtrapBC is ConstExtrapDouble:
+    if cython.floating is float and OutflowBC is OutflowDouble:
         raise RuntimeError("Mismatched types")
-    elif cython.floating is double and ConstExtrapBC is ConstExtrapFloat:
+    elif cython.floating is double and OutflowBC is OutflowFloat:
         raise RuntimeError("Mismatched types")
     else:
         bc.qp1 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
@@ -192,8 +192,8 @@ cdef void _const_extrap_bc_set_north(
         bc.hm1 = H[H.shape[0]-1, 1:H.shape[1]-1]
 
 
-def const_extrap_factory(ornt, comp, states, *args, **kwargs):
-    """Factory to create a constant extrapolation boundary condition callable object.
+def outflow_bc_factory(ornt, comp, states, *args, **kwargs):
+    """Factory to create a outflow (constant extrapolation) boundary condition callable object.
     """
 
     # aliases
@@ -213,9 +213,9 @@ def const_extrap_factory(ornt, comp, states, *args, **kwargs):
             ornt = 3
 
     if dtype == numpy.double:
-        bc = ConstExtrapDouble(Q, H, ngh, comp, ornt)
+        bc = OutflowDouble(Q, H, ngh, comp, ornt)
     elif dtype == numpy.single:
-        bc = ConstExtrapFloat(Q, H, ngh, comp, ornt)
+        bc = OutflowFloat(Q, H, ngh, comp, ornt)
     else:
         raise ValueError(f"Unrecognized data type: {dtype}")
 

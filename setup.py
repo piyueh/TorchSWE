@@ -29,7 +29,7 @@ exts = [
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
-        name="torchswe.bcs._cython_const_extrap", sources=["torchswe/bcs/cython_const_extrap.pyx"],
+        name="torchswe.bcs._cython_outflow", sources=["torchswe/bcs/cython_outflow.pyx"],
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
@@ -46,7 +46,7 @@ exts = [
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
     Extension(
-        name="torchswe.bcs._cupy_const_extrap", sources=["torchswe/bcs/cupy_const_extrap.pyx"],
+        name="torchswe.bcs._cupy_outflow", sources=["torchswe/bcs/cupy_outflow.pyx"],
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
