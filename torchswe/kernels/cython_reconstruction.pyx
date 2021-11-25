@@ -1,7 +1,6 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
 cimport cython
-cimport numpy
 
 
 cdef inline void _minmod_slope_kernel(
@@ -334,6 +333,8 @@ def reconstruct(object states, object runtime, object config) -> object:
     else:
         raise TypeError(f"Unacceptable type {dtype}")
 
+    return states
+
 
 cdef inline void _recnstrt_cell_centers(
     cython.floating[:, :, ::1] Q,
@@ -392,10 +393,10 @@ def reconstruct_cell_centers(object states, object runtime, object config):
 
     dtype = states.Q.dtype
 
-    if dtype == numpy.single:
+    if dtype == "float32":
         _recnstrt_cell_centers[cython.float](
             states.Q, states.U, runtime.topo.centers, config.params.drytol, runtime.tol)
-    elif dtype == numpy.double:
+    elif dtype == "float64":
         _recnstrt_cell_centers[cython.double](
             states.Q, states.U, runtime.topo.centers, config.params.drytol, runtime.tol)
     else:

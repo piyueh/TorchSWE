@@ -141,7 +141,7 @@ def config_runtime(comm, config, logger):
 
     # make sure initial depths are non-negative
     states.Q[(0,)+states.domain.internal] = nplike.maximum(
-        runtime.topo.centers, states.Q[(0,)+states.domain.internal])
+        runtime.topo.centers[states.domain.internal], states.Q[(0,)+states.domain.internal])
     states.check()
 
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
