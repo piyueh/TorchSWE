@@ -1,5 +1,6 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
+import cupy
 
 
 cdef get_discontinuous_flux_x = cupy.ElementwiseKernel(
@@ -101,6 +102,19 @@ def central_scheme(object states):
     return states
 
 
+cdef get_local_speed_kernel = cupy.ElementwiseKernel(
+    "T hp, T hm, T up, T um, T g",
+    "T ap, T am",
+    r"""
+        T ghp = sqrt(g * hp);
+        T ghm = sqrt(g * hm);
+        ap = max(max(up+ghp, um+ghm), 0.0);
+        am = min(min(up-ghp, um-ghm), 0.0);
+    """,
+    "get_local_speed_kernel"
+)
+
+
 def get_local_speed(object states, double gravity):
     """Calculate local speeds on the two sides of cell faces.
 
@@ -116,27 +130,25 @@ def get_local_speed(object states, double gravity):
         The same object as the input. Changed inplace. Returning it just for coding style.
     """
 
-    # for convenience
-    zero = cupy.array(0., dtype=states.Q.dtype)
+    # alias to reduce dictionary look-up
+    cdef object face = states.face;
+    cdef object fx = face.x;
+    cdef object fy = face.y;
+    cdef object fxp = fx.plus;
+    cdef object fxm = fx.minus;
+    cdef object fyp = fy.plus;
+    cdef object fym = fy.minus;
+    cdef object xpU = fxp.U;
+    cdef object xmU = fxm.U;
+    cdef object xpa = fxp.a;
+    cdef object xma = fxm.a;
+    cdef object ypU = fyp.U;
+    cdef object ymU = fym.U;
+    cdef object ypa = fyp.a;
+    cdef object yma = fym.a;
 
-    # faces normal to x-direction
-    sqrt_gh_plus = cupy.sqrt(gravity*states.face.x.plus.U[0])
-    sqrt_gh_minus = cupy.sqrt(gravity*states.face.x.minus.U[0])
-
-    states.face.x.plus.a = cupy.maximum(cupy.maximum(
-        states.face.x.plus.U[1]+sqrt_gh_plus, states.face.x.minus.U[1]+sqrt_gh_minus), zero)
-
-    states.face.x.minus.a = cupy.minimum(cupy.minimum(
-        states.face.x.plus.U[1]-sqrt_gh_plus, states.face.x.minus.U[1]-sqrt_gh_minus), zero)
-
-    # faces normal to y-direction
-    sqrt_gh_plus = cupy.sqrt(gravity*states.face.y.plus.U[0])
-    sqrt_gh_minus = cupy.sqrt(gravity*states.face.y.minus.U[0])
-
-    states.face.y.plus.a = cupy.maximum(cupy.maximum(
-        states.face.y.plus.U[2]+sqrt_gh_plus, states.face.y.minus.U[2]+sqrt_gh_minus), zero)
-
-    states.face.y.minus.a = cupy.minimum(cupy.minimum(
-        states.face.y.plus.U[2]-sqrt_gh_plus, states.face.y.minus.U[2]-sqrt_gh_minus), zero)
+    # faces normal to x- and y-directions
+    get_local_speed_kernel(xpU[0], xmU[0], xpU[1], xmU[1], gravity, xpa, xma)
+    get_local_speed_kernel(ypU[0], ymU[0], ypU[2], ymU[2], gravity, ypa, yma)
 
     return states
