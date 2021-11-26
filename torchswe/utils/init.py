@@ -601,7 +601,7 @@ def get_initial_states_from_snapshot(fpath: str, tidx: int, states):
     )
 
     for i, key in enumerate(["w", "hu", "hv"]):
-        states.Q[i, states.ngh:-states.ngh, states.ngh:-states.ngh] = data[key][tidx]
+        states.Q[(i,) + states.domain.internal] = data[key][tidx]
 
     states.check()
     return states

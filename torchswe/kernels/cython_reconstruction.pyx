@@ -377,7 +377,7 @@ cdef inline void _recnstrt_cell_centers(
 def reconstruct_cell_centers(object states, object runtime, object config):
     """Calculate cell-centered depths for non-halo-ring cells.
 
-    `states.H` will be updated in this function.
+    `states.U` will be updated in this function.
 
     Arguments
     ---------

@@ -84,10 +84,10 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
 
     # determine if it's a WHUHVModel or HUVModel
     data = {
-        "w": soln.Q[0, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "hu": soln.Q[1, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "hv": soln.Q[2, slice(soln.ngh, -soln.ngh), slice(soln.ngh, -soln.ngh)],
-        "h": soln.H[1:-1, 1:-1],
+        "w": soln.Q[(0,)+soln.domain.internal],
+        "hu": soln.Q[(1,)+soln.domain.internal],
+        "hv": soln.Q[(2,)+soln.domain.internal],
+        "h": soln.U[(0,)+soln.domain.internal],
     }
 
     # alias
@@ -110,7 +110,7 @@ def write_states(states: _States, fname: str):
     gny = states.domain.y.gn
     lnx = states.domain.x.n
     lny = states.domain.y.n
-    ngh = states.ngh
+    ngh = states.domain.nhalo
     dtype = states.Q.dtype
     ibg = states.domain.x.ibegin
     ied = states.domain.x.iend
@@ -122,7 +122,7 @@ def write_states(states: _States, fname: str):
         fobj["Q"][:, jbg:jed, ibg:ied] = states.Q[:, ngh:-ngh, ngh:-ngh]
 
         fobj.create_dataset("H", (gny, gnx), dtype)
-        fobj["H"][jbg:jed, ibg:ied] = states.H[1:-1, 1:-1]
+        fobj["U"][:, jbg:jed, ibg:ied] = states.U[:, ngh:-ngh, ngh:-ngh]
 
         fobj.create_dataset("S", (3, gny, gnx), dtype)
         fobj["S"][:, jbg:jed, ibg:ied] = states.S
