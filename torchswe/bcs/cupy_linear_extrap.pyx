@@ -1,8 +1,11 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
 import cupy
+cimport _checker
+cimport cython
 
 
+@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class LinearExtrapBC:
 
     # conservatives
@@ -33,24 +36,24 @@ cdef class LinearExtrapBC:
 
     def __init__(
         self,
-        object Q, object Qmx, object Qpx, object Qmy, object Qpy,
-        object H, object Hmx, object Hpx, object Hmy, object Hpy,
+        object Q, object xmQ, object xpQ, object ymQ, object ypQ,
+        object U, object xmU, object xpU, object ymU, object ypU,
         object Bx, object By,
         const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
         const double tol, const double drytol
     ):
 
         # runtime check for the shapes
-        _shape_checker(Q, Qmx, Qpx, Qmy, Qpy, Hmx, Hpx, Hmy, Hpy, ngh, comp, ornt)
+        _checker.shape_checker(Q, xmQ, xpQ, ymQ, ypQ, U, xmU, xpU, ymU, ypU, Bx, By, ngh, comp, ornt)
 
         if ornt == 0:  # west
-            _linear_extrap_bc_set_west(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
+            _linear_extrap_bc_set_west(self, Q, xmQ, xpQ, U, xmU, xpU, Bx, ngh, comp)
         elif ornt == 1:  # east
-            _linear_extrap_bc_set_east(self, Q, Bx, Qmx, Qpx, H, Hmx, Hpx, ngh, comp)
+            _linear_extrap_bc_set_east(self, Q, xmQ, xpQ, U, xmU, xpU, Bx, ngh, comp)
         elif ornt == 2:  # south
-            _linear_extrap_bc_set_south(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
+            _linear_extrap_bc_set_south(self, Q, ymQ, ypQ, U, ymU, ypU, By, ngh, comp)
         elif ornt == 3:  # north
-            _linear_extrap_bc_set_north(self, Q, By, Qmy, Qpy, H, Hmy, Hpy, ngh, comp)
+            _linear_extrap_bc_set_north(self, Q, ymQ, ypQ, U, ymU, ypU, By, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
@@ -58,6 +61,7 @@ cdef class LinearExtrapBC:
         self.drytol = drytol
 
 
+@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class LinearExtrapWH(LinearExtrapBC):
 
     def __call__(self):
@@ -67,6 +71,7 @@ cdef class LinearExtrapWH(LinearExtrapBC):
         )
 
 
+@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class LinearExtrapOther(LinearExtrapBC):
 
     def __call__(self):
@@ -80,38 +85,36 @@ cdef _linear_extrap_bc_w_h_kernel = cupy.ElementwiseKernel(
     "T wc0, T wc1, T hc0, T bbc, T bother, T tol",
     "T wbci, T wbco, T wother, T hbci, T hbco, T hother",
     """
-        T dw = (wc0 - wc1) / 2.0;
-        wbci = wc0 + dw;
-        wother = wc0 - dw;
+        T dw;
 
-        hbci = wbci - bbc;
-        hother = wother - bother;
-
-        // fix negative depth
         if (hc0 < tol) {
-            wbci = bbc;
-            wother = bother;
-            hbci = 0.0;
+            hbci = 0.0; 
+            hbco = 0.0;
             hother = 0.0;
-        } else if (hbci < tol) {
             wbci = bbc;
-            wother = wc0 * 2.0 - bbc;
-            hbci = 0.0;
-            hother = wother - bother;
-        } else if (hother < tol) {
-            wbci = wc0 * 2.0 - bother;
+            wbco = bbc;
             wother = bother;
-            hbci = wbci - bbc;
+            continue;
+        }
+
+        dw = (wc0 - wc1) / 2.0;
+        hbci = wc0 + dw - bbc;
+        hother = wc0 - dw - bother;
+
+        if (hbci < tol) {
+            hbci = 0.0;
+            hother = hc0 * 2.0;
+        } else if (hother < tol) {
+            hbci = hc0 * 2.0;
             hother = 0.0;
         }
 
+        hbco = hbci;
+
         // reconstruct to eliminate rounding error-edffect in further calculations
         wbci = hbci + bbc;
+        wbco = hbco + bbc;
         wother = hother + bother;
-
-        // outer side of the bc face
-        wbco = wbci;
-        hbco = hbci;
     """,
     "_linear_extrap_bc_w_h_kernel"
 )
@@ -122,30 +125,29 @@ cdef _linear_extrap_bc_kernel = cupy.ElementwiseKernel(
     "T qbci, T qbco, T qother, T ubci, T ubco, T uother",
     """
         T dq = (qc0 - qc1) / 2.0;
-        qbci = qc0 + dq;
-        qother = qc0 - dq;
 
-        ubci = qbci / hbci;
-        uother = qother / hother;
-
-        // reconstruct to eliminate rounding error-edffect in further calculations
-        qbci = hbci * ubci;
-        qother = hother * uother;
-
-        // outer side of the bc face
-        qbco = qbci;
-        ubco = ubci;
+        if (hbco < drytol) {
+            ubco = 0.0;
+            qbco = 0.0;
+        } else {
+            ubco = (qc0 + dq) / hbco;
+            qbco = hbco * ubco;
+        }
 
         if (hbci < drytol) {
-            qbci = 0.0;
             ubci = 0.0;
-            qbco = 0.0;
-            ubco = 0.0;
+            qbci = 0.0;
+        } else {
+            ubci = (qc0 + dq) / hbci;
+            qbci = hbci * ubci;
         }
 
         if (hother < drytol) {
-            qother = 0.0;
             uother = 0.0;
+            qother = 0.0;
+        } else {
+            uother = (qc0 - dq) / hother;
+            qother = hother * uother;
         }
     """,
     "_linear_extrap_bc_kernel"
@@ -154,30 +156,31 @@ cdef _linear_extrap_bc_kernel = cupy.ElementwiseKernel(
 
 cdef void _linear_extrap_bc_set_west(
     LinearExtrapBC bc,
-    object Q, object Bx, object Qmx, object Qpx,
-    object H, object Hmx, object Hpx,
+    object Q, object xmQ, object xpQ,
+    object U, object xmU, object xpU,
+    object Bx, 
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
     bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
-    bc.qbci = Qpx[comp, :, 0]
-    bc.qbco = Qmx[comp, :, 0]
-    bc.qother = Qmx[comp, :, 1]
+    bc.qbci = xpQ[comp, :, 0]
+    bc.qbco = xmQ[comp, :, 0]
+    bc.qother = xmQ[comp, :, 1]
 
-    bc.hc0 = H[1:H.shape[0]-1, 1]
-    bc.hbci = Hpx[0, :, 0]
-    bc.hbco = Hmx[0, :, 0]
-    bc.hother = Hmx[0, :, 1]
+    bc.hc0 = U[0, ngh:U.shape[1]-ngh, ngh]
+    bc.hbci = xpU[0, :, 0]
+    bc.hbco = xmU[0, :, 0]
+    bc.hother = xmU[0, :, 1]
 
     bc.bbc = Bx[:, 0]
     bc.bother = Bx[:, 1]
 
     if comp != 0:
-        bc.ubci = Hpx[comp, :, 0]
-        bc.ubco = Hmx[comp, :, 0]
-        bc.uother = Hmx[comp, :, 1]
+        bc.ubci = xpU[comp, :, 0]
+        bc.ubco = xmU[comp, :, 0]
+        bc.uother = xmU[comp, :, 1]
     else:
         bc.ubci = None
         bc.ubco = None
@@ -186,30 +189,31 @@ cdef void _linear_extrap_bc_set_west(
 
 cdef void _linear_extrap_bc_set_east(
     LinearExtrapBC bc,
-    object Q, object Bx, object Qmx, object Qpx,
-    object H, object Hmx, object Hpx,
+    object Q, object xmQ, object xpQ,
+    object U, object xmU, object xpU,
+    object Bx, 
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
     bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
-    bc.qbci = Qmx[comp, :, Qmx.shape[2]-1]
-    bc.qbco = Qpx[comp, :, Qpx.shape[2]-1]
-    bc.qother = Qpx[comp, :, Qpx.shape[2]-2]
+    bc.qbci = xmQ[comp, :, xmQ.shape[2]-1]
+    bc.qbco = xpQ[comp, :, xpQ.shape[2]-1]
+    bc.qother = xpQ[comp, :, xpQ.shape[2]-2]
 
-    bc.hc0 = H[1:H.shape[0]-1, H.shape[1]-2]
-    bc.hbci = Hmx[0, :, Hmx.shape[2]-1]
-    bc.hbco = Hpx[0, :, Hpx.shape[2]-1]
-    bc.hother = Hpx[0, :, Hpx.shape[2]-2]
+    bc.hc0 = U[0, ngh:U.shape[1]-ngh, U.shape[2]-ngh-1]
+    bc.hbci = xmU[0, :, xmU.shape[2]-1]
+    bc.hbco = xpU[0, :, xpU.shape[2]-1]
+    bc.hother = xpU[0, :, xpU.shape[2]-2]
 
     bc.bbc = Bx[:, Bx.shape[1]-1]
     bc.bother = Bx[:, Bx.shape[1]-2]
 
     if comp != 0:
-        bc.ubci = Hmx[comp, :, Hmx.shape[2]-1]
-        bc.ubco = Hpx[comp, :, Hpx.shape[2]-1]
-        bc.uother = Hpx[comp, :, Hpx.shape[2]-2]
+        bc.ubci = xmU[comp, :, xmU.shape[2]-1]
+        bc.ubco = xpU[comp, :, xpU.shape[2]-1]
+        bc.uother = xpU[comp, :, xpU.shape[2]-2]
     else:
         bc.ubci = None
         bc.ubco = None
@@ -218,30 +222,31 @@ cdef void _linear_extrap_bc_set_east(
 
 cdef void _linear_extrap_bc_set_south(
     LinearExtrapBC bc,
-    object Q, object By, object Qmy, object Qpy,
-    object H, object Hmy, object Hpy,
+    object Q, object ymQ, object ypQ,
+    object U, object ymU, object ypU,
+    object By, 
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
     bc.qc1 = Q[comp, ngh+1, ngh:Q.shape[2]-ngh]
-    bc.qbci = Qpy[comp, 0, :]
-    bc.qbco = Qmy[comp, 0, :]
-    bc.qother = Qmy[comp, 1, :]
+    bc.qbci = ypQ[comp, 0, :]
+    bc.qbco = ymQ[comp, 0, :]
+    bc.qother = ymQ[comp, 1, :]
 
-    bc.hc0 = H[1, 1:H.shape[1]-1]
-    bc.hbci = Hpy[0, 0, :]
-    bc.hbco = Hmy[0, 0, :]
-    bc.hother = Hmy[0, 1, :]
+    bc.hc0 = U[0, ngh, ngh:U.shape[2]-ngh]
+    bc.hbci = ypU[0, 0, :]
+    bc.hbco = ymU[0, 0, :]
+    bc.hother = ymU[0, 1, :]
 
     bc.bbc = By[0, :]
     bc.bother = By[1, :]
 
     if comp != 0:
-        bc.ubci = Hpy[comp, 0, :]
-        bc.ubco = Hmy[comp, 0, :]
-        bc.uother = Hmy[comp, 1, :]
+        bc.ubci = ypU[comp, 0, :]
+        bc.ubco = ymU[comp, 0, :]
+        bc.uother = ymU[comp, 1, :]
     else:
         bc.ubci = None
         bc.ubco = None
@@ -250,98 +255,58 @@ cdef void _linear_extrap_bc_set_south(
 
 cdef void _linear_extrap_bc_set_north(
     LinearExtrapBC bc,
-    object Q, object By, object Qmy, object Qpy,
-    object H, object Hmy, object Hpy,
+    object Q, object ymQ, object ypQ,
+    object U, object ymU, object ypU,
+    object By, 
     const Py_ssize_t ngh, const Py_ssize_t comp
 ) except *:
 
     # these should be views into original data buffer
     bc.qc0 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
     bc.qc1 = Q[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
-    bc.qbci = Qmy[comp, Qmy.shape[1]-1, :]
-    bc.qbco = Qpy[comp, Qpy.shape[1]-1, :]
-    bc.qother = Qpy[comp, Qpy.shape[1]-2, :]
+    bc.qbci = ymQ[comp, ymQ.shape[1]-1, :]
+    bc.qbco = ypQ[comp, ypQ.shape[1]-1, :]
+    bc.qother = ypQ[comp, ypQ.shape[1]-2, :]
 
-    bc.hc0 = H[H.shape[0]-2, 1:H.shape[1]-1]
-    bc.hbci = Hmy[0, Hmy.shape[1]-1, :]
-    bc.hbco = Hpy[0, Hpy.shape[1]-1, :]
-    bc.hother = Hpy[0, Hpy.shape[1]-2, :]
+    bc.hc0 = U[0, U.shape[1]-ngh-1, ngh:U.shape[2]-ngh]
+    bc.hbci = ymU[0, ymU.shape[1]-1, :]
+    bc.hbco = ypU[0, ypU.shape[1]-1, :]
+    bc.hother = ypU[0, ypU.shape[1]-2, :]
 
     bc.bbc = By[By.shape[0]-1, :]
     bc.bother = By[By.shape[0]-2, :]
 
     if comp != 0:
-        bc.ubci = Hmy[comp, Hmy.shape[1]-1, :]
-        bc.ubco = Hpy[comp, Hpy.shape[1]-1, :]
-        bc.uother = Hpy[comp, Hpy.shape[1]-2, :]
+        bc.ubci = ymU[comp, ymU.shape[1]-1, :]
+        bc.ubco = ypU[comp, ypU.shape[1]-1, :]
+        bc.uother = ypU[comp, ypU.shape[1]-2, :]
     else:
         bc.ubci = None
         bc.ubco = None
         bc.uother = None
 
 
-cdef _shape_checker(
-    object Q, object Qmx, object Qpx, object Qmy, object Qpy,
-    object Hmx, object Hpx, object Hmy, object Hpy,
-    const Py_ssize_t ngh, const Py_ssize_t comp, const unsigned ornt
-):
-    assert ngh == 2, "Currently only support ngh = 2"
-    assert 0 <= comp <= 2, "comp should be 0 <= comp <= 2"
-    assert 0 <= ornt <= 3, "ornt should be 0 <= ornt <= 3"
-
-    assert Q.shape[0] == 3, f"{Q.shape}"
-
-    assert Qmx.shape[0] == 3, f"{Qmx.shape}"
-    assert Qmx.shape[1] == Q.shape[1] - 2 * ngh, f"{Qmx.shape}"
-    assert Qmx.shape[2] == Q.shape[2] - 2 * ngh + 1, f"{Qmx.shape}"
-
-    assert Qpx.shape[0] == 3, f"{Qpx.shape}"
-    assert Qpx.shape[1] == Q.shape[1] - 2 * ngh, f"{Qpx.shape}"
-    assert Qpx.shape[2] == Q.shape[2] - 2 * ngh + 1, f"{Qpx.shape}"
-
-    assert Qmy.shape[0] == 3, f"{Qmy.shape}"
-    assert Qmy.shape[1] == Q.shape[1] - 2 * ngh + 1, f"{Qmy.shape}"
-    assert Qmy.shape[2] == Q.shape[2] - 2 * ngh, f"{Qmy.shape}"
-
-    assert Qpy.shape[0] == 3, f"{Qpy.shape}"
-    assert Qpy.shape[1] == Q.shape[1] - 2 * ngh + 1, f"{Qpy.shape}"
-    assert Qpy.shape[2] == Q.shape[2] - 2 * ngh, f"{Qpy.shape}"
-
-    assert Hmx.shape[0] == 3, f"{Hmx.shape}"
-    assert Hmx.shape[1] == Q.shape[1] - 2 * ngh, f"{Hmx.shape}"
-    assert Hmx.shape[2] == Q.shape[2] - 2 * ngh + 1, f"{Hmx.shape}"
-
-    assert Hpx.shape[0] == 3, f"{Hpx.shape}"
-    assert Hpx.shape[1] == Q.shape[1] - 2 * ngh, f"{Hpx.shape}"
-    assert Hpx.shape[2] == Q.shape[2] - 2 * ngh + 1, f"{Hpx.shape}"
-
-    assert Hmy.shape[0] == 3, f"{Hmy.shape}"
-    assert Hmy.shape[1] == Q.shape[1] - 2 * ngh + 1, f"{Hmy.shape}"
-    assert Hmy.shape[2] == Q.shape[2] - 2 * ngh, f"{Hmy.shape}"
-
-    assert Hpy.shape[0] == 3, f"{Hpy.shape}"
-    assert Hpy.shape[1] == Q.shape[1] - 2 * ngh + 1, f"{Hpy.shape}"
-    assert Hpy.shape[2] == Q.shape[2] - 2 * ngh, f"{Hpy.shape}"
-
-
-def linear_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs):
-    """Factory to create a constant extrapolation boundary condition callable object.
+def linear_extrap_bc_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs):
+    """Factory to create a linear extrapolation boundary condition callable object.
     """
 
     # aliases
     cdef object Q = states.Q
-    cdef object Qmx = states.face.x.minus.Q
-    cdef object Qpx = states.face.x.plus.Q
-    cdef object Qmy = states.face.y.minus.Q
-    cdef object Qpy = states.face.y.plus.Q
-    cdef object H = states.H
-    cdef object Hmx = states.face.x.minus.U
-    cdef object Hpx = states.face.x.plus.U
-    cdef object Hmy = states.face.y.minus.U
-    cdef object Hpy = states.face.y.plus.U
+    cdef object xmQ = states.face.x.minus.Q
+    cdef object xpQ = states.face.x.plus.Q
+    cdef object ymQ = states.face.y.minus.Q
+    cdef object ypQ = states.face.y.plus.Q
+
+    cdef object U = states.U
+    cdef object xmU = states.face.x.minus.U
+    cdef object xpU = states.face.x.plus.U
+    cdef object ymU = states.face.y.minus.U
+    cdef object ypU = states.face.y.plus.U
+
     cdef object Bx = topo.xfcenters
     cdef object By = topo.yfcenters
-    cdef Py_ssize_t ngh = states.ngh
+
+    cdef Py_ssize_t ngh = states.domain.nhalo
 
     if isinstance(ornt, str):
         if ornt in ["w", "west"]:
@@ -355,10 +320,10 @@ def linear_extrap_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs
 
     if comp == 0:
         bc = LinearExtrapWH(
-            Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
+            Q, xmQ, xpQ, ymQ, ypQ, U, xmU, xpU, ymU, ypU, Bx, By, ngh, comp, ornt, tol, drytol)
     elif comp == 1 or comp == 2:
         bc = LinearExtrapOther(
-            Q, Qmx, Qpx, Qmy, Qpy, H, Hmx, Hpx, Hmy, Hpy, Bx, By, ngh, comp, ornt, tol, drytol)
+            Q, xmQ, xpQ, ymQ, ypQ, U, xmU, xpU, ymU, ypU, Bx, By, ngh, comp, ornt, tol, drytol)
     else:
         raise ValueError(f"Unrecognized component: {comp}")
 
