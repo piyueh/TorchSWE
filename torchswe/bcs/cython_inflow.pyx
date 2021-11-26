@@ -25,7 +25,7 @@ ctypedef fused InflowOtherBC:
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowDoubleBase:
-    """Base class of constant-value boundary coditions wiht 64-bit floating points.
+    """Base class of inflow boundary coditions wiht 64-bit floating points.
     """
     
     # number of elements to be updated on this boundary
@@ -45,7 +45,7 @@ cdef class InflowDoubleBase:
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowFloatBase:
-    """Base class of constant-value boundary coditions wiht 32-bit floating points.
+    """Base class of inflow boundary coditions wiht 32-bit floating points.
     """
     
     # number of elements to be updated on this boundary
@@ -65,7 +65,7 @@ cdef class InflowFloatBase:
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowDoubleWH(InflowDoubleBase):
-    """Constant-value boundary coditions wiht 64-bit floating points for w and h.
+    """Inflow boundary coditions wiht 64-bit floating points for w and h.
     """
 
     # depth
@@ -122,7 +122,7 @@ cdef class InflowDoubleWH(InflowDoubleBase):
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowFloatWH(InflowFloatBase):
-    """Constant-value boundary coditions wiht 32-bit floating points for w and h.
+    """Inflow boundary coditions wiht 32-bit floating points for w and h.
     """
 
     # depth
@@ -179,7 +179,7 @@ cdef class InflowFloatWH(InflowFloatBase):
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowDoubleOther(InflowDoubleBase):
-    """Constant-value boundary coditions wiht 64-bit floating points for hu or hv.
+    """Inflow boundary coditions wiht 64-bit floating points for hu or hv.
     """
 
     # read-only depth
@@ -215,7 +215,7 @@ cdef class InflowDoubleOther(InflowDoubleBase):
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowFloatOther(InflowFloatBase):
-    """Constant-value boundary coditions wiht 32-bit floating points for hu or hv.
+    """Inflow boundary coditions wiht 32-bit floating points for hu or hv.
     """
 
     # read-only depth
@@ -593,7 +593,7 @@ cdef void _inflow_bc_set_north(
 
 
 def inflow_bc_factory(ornt, comp, states, topo, tol, drytol, theta, val, *args, **kwargs):
-    """Factory to create a constant-valued boundary condition callable object.
+    """Factory to create an inflow boundary condition callable object.
     """
 
     # aliases

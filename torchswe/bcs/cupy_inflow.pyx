@@ -12,7 +12,7 @@ ctypedef fused InflowBC:
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowBase:
-    """Constant-value (conservative quantities) boundary condition.
+    """Inflow (conservative non-quantities) boundary condition.
     """
 
     # conservatives
@@ -34,7 +34,7 @@ cdef class InflowBase:
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowWH(InflowBase):
-    """Constant-value (conservative quantities) boundary condition for updating w and h.
+    """Inflow (conservative non-quantities) boundary condition for updating w and h.
     """
 
     # depth
@@ -75,7 +75,7 @@ cdef class InflowWH(InflowBase):
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class InflowOther(InflowBase):
-    """Constant-value (conservative quantities) boundary condition for updating hu or hv.
+    """Inflow (conservative non-quantities) boundary condition for updating hu or hv.
     """
 
     # velocities

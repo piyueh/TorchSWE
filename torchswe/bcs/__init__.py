@@ -97,7 +97,7 @@ def get_ghost_cell_updaters(
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
-                funcs.append(inflow_factory(ornt, i, states, topo, theta, tol, drytol, bcv))
+                funcs.append(inflow_bc_factory(ornt, i, states, topo, tol, drytol, theta, bcv))
 
             # this shouldn't happen because pydantic should have catched the error
             else:
