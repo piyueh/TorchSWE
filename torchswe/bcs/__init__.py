@@ -25,11 +25,12 @@ if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from ._cupy_outflow import outflow_bc_factory  # pylint: disable=no-name-in-module
     from ._cupy_linear_extrap import linear_extrap_bc_factory  # pylint: disable=no-name-in-module
     from ._cupy_const_val import const_val_bc_factory  # pylint: disable=no-name-in-module
-    from ._cupy_inflow import inflow_factory  # pylint: disable=no-name-in-module
+    from ._cupy_inflow import inflow_bc_factory  # pylint: disable=no-name-in-module
 else:
     from ._cython_outflow import outflow_bc_factory  # pylint: disable=no-name-in-module
     from ._cython_linear_extrap import linear_extrap_bc_factory  # pylint: disable=no-name-in-module
     from ._cython_const_val import const_val_bc_factory  # pylint: disable=no-name-in-module
+    from ._cython_inflow import inflow_bc_factory  # pylint: disable=no-name-in-module
 
 
 def get_ghost_cell_updaters(
