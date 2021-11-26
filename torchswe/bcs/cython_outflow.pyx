@@ -188,16 +188,16 @@ cdef inline void _outflow_bc_w_h_kernel(OutflowBC bc) nogil except *:
             bc.qbco[i] = bc.bbc[i];
             bc.qbci[i] = bc.bbc[i];
             bc.qother[i] = bc.bother[i];
-            return
+            continue
 
         bc.hbci[i] = bc.qc0[i] - bc.bbc[i];
         bc.hother[i] = bc.qc0[i] - bc.bother[i];
 
         # fix negative depth
-        if bc.hbci[i] < bc.drytol:
+        if bc.hbci[i] < bc.tol:
             bc.hbci[i] = 0.0;
             bc.hother[i] = bc.hc0[i] * 2.0;
-        elif bc.hother[i] < bc.drytol:
+        elif bc.hother[i] < bc.tol:
             bc.hbci[i] = bc.hc0[i] * 2.0;
             bc.hother[i] = 0.0;
 
