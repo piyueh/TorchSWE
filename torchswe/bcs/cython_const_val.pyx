@@ -27,7 +27,7 @@ ctypedef fused ConstValOtherBC:
 cdef class ConstValDoubleBase:
     """Base class of constant-value boundary coditions wiht 64-bit floating points.
     """
-    
+
     # number of elements to be updated on this boundary
     cdef Py_ssize_t n
 
@@ -47,7 +47,7 @@ cdef class ConstValDoubleBase:
 cdef class ConstValFloatBase:
     """Base class of constant-value boundary coditions wiht 32-bit floating points.
     """
-    
+
     # number of elements to be updated on this boundary
     cdef Py_ssize_t n
 
@@ -277,14 +277,20 @@ cdef void _const_val_bc_w_h_kernel(
 
             # inner side depends on minmod reconstruction as if there's a ghost cell
             denominator = bc.qc1[i] - bc.qc0[i];
-            slp = (bc.qc0[i] - bc.val) / denominator;
-            slp = min(slp*bc.theta, (slp+1.0)/2.0);
-            slp = min(slp, bc.theta);
-            slp = max(slp, 0.0);
-            slp *= denominator;
-            slp /= 2.0;
-            bc.hbci[i] = bc.qc0[i] - slp - bc.bbc[i];
-            bc.hother[i] = bc.qc0[i] + slp - bc.bother[i];
+            slp = bc.qc0[i] - bc.val;
+
+            if denominator == 0.0 or slp == 0.0:  # checking for exact zeros
+                bc.hbci[i] = bc.qc0[i] - bc.bbc[i];
+                bc.hother[i] = bc.qc0[i] - bc.bother[i];
+            else:
+                slp = slp / denominator;
+                slp = min(slp*bc.theta, (slp+1.0)/2.0);
+                slp = min(slp, bc.theta);
+                slp = max(slp, 0.0);
+                slp *= denominator;
+                slp /= 2.0;
+                bc.hbci[i] = bc.qc0[i] - slp - bc.bbc[i];
+                bc.hother[i] = bc.qc0[i] + slp - bc.bother[i];
 
             # fix negative depth
             if (bc.hbci[i] < bc.tol):
@@ -319,12 +325,16 @@ cdef void _const_val_bc_kernel(
 
             # inner side depends on minmod reconstruction as if there's a ghost cell
             denominator = bc.qc1[i] - bc.qc0[i];
-            slp = (bc.qc0[i] - bc.val) / denominator;
-            slp = min(slp*bc.theta, (slp+1.0)/2.0);
-            slp = min(slp, bc.theta);
-            slp = max(slp, 0.0);
-            slp *= denominator;
-            slp /= 2.0;
+            slp = bc.qc0[i] - bc.val;
+            if denominator != 0.0 and slp != 0.0:  # checking for exact zeros
+                slp = slp / denominator;
+                slp = min(slp*bc.theta, (slp+1.0)/2.0);
+                slp = min(slp, bc.theta);
+                slp = max(slp, 0.0);
+                slp *= denominator;
+                slp /= 2.0;
+            else:  # slp may still not be zero at this point
+                slp = 0.0;
 
             # we don't fix values at the outer side -> they follow desired BC values
 
@@ -411,13 +421,16 @@ cdef void _const_val_bc_init(
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
-        if ConstValBC is ConstValDoubleWH:
+        if ConstValBC is ConstValDoubleWH or ConstValBC is ConstValFloatWH:
             bc.tol = tol
-        elif ConstValBC is ConstValFloatWH:
-            bc.tol = tol
-        elif ConstValBC is ConstValDoubleOther:
-            bc.drytol = drytol
-        elif ConstValBC is ConstValFloatOther:
+        elif ConstValBC is ConstValDoubleOther or ConstValBC is ConstValFloatOther:
+            # because they didn't call `cinit` before
+            if ornt == 0 or ornt == 1:  # west or east
+                bc.n = Q.shape[1] - 2 * ngh  # ny
+            elif ornt == 2 or ornt == 3:  # west or east
+                bc.n = Q.shape[2] - 2 * ngh  # nx
+            else:
+                raise ValueError(f"`ornt` should be >= 0 and <= 3: {ornt}")
             bc.drytol = drytol
 
         bc.theta = theta
