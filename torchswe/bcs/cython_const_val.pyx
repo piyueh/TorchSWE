@@ -315,7 +315,7 @@ cdef void _const_val_bc_kernel(
         for i in range(bc.n):
             # outer side follows desired values
             bc.qbco[i] = bc.val;
-            bc.ubco[i] = bc.val / bc.hbci[i];
+            bc.ubco[i] = bc.val / bc.hbco[i];
 
             # inner side depends on minmod reconstruction as if there's a ghost cell
             denominator = bc.qc1[i] - bc.qc0[i];

@@ -164,7 +164,7 @@ cdef _const_val_bc_kernel = cupy.ElementwiseKernel(
 
         // outer side follows desired values
         qbco = val;
-        ubco = val / hbci;
+        ubco = val / hbco;
 
         // inner side depends on minmod reconstruction as if there's a ghost cell
         denominator = qc1 - qc0;
