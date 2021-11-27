@@ -90,7 +90,7 @@ cdef _outflow_bc_w_h_kernel = cupy.ElementwiseKernel(
             hother = 0.0;
             wbci = bbc;
             wbco = bbc;
-            wbco = bother;
+            wother = bother;
             continue;
         }
 
