@@ -3,6 +3,56 @@
 cimport cython
 
 
+# mimic CuPy's raw kernel so that we can have a similar code structure
+# (somehow this kernel doesn't work well with fused types and nogil, so we do it manually)
+cdef inline double _minmod_slope_raw_kernel_double(
+    double s1, double s2, double s3, double theta,
+) nogil except *:
+
+    cdef double ans;
+    cdef double denominator = s3 - s2;
+
+    if denominator == 0.0: # exact zero; no tolerance
+        return 0.0;
+
+    ans = s2 - s1;
+    if ans == 0.0 or ans == -1.0:  # exact zero or -1; no tolerance
+        return 0.0;
+
+    ans /= denominator;
+    ans = min(ans*theta, (1.0+ans) / 2.0);
+    ans = min(ans, theta);
+    ans = max(ans, 0.);
+    ans *= denominator;
+    ans /= 2.0;
+    return ans
+
+
+# mimic CuPy's raw kernel so that we can have a similar code structure
+# (somehow this kernel doesn't work well with fused types and nogil, so we do it manually)
+cdef inline float _minmod_slope_raw_kernel_float(
+    float s1, float s2, float s3, float theta,
+) nogil except *:
+
+    cdef float ans;
+    cdef float denominator = s3 - s2;
+
+    if denominator == 0.0: # exact zero; no tolerance
+        return 0.0;
+
+    ans = s2 - s1;
+    if ans == 0.0 or ans == -1.0:  # exact zero or -1; no tolerance
+        return 0.0;
+
+    ans /= denominator;
+    ans = min(ans*theta, (1.0+ans) / 2.0);
+    ans = min(ans, theta);
+    ans = max(ans, 0.);
+    ans *= denominator;
+    ans /= 2.0;
+    return ans
+
+
 cdef inline void _minmod_slope_kernel(
     const cython.floating[:, :, :] s1,
     const cython.floating[:, :, :] s2,
@@ -19,30 +69,19 @@ cdef inline void _minmod_slope_kernel(
     cdef Py_ssize_t ny = slp.shape[1];
     cdef Py_ssize_t nx = slp.shape[2];
     cdef Py_ssize_t k, j, i;
-
-    cdef cython.floating denominator;
-    cdef cython.floating ans;
+    cdef cython.floating ans, denominator;
 
     for k in range(nfields):
         for j in range(ny):
             for i in range(nx):
-                denominator = s3[k, j, i] - s2[k, j, i];
-                if denominator == 0.0: # exact zero; no tolerance
-                    slp[k, j, i] = 0.0;
-                    break;
 
-                ans = s2[k, j, i] - s3[k, j, i];
-                if ans == 0.0 or ans == - 1.0:  # exact zero or -1; no tolerance
-                    slp[k, j, i] == 0.0;
-                    break;
-
-                ans /= denominator;
-                ans = min(ans*theta, (1.0+ans)/2.0);
-                ans = min(ans, theta);
-                ans = max(ans, 0.0);
-                ans *= denominator;
-                ans /= 2.0;
-                slp[k, j, i] = ans;
+                # compile time decision; no runtime overhead
+                if cython.floating is double:
+                    slp[k, j, i] = _minmod_slope_raw_kernel_double(
+                        s1[k, j, i], s2[k, j, i], s3[k, j, i], theta)
+                elif cython.floating is float:
+                    slp[k, j, i] = _minmod_slope_raw_kernel_float(
+                        s1[k, j, i], s2[k, j, i], s3[k, j, i], theta)
 
 
 cdef inline void _add3(
@@ -153,21 +192,43 @@ cdef inline void _fix_face_depth_edge(
             H[i] = hc2;
 
 
-cdef inline void _fix_face_velocity(
-    const cython.floating[:, ::1] H,
-    const cython.floating drytol,
-    cython.floating[:, ::1] U,
-    cython.floating[:, ::1] V
+cdef inline void _recnstrt_face_velocity(
+    const cython.floating[:, :] hul, const cython.floating[:, :] hur,
+    const cython.floating[:, :] hvl, const cython.floating[:, :] hvr,
+    const cython.floating[:, :] hl, const cython.floating[:, :] hr,
+    const cython.floating[:, :] uim1, const cython.floating[:, :] ui, const cython.floating[:, :] uip1,
+    const cython.floating[:, :] vim1, const cython.floating[:, :] vi, const cython.floating[:, :] vip1,
+    const cython.floating theta, const cython.floating drytol,
+    cython.floating[:, :] ul, cython.floating[:, :] ur,
+    cython.floating[:, :] vl, cython.floating[:, :] vr,
 ) nogil except *:
-    cdef Py_ssize_t ny = H.shape[0];
-    cdef Py_ssize_t nx = H.shape[1];
+    cdef Py_ssize_t ny = ui.shape[0];
+    cdef Py_ssize_t nx = ui.shape[1];
     cdef Py_ssize_t j, i;
+    cdef cython.floating du, dv;
+    cdef cython.floating denominator;
 
     for j in range(ny):
         for i in range(nx):
-            if H[j, i] < drytol:
-                U[j, i] = 0.0;
-                V[j, i] = 0.0;
+            if hl[j, i] < drytol or hr[j, i] < drytol:
+
+                # compile time decision; no runtime overhead
+                if cython.floating is double:
+                    du = _minmod_slope_raw_kernel_double(uim1[j, i], ui[j, i], uip1[j, i], theta);
+                    dv = _minmod_slope_raw_kernel_double(vim1[j, i], vi[j, i], vip1[j, i], theta);
+                elif cython.floating is float:
+                    du = _minmod_slope_raw_kernel_float(uim1[j, i], ui[j, i], uip1[j, i], theta);
+                    dv = _minmod_slope_raw_kernel_float(vim1[j, i], vi[j, i], vip1[j, i], theta);
+
+                ul[j, i] = ui[j, i] - du;
+                ur[j, i] = ui[j, i] + du;
+                vl[j, i] = vi[j, i] - dv;
+                vr[j, i] = vi[j, i] + dv;
+            else:
+                ul[j, i] = hul[j, i] / hl[j, i];
+                ur[j, i] = hur[j, i] / hr[j, i];
+                vl[j, i] = hvl[j, i] / hl[j, i];
+                vr[j, i] = hvr[j, i] / hr[j, i];
 
 
 cdef inline void _recnstrt_face_conservatives(
@@ -220,25 +281,15 @@ cdef inline void _reconstruct(
     cdef Py_ssize_t ybg = ngh
     cdef Py_ssize_t yed = ngh + ny
 
-    # slopes for w, u, and v (not hu nor hv!) in x
-    _minmod_slope_kernel[cython.floating](Q[:1, ybg:yed, xbg-2:xed], Q[:1, ybg:yed, xbg-1:xed+1], Q[:1, ybg:yed, xbg:xed+2], theta, slpx[:1])
-    _minmod_slope_kernel[cython.floating](U[1:, ybg:yed, xbg-2:xed], U[1:, ybg:yed, xbg-1:xed+1], U[1:, ybg:yed, xbg:xed+2], theta, slpx[1:])
+    # slopes for w, hu, and hv in x and y
+    _minmod_slope_kernel[cython.floating](Q[:, ybg:yed, xbg-2:xed], Q[:, ybg:yed, xbg-1:xed+1], Q[:, ybg:yed, xbg:xed+2], theta, slpx)
+    _minmod_slope_kernel[cython.floating](Q[:, ybg-2:yed, xbg:xed], Q[:, ybg-1:yed+1, xbg:xed], Q[:, ybg:yed+2, xbg:xed], theta, slpy)
 
-    # slopes for w, u, and v (not hu nor hv!) in x
-    _minmod_slope_kernel[cython.floating](Q[:1, ybg-2:yed, xbg:xed], Q[:1, ybg-1:yed+1, xbg:xed], Q[:1, ybg:yed+2, xbg:xed], theta, slpy[:1])
-    _minmod_slope_kernel[cython.floating](U[1:, ybg-2:yed, xbg:xed], U[1:, ybg-1:yed+1, xbg:xed], U[1:, ybg:yed+2, xbg:xed], theta, slpy[1:])
-
-    # extrapolate discontinuous w
-    _add3[cython.floating](Q[:1, ybg:yed, xbg-1:xed], slpx[:1, :, :nx+1], xmQ[:1])
-    _subtract3[cython.floating](Q[:1, ybg:yed, xbg:xed+1], slpx[:1, :, 1:], xpQ[:1])
-    _add3[cython.floating](Q[:1, ybg-1:yed, xbg:xed], slpy[:1, :ny+1, :], ymQ[:1])
-    _subtract3[cython.floating](Q[:1, ybg:yed+1, xbg:xed], slpy[:1, 1:, :], ypQ[:1])
-
-    # extrapolate discontinuous u and v
-    _add3[cython.floating](U[1:, ybg:yed, xbg-1:xed], slpx[1:, :, :nx+1], xmU[1:])
-    _subtract3[cython.floating](U[1:, ybg:yed, xbg:xed+1], slpx[1:, :, 1:], xpU[1:])
-    _add3[cython.floating](U[1:, ybg-1:yed, xbg:xed], slpy[1:, :ny+1, :], ymU[1:])
-    _subtract3[cython.floating](U[1:, ybg:yed+1, xbg:xed], slpy[1:, 1:, :], ypU[1:])
+    # extrapolate discontinuous w, hu, and hv
+    _add3[cython.floating](Q[:, ybg:yed, xbg-1:xed], slpx[:, :, :nx+1], xmQ)
+    _subtract3[cython.floating](Q[:, ybg:yed, xbg:xed+1], slpx[:, :, 1:], xpQ)
+    _add3[cython.floating](Q[:, ybg-1:yed, xbg:xed], slpy[:, :ny+1, :], ymQ)
+    _subtract3[cython.floating](Q[:, ybg:yed+1, xbg:xed], slpy[:, 1:, :], ypQ)
 
     # calculate depth at cell faces
     _subtract2[cython.floating](xmQ[:1], xfcenters, xmU[:1])
@@ -257,10 +308,26 @@ cdef inline void _reconstruct(
     _fix_face_depth_edge[cython.floating](U[0, yed, xbg:xed], tol, ypU[0, ny, :])
 
     # reconstruct velocity at cell faces
-    _fix_face_velocity[cython.floating](xmU[0], drytol, xmU[1], xmU[2])
-    _fix_face_velocity[cython.floating](xpU[0], drytol, xpU[1], xpU[2])
-    _fix_face_velocity[cython.floating](ymU[0], drytol, ymU[1], ymU[2])
-    _fix_face_velocity[cython.floating](ypU[0], drytol, ypU[1], ypU[2])
+    _recnstrt_face_velocity[cython.floating](
+        xpQ[1, :, :nx], xmQ[1, :, 1:],  # hul, hur
+        xpQ[2, :, :nx], xmQ[2, :, 1:],  # hvl, hvr
+        xpU[0, :, :nx], xmU[0, :, 1:],  # hl, hr
+        U[1, ybg:yed, xbg-1:xed-1], U[1, ybg:yed, xbg:xed], U[1, ybg:yed, xbg+1:xed+1],  # uim1, ui, uip1
+        U[2, ybg:yed, xbg-1:xed-1], U[2, ybg:yed, xbg:xed], U[2, ybg:yed, xbg+1:xed+1],  # vim1, vi, vip1
+        theta, drytol,
+        xpU[1, :, :nx], xmU[1, :, 1:],  # output: ul, ur
+        xpU[2, :, :nx], xmU[2, :, 1:],  # output: vl, vr
+    )
+    _recnstrt_face_velocity[cython.floating](
+        ypQ[1, :ny, :], ymQ[1, 1:, :],  # hul, hur
+        ypQ[2, :ny, :], ymQ[2, 1:, :],  # hvl, hvr
+        ypU[0, :ny, :], ymU[0, 1:, :],  # hl, hr
+        U[1, ybg-1:yed-1, xbg:xed], U[1, ybg:yed, xbg:xed], U[1, ybg+1:yed+1, xbg:xed],  # uim1, ui, uip1
+        U[2, ybg-1:yed-1, xbg:xed], U[2, ybg:yed, xbg:xed], U[2, ybg+1:yed+1, xbg:xed],  # vim1, vi, vip1
+        theta, drytol,
+        ypU[1, :ny, :], ymU[1, 1:, :],  # output: hul, hur
+        ypU[2, :ny, :], ymU[2, 1:, :],  # output: hvl, hvr
+    )
 
     # reconstruct conservative quantities at cell faces
     _recnstrt_face_conservatives[cython.floating](xmU[0], xmU[1], xmU[2], xfcenters, xmQ[0], xmQ[1], xmQ[2])
