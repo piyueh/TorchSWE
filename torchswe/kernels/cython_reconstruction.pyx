@@ -188,7 +188,7 @@ cdef inline void _fix_face_depth_edge(
             H[i] = 0.0;
         elif h < tol:
             H[i] = 0.0;
-        elif h < hc2:
+        elif h > (hc2 - tol):
             H[i] = hc2;
 
 
@@ -206,7 +206,6 @@ cdef inline void _recnstrt_face_velocity(
     cdef Py_ssize_t nx = ui.shape[1];
     cdef Py_ssize_t j, i;
     cdef cython.floating du, dv;
-    cdef cython.floating denominator;
 
     for j in range(ny):
         for i in range(nx):
@@ -229,6 +228,66 @@ cdef inline void _recnstrt_face_velocity(
                 ur[j, i] = hur[j, i] / hr[j, i];
                 vl[j, i] = hvl[j, i] / hl[j, i];
                 vr[j, i] = hvr[j, i] / hr[j, i];
+
+
+cdef inline void _recnstrt_face_velocity_edge_minus(
+    const cython.floating[:] hu, const cython.floating[:] hv, const cython.floating[:] h,
+    const cython.floating[:] hi,
+    const cython.floating[:] uim1, const cython.floating[:] ui, const cython.floating[:] uip1,
+    const cython.floating[:] vim1, const cython.floating[:] vi, const cython.floating[:] vip1,
+    const cython.floating theta, const cython.floating drytol,
+    cython.floating[:] u, cython.floating[:] v,
+) nogil except *:
+    cdef Py_ssize_t n = ui.shape[0];
+    cdef Py_ssize_t i;
+    cdef cython.floating du, dv;
+
+    for i in range(n):
+        if h[i] < drytol or hi[i] * 2.0 - h[i] < drytol:
+
+            # compile time decision; no runtime overhead
+            if cython.floating is double:
+                du = _minmod_slope_raw_kernel_double(uim1[i], ui[i], uip1[i], theta);
+                dv = _minmod_slope_raw_kernel_double(vim1[i], vi[i], vip1[i], theta);
+            elif cython.floating is float:
+                du = _minmod_slope_raw_kernel_float(uim1[i], ui[i], uip1[i], theta);
+                dv = _minmod_slope_raw_kernel_float(vim1[i], vi[i], vip1[i], theta);
+
+            u[i] = ui[i] + du;
+            v[i] = vi[i] + dv;
+        else:
+            u[i] = hu[i] / h[i];
+            v[i] = hv[i] / h[i];
+
+
+cdef inline void _recnstrt_face_velocity_edge_plus(
+    const cython.floating[:] hu, const cython.floating[:] hv, const cython.floating[:] h,
+    const cython.floating[:] hi,
+    const cython.floating[:] uim1, const cython.floating[:] ui, const cython.floating[:] uip1,
+    const cython.floating[:] vim1, const cython.floating[:] vi, const cython.floating[:] vip1,
+    const cython.floating theta, const cython.floating drytol,
+    cython.floating[:] u, cython.floating[:] v,
+) nogil except *:
+    cdef Py_ssize_t n = ui.shape[0];
+    cdef Py_ssize_t i;
+    cdef cython.floating du, dv;
+
+    for i in range(n):
+        if h[i] < drytol or hi[i] * 2.0 - h[i] < drytol:
+
+            # compile time decision; no runtime overhead
+            if cython.floating is double:
+                du = _minmod_slope_raw_kernel_double(uim1[i], ui[i], uip1[i], theta);
+                dv = _minmod_slope_raw_kernel_double(vim1[i], vi[i], vip1[i], theta);
+            elif cython.floating is float:
+                du = _minmod_slope_raw_kernel_float(uim1[i], ui[i], uip1[i], theta);
+                dv = _minmod_slope_raw_kernel_float(vim1[i], vi[i], vip1[i], theta);
+
+            u[i] = ui[i] - du;
+            v[i] = vi[i] - dv;
+        else:
+            u[i] = hu[i] / h[i];
+            v[i] = hv[i] / h[i];
 
 
 cdef inline void _recnstrt_face_conservatives(
@@ -307,7 +366,7 @@ cdef inline void _reconstruct(
     _fix_face_depth_edge[cython.floating](U[0, ybg-1, xbg:xed], tol, ymU[0, 0, :])
     _fix_face_depth_edge[cython.floating](U[0, yed, xbg:xed], tol, ypU[0, ny, :])
 
-    # reconstruct velocity at cell faces
+    # reconstruct velocity at cell faces in x direction
     _recnstrt_face_velocity[cython.floating](
         xpQ[1, :, :nx], xmQ[1, :, 1:],  # hul, hur
         xpQ[2, :, :nx], xmQ[2, :, 1:],  # hvl, hvr
@@ -318,6 +377,20 @@ cdef inline void _reconstruct(
         xpU[1, :, :nx], xmU[1, :, 1:],  # output: ul, ur
         xpU[2, :, :nx], xmU[2, :, 1:],  # output: vl, vr
     )
+    _recnstrt_face_velocity_edge_minus[cython.floating](
+        xmQ[1, :, 0], xmQ[2, :, 0], xmU[0, :, 0], U[0, ybg:yed, xbg-1],
+        U[1, ybg:yed, xbg-2], U[1, ybg:yed, xbg-1], U[1, ybg:yed, xbg],
+        U[2, ybg:yed, xbg-2], U[2, ybg:yed, xbg-1], U[2, ybg:yed, xbg],
+        theta, drytol, xmU[1, :, 0], xmU[2, :, 0],
+    )
+    _recnstrt_face_velocity_edge_plus[cython.floating](
+        xpQ[1, :, nx], xpQ[2, :, nx], xpU[0, :, nx], U[0, ybg:yed, xed],
+        U[1, ybg:yed, xed-1], U[1, ybg:yed, xed], U[1, ybg:yed, xed+1],
+        U[2, ybg:yed, xed-1], U[2, ybg:yed, xed], U[2, ybg:yed, xed+1],
+        theta, drytol, xpU[1, :, nx], xpU[2, :, nx],
+    )
+
+    # reconstruct velocity at cell faces in y direction
     _recnstrt_face_velocity[cython.floating](
         ypQ[1, :ny, :], ymQ[1, 1:, :],  # hul, hur
         ypQ[2, :ny, :], ymQ[2, 1:, :],  # hvl, hvr
@@ -327,6 +400,18 @@ cdef inline void _reconstruct(
         theta, drytol,
         ypU[1, :ny, :], ymU[1, 1:, :],  # output: hul, hur
         ypU[2, :ny, :], ymU[2, 1:, :],  # output: hvl, hvr
+    )
+    _recnstrt_face_velocity_edge_minus[cython.floating](
+        ymQ[1, 0, :], ymQ[2, 0, :], ymU[0, 0, :], U[0, ybg-1, xbg:xed],
+        U[1, ybg-2, xbg:xed], U[1, ybg-1, xbg:xed], U[1, ybg, xbg:xed],
+        U[2, ybg-2, xbg:xed], U[2, ybg-1, xbg:xed], U[2, ybg, xbg:xed],
+        theta, drytol, ymU[1, 0, :], ymU[2, 0, :],
+    )
+    _recnstrt_face_velocity_edge_plus[cython.floating](
+        ypQ[1, ny, :], ypQ[2, ny, :], ypU[0, ny, :], U[0, yed, xbg:xed],
+        U[1, yed-1, xbg:xed], U[1, yed, xbg:xed], U[1, yed+1, xbg:xed],
+        U[2, yed-1, xbg:xed], U[2, yed, xbg:xed], U[2, yed+1, xbg:xed],
+        theta, drytol, ypU[1, ny, :], ypU[2, ny, :],
     )
 
     # reconstruct conservative quantities at cell faces

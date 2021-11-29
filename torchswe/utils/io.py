@@ -102,7 +102,7 @@ def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
         dset.sync()
 
 
-def write_states(states: _States, fname: str):
+def write_states(states: _States):
     """Write flatten states to a .npz file for debug."""
 
     comm = states.domain.comm
@@ -117,83 +117,37 @@ def write_states(states: _States, fname: str):
     jbg = states.domain.y.ibegin
     jed = states.domain.y.iend
 
-    with _File(f"{fname}.hdf5", 'w', driver='mpio', comm=comm) as fobj:
-        fobj.create_dataset("Q", (3, gny, gnx), dtype)
-        fobj["Q"][:, jbg:jed, ibg:ied] = states.Q[:, ngh:-ngh, ngh:-ngh]
+    with _File(f"states-{comm.size}.{comm.rank+1}.hdf5", 'w') as fobj:  #, driver='mpio', comm=comm) as fobj:
+        fobj.create_dataset("Q", states.Q.shape, dtype, states.Q)
+        fobj.create_dataset("U", states.U.shape, dtype, states.U)
+        fobj.create_dataset("S", states.S.shape, dtype, states.S)
+        fobj.create_dataset("slpx", states.slpx.shape, dtype, states.slpx)
+        fobj.create_dataset("slpy", states.slpy.shape, dtype, states.slpy)
 
-        fobj.create_dataset("H", (gny, gnx), dtype)
-        fobj["U"][:, jbg:jed, ibg:ied] = states.U[:, ngh:-ngh, ngh:-ngh]
+        fobj.create_dataset("xH", states.face.x.H.shape, dtype, states.face.x.H)
+        fobj.create_dataset("xmQ", states.face.x.minus.Q.shape, dtype, states.face.x.minus.Q)
+        fobj.create_dataset("xmU", states.face.x.minus.U.shape, dtype, states.face.x.minus.U)
+        fobj.create_dataset("xma", states.face.x.minus.a.shape, dtype, states.face.x.minus.a)
+        fobj.create_dataset("xmF", states.face.x.minus.F.shape, dtype, states.face.x.minus.F)
+        fobj.create_dataset("xpQ", states.face.x.plus.Q.shape, dtype, states.face.x.plus.Q)
+        fobj.create_dataset("xpU", states.face.x.plus.U.shape, dtype, states.face.x.plus.U)
+        fobj.create_dataset("xpa", states.face.x.plus.a.shape, dtype, states.face.x.plus.a)
+        fobj.create_dataset("xpF", states.face.x.plus.F.shape, dtype, states.face.x.plus.F)
 
-        fobj.create_dataset("S", (3, gny, gnx), dtype)
-        fobj["S"][:, jbg:jed, ibg:ied] = states.S
+        fobj.create_dataset("yH", states.face.y.H.shape, dtype, states.face.y.H)
+        fobj.create_dataset("ymQ", states.face.y.minus.Q.shape, dtype, states.face.y.minus.Q)
+        fobj.create_dataset("ymU", states.face.y.minus.U.shape, dtype, states.face.y.minus.U)
+        fobj.create_dataset("yma", states.face.y.minus.a.shape, dtype, states.face.y.minus.a)
+        fobj.create_dataset("ymF", states.face.y.minus.F.shape, dtype, states.face.y.minus.F)
+        fobj.create_dataset("ypQ", states.face.y.plus.Q.shape, dtype, states.face.y.plus.Q)
+        fobj.create_dataset("ypU", states.face.y.plus.U.shape, dtype, states.face.y.plus.U)
+        fobj.create_dataset("ypa", states.face.y.plus.a.shape, dtype, states.face.y.plus.a)
+        fobj.create_dataset("ypF", states.face.y.plus.F.shape, dtype, states.face.y.plus.F)
 
-        fobj.create_dataset("SS", (3, gny, gnx), dtype)
-        fobj["SS"][:, jbg:jed, ibg:ied] = states.SS
+        if states.SS is not None:
+            fobj.create_dataset("SS", states.SS.shape, dtype, states.SS)
 
-        # how does h5py deal with cometition of shared cell faces between ranks?
-        fobj.create_dataset("xH", (3, gny, gnx+1), dtype)
-        fobj["xH"][:, jbg:jed, ibg:ied+1] = states.face.x.H
-
-        fobj.create_dataset("xmQ", (3, gny, gnx+1), dtype)
-        fobj["xmQ"][:, jbg:jed, ibg:ied+1] = states.face.x.minus.Q
-
-        fobj.create_dataset("xmU", (3, gny, gnx+1), dtype)
-        fobj["xmU"][:, jbg:jed, ibg:ied+1] = states.face.x.minus.U
-
-        fobj.create_dataset("xma", (gny, gnx+1), dtype)
-        fobj["xma"][jbg:jed, ibg:ied+1] = states.face.x.minus.a
-
-        fobj.create_dataset("xmF", (3, gny, gnx+1), dtype)
-        fobj["xmF"][:, jbg:jed, ibg:ied+1] = states.face.x.minus.F
-
-        fobj.create_dataset("xpQ", (3, gny, gnx+1), dtype)
-        fobj["xpQ"][:, jbg:jed, ibg:ied+1] = states.face.x.plus.Q
-
-        fobj.create_dataset("xpU", (3, gny, gnx+1), dtype)
-        fobj["xpU"][:, jbg:jed, ibg:ied+1] = states.face.x.plus.U
-
-        fobj.create_dataset("xpa", (gny, gnx+1), dtype)
-        fobj["xpa"][jbg:jed, ibg:ied+1] = states.face.x.plus.a
-
-        fobj.create_dataset("xpF", (3, gny, gnx+1), dtype)
-        fobj["xpF"][:, jbg:jed, ibg:ied+1] = states.face.x.plus.F
-
-
-        fobj.create_dataset("yH", (3, gny+1, gnx), dtype)
-        fobj["yH"][:, jbg:jed+1, ibg:ied] = states.face.y.H
-
-        fobj.create_dataset("ymQ", (3, gny+1, gnx), dtype)
-        fobj["ymQ"][:, jbg:jed+1, ibg:ied] = states.face.y.minus.Q
-
-        fobj.create_dataset("ymU", (3, gny+1, gnx), dtype)
-        fobj["ymU"][:, jbg:jed+1, ibg:ied] = states.face.y.minus.U
-
-        fobj.create_dataset("yma", (gny+1, gnx), dtype)
-        fobj["yma"][jbg:jed+1, ibg:ied] = states.face.y.minus.a
-
-        fobj.create_dataset("ymF", (3, gny+1, gnx), dtype)
-        fobj["ymF"][:, jbg:jed+1, ibg:ied] = states.face.y.minus.F
-
-        fobj.create_dataset("ypQ", (3, gny+1, gnx), dtype)
-        fobj["ypQ"][:, jbg:jed+1, ibg:ied] = states.face.y.plus.Q
-
-        fobj.create_dataset("ypU", (3, gny+1, gnx), dtype)
-        fobj["ypU"][:, jbg:jed+1, ibg:ied] = states.face.y.plus.U
-
-        fobj.create_dataset("ypa", (gny+1, gnx), dtype)
-        fobj["ypa"][jbg:jed+1, ibg:ied] = states.face.y.plus.a
-
-        fobj.create_dataset("ypF", (3, gny+1, gnx), dtype)
-        fobj["ypF"][:, jbg:jed+1, ibg:ied] = states.face.y.plus.F
-
-        fobj.create_dataset("ibg", (comm.size,), int)
-        fobj["ibg"][comm.rank] = ibg
-
-        fobj.create_dataset("ied", (comm.size,), int)
-        fobj["ied"][comm.rank] = ied
-
-        fobj.create_dataset("jbg", (comm.size,), int)
-        fobj["jbg"][comm.rank] = jbg
-
-        fobj.create_dataset("jed", (comm.size,), int)
-        fobj["jed"][comm.rank] = jed
+        fobj.attrs["ibg"] = ibg
+        fobj.attrs["ied"] = ied
+        fobj.attrs["jbg"] = jbg
+        fobj.attrs["jed"] = jed

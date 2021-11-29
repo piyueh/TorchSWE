@@ -102,6 +102,46 @@ cdef _recnstrt_face_velocity = cupy.ElementwiseKernel(
 )
 
 
+cdef _recnstrt_face_velocity_edge_minus = cupy.ElementwiseKernel(
+    "T hu, T hv, T h, T hi, T uim1, T ui, T uip1, T vim1, T vi, T vip1, T theta, T drytol",
+    "T u, T v",
+    r"""
+        if ((h < drytol) || ((hi * 2.0 - h) < drytol)) {
+            _minmod_slope_raw_kernel(uim1, ui, uip1, theta, du);
+            _minmod_slope_raw_kernel(vim1, vi, vip1, theta, dv);
+            u = ui + du;
+            v = vi + dv;
+        } else {
+            u = hu / h;
+            v = hv / h;
+        }
+    """,
+    "_recnstrt_face_velocity_edge_minus",
+    preamble=_minmod_slope_raw_kernel,
+    loop_prep="T du; T dv;"
+)
+
+
+cdef _recnstrt_face_velocity_edge_plus = cupy.ElementwiseKernel(
+    "T hu, T hv, T h, T hi, T uim1, T ui, T uip1, T vim1, T vi, T vip1, T theta, T drytol",
+    "T u, T v",
+    r"""
+        if ((h < drytol) || ((hi * 2.0 - h) < drytol)) {
+            _minmod_slope_raw_kernel(uim1, ui, uip1, theta, du);
+            _minmod_slope_raw_kernel(vim1, vi, vip1, theta, dv);
+            u = ui - du;
+            v = vi - dv;
+        } else {
+            u = hu / h;
+            v = hv / h;
+        }
+    """,
+    "_recnstrt_face_velocity_edge_plus",
+    preamble=_minmod_slope_raw_kernel,
+    loop_prep="T du; T dv;"
+)
+
+
 cdef _recnstrt_face_conservatives = cupy.ElementwiseKernel(
     "T h, T u, T v, T b",
     "T w, T hu, T hv",
@@ -196,7 +236,7 @@ cpdef reconstruct(object states, object runtime, object config):
     _fix_face_depth_edge(ymU[0, 0, :], U[0, ybg-1, xbg:xed], tol, ymU[0, 0, :])
     _fix_face_depth_edge(ypU[0, ny, :], U[0, yed, xbg:xed], tol, ypU[0, ny, :])
 
-    # reconstruct velocity at cell faces
+    # reconstruct velocity at cell faces in x direction
     _recnstrt_face_velocity(
         xpQ[1, :, :nx], xmQ[1, :, 1:],  # hul, hur
         xpQ[2, :, :nx], xmQ[2, :, 1:],  # hvl, hvr
@@ -207,6 +247,20 @@ cpdef reconstruct(object states, object runtime, object config):
         xpU[1, :, :nx], xmU[1, :, 1:],  # output: ul, ur
         xpU[2, :, :nx], xmU[2, :, 1:],  # output: vl, vr
     )
+    _recnstrt_face_velocity_edge_minus(
+        xmQ[1, :, 0], xmQ[2, :, 0], xmU[0, :, 0], U[0, ybg:yed, xbg-1],
+        U[1, ybg:yed, xbg-2], U[1, ybg:yed, xbg-1], U[1, ybg:yed, xbg],
+        U[2, ybg:yed, xbg-2], U[2, ybg:yed, xbg-1], U[2, ybg:yed, xbg],
+        theta, drytol, xmU[1, :, 0], xmU[2, :, 0],
+    )
+    _recnstrt_face_velocity_edge_plus(
+        xpQ[1, :, nx], xpQ[2, :, nx], xpU[0, :, nx], U[0, ybg:yed, xed],
+        U[1, ybg:yed, xed-1], U[1, ybg:yed, xed], U[1, ybg:yed, xed+1],
+        U[2, ybg:yed, xed-1], U[2, ybg:yed, xed], U[2, ybg:yed, xed+1],
+        theta, drytol, xpU[1, :, nx], xpU[2, :, nx],
+    )
+
+    # reconstruct velocity at cell faces in y direction
     _recnstrt_face_velocity(
         ypQ[1, :ny, :], ymQ[1, 1:, :],  # hul, hur
         ypQ[2, :ny, :], ymQ[2, 1:, :],  # hvl, hvr
@@ -216,6 +270,18 @@ cpdef reconstruct(object states, object runtime, object config):
         theta, drytol,
         ypU[1, :ny, :], ymU[1, 1:, :],  # output: hul, hur
         ypU[2, :ny, :], ymU[2, 1:, :],  # output: hvl, hvr
+    )
+    _recnstrt_face_velocity_edge_minus(
+        ymQ[1, 0, :], ymQ[2, 0, :], ymU[0, 0, :], U[0, ybg-1, xbg:xed],
+        U[1, ybg-2, xbg:xed], U[1, ybg-1, xbg:xed], U[1, ybg, xbg:xed],
+        U[2, ybg-2, xbg:xed], U[2, ybg-1, xbg:xed], U[2, ybg, xbg:xed],
+        theta, drytol, ymU[1, 0, :], ymU[2, 0, :],
+    )
+    _recnstrt_face_velocity_edge_plus(
+        ypQ[1, ny, :], ypQ[2, ny, :], ypU[0, ny, :], U[0, yed, xbg:xed],
+        U[1, yed-1, xbg:xed], U[1, yed, xbg:xed], U[1, yed+1, xbg:xed],
+        U[2, yed-1, xbg:xed], U[2, yed, xbg:xed], U[2, yed+1, xbg:xed],
+        theta, drytol, ypU[1, ny, :], ypU[2, ny, :],
     )
 
     # reconstruct conservative quantities at cell faces
