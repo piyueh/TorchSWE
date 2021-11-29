@@ -29,11 +29,11 @@ cdef class LinearExtrapDoubleWH:
     cdef Py_ssize_t n
 
     # conservatives
-    cdef const double[:] wc0  # q at the cell centers of the 1st internal cell layer
-    cdef const double[:] wc1  # q at the cell centers of the 2nd internal cell layer
-    cdef double[:] wbci  # q at the inner side of the boundary cell faces
-    cdef double[:] wbco  # q at the outer side of the boundary cell faces
-    cdef double[:] wother  # q at the inner side of the another face of the 1st internal cell
+    cdef const double[:] qc0  # w at the cell centers of the 1st internal cell layer
+    cdef const double[:] qc1  # w at the cell centers of the 2nd internal cell layer
+    cdef double[:] qbci  # w at the inner side of the boundary cell faces
+    cdef double[:] qbco  # w at the outer side of the boundary cell faces
+    cdef double[:] qother  # w at the inner side of the another face of the 1st internal cell
 
     # topography elevation
     cdef const double[:] bbc  # topo elevations at the boundary cell faces
@@ -60,6 +60,8 @@ cdef class LinearExtrapDoubleOther:
     cdef Py_ssize_t n
 
     # conservatives
+    cdef const double[:] qc0  # hu or hv at the cell centers of the 1st internal cell layer
+    cdef const double[:] qc1  # u or v at the cell centers of the 2nd internal cell layer
     cdef double[:] qbci  # hu or hv at the inner side of the boundary cell faces
     cdef double[:] qbco  # hu or hv at the outer side of the boundary cell faces
     cdef double[:] qother  # hu or hv at the inner side of the another face of the 1st internal cell
@@ -70,8 +72,6 @@ cdef class LinearExtrapDoubleOther:
     cdef const double[:] hother  # depth at the inner side of the another face of the 1st internal cell
 
     # velocities
-    cdef const double[:] uc0  # u or v at the cell centers of the 1st internal cell layer
-    cdef const double[:] uc1  # u or v at the cell centers of the 2nd internal cell layer
     cdef double[:] ubci  # u or v at the inner side of the boundary cell faces
     cdef double[:] ubco  # u or v at the outer side of the boundary cell faces
     cdef double[:] uother  # u or v at the inner side of the another face of the 1st internal cell
@@ -91,11 +91,11 @@ cdef class LinearExtrapFloatWH:
     cdef Py_ssize_t n
 
     # conservatives
-    cdef const float[:] wc0  # q at the cell centers of the 1st internal cell layer
-    cdef const float[:] wc1  # q at the cell centers of the 2nd internal cell layer
-    cdef float[:] wbci  # q at the inner side of the boundary cell faces
-    cdef float[:] wbco  # q at the outer side of the boundary cell faces
-    cdef float[:] wother  # q at the inner side of the another face of the 1st internal cell
+    cdef const float[:] qc0  # w at the cell centers of the 1st internal cell layer
+    cdef const float[:] qc1  # w at the cell centers of the 2nd internal cell layer
+    cdef float[:] qbci  # w at the inner side of the boundary cell faces
+    cdef float[:] qbco  # w at the outer side of the boundary cell faces
+    cdef float[:] qother  # w at the inner side of the another face of the 1st internal cell
 
     # topography elevation
     cdef const float[:] bbc  # topo elevations at the boundary cell faces
@@ -122,6 +122,8 @@ cdef class LinearExtrapFloatOther:
     cdef Py_ssize_t n
 
     # conservatives
+    cdef const float[:] qc0  # hu or hv at the cell centers of the 1st internal cell layer
+    cdef const float[:] qc1  # hu or hv at the cell centers of the 2nd internal cell layer
     cdef float[:] qbci  # hu or hv at the inner side of the boundary cell faces
     cdef float[:] qbco  # hu or hv at the outer side of the boundary cell faces
     cdef float[:] qother  # hu or hv at the inner side of the another face of the 1st internal cell
@@ -132,8 +134,6 @@ cdef class LinearExtrapFloatOther:
     cdef const float[:] hother  # depth at the inner side of the another face of the 1st internal cell
 
     # velocities
-    cdef const float[:] uc0  # u or v at the cell centers of the 1st internal cell layer
-    cdef const float[:] uc1  # u or v at the cell centers of the 2nd internal cell layer
     cdef float[:] ubci  # u or v at the inner side of the boundary cell faces
     cdef float[:] ubco  # u or v at the outer side of the boundary cell faces
     cdef float[:] uother  # u or v at the inner side of the another face of the 1st internal cell
@@ -153,14 +153,14 @@ cdef void _linear_extrap_bc_w_h_kernel(LinearExtrapWHBC bc, cython.floating delt
             bc.hbci[i] = 0.0;
             bc.hbco[i] = 0.0;
             bc.hother[i] = 0.0;
-            bc.wbci[i] = bc.bbc[i];
-            bc.wbco[i] = bc.bbc[i];
-            bc.wother[i] = bc.bother[i];
+            bc.qbci[i] = bc.bbc[i];
+            bc.qbco[i] = bc.bbc[i];
+            bc.qother[i] = bc.bother[i];
             continue
 
-        delta = (bc.wc0[i] - bc.wc1[i]) / 2.0;  # dw
-        bc.hbci[i] = bc.wc0[i] + delta - bc.bbc[i];
-        bc.hother[i] = bc.wc0[i] - delta - bc.bother[i];
+        delta = (bc.qc0[i] - bc.qc1[i]) / 2.0;  # dw
+        bc.hbci[i] = bc.qc0[i] + delta - bc.bbc[i];
+        bc.hother[i] = bc.qc0[i] - delta - bc.bother[i];
 
         if bc.hbci[i] < bc.tol:
             bc.hbci[i] = 0.0;
@@ -172,36 +172,36 @@ cdef void _linear_extrap_bc_w_h_kernel(LinearExtrapWHBC bc, cython.floating delt
         bc.hbco[i] = bc.hbci[i]
 
         #reconstruct to eliminate rounding error-edffect in further calculations
-        bc.wbci[i] = bc.hbci[i] + bc.bbc[i];
-        bc.wbco[i] = bc.hbco[i] + bc.bbc[i];
-        bc.wother[i] = bc.hother[i] + bc.bother[i];
+        bc.qbci[i] = bc.hbci[i] + bc.bbc[i];
+        bc.qbco[i] = bc.hbco[i] + bc.bbc[i];
+        bc.qother[i] = bc.hother[i] + bc.bother[i];
 
 
 cdef void _linear_extrap_bc_kernel(LinearExtrapOtherBC bc, cython.floating delta) nogil except *:
     cdef Py_ssize_t i
     for i in range(bc.n):
 
-        delta = (bc.uc0[i] - bc.uc1[i]) / 2.0;
+        delta = (bc.qc0[i] - bc.qc1[i]) / 2.0;
 
         if bc.hbco[i] < bc.drytol:
             bc.ubco[i] = 0.0;
             bc.qbco[i] = 0.0;
         else:
-            bc.ubco[i] = bc.uc0[i] + delta;
+            bc.ubco[i] = (bc.qc0[i] + delta) / bc.hbco[i];
             bc.qbco[i] = bc.hbco[i] * bc.ubco[i];
 
         if bc.hbci[i] < bc.drytol:
             bc.ubci[i] = 0.0;
             bc.qbci[i] = 0.0;
         else:
-            bc.ubci[i] = bc.uc0[i] + delta;
+            bc.ubci[i] = (bc.qc0[i] + delta) / bc.hbci[i];
             bc.qbci[i] = bc.hbci[i] * bc.ubci[i];
 
         if bc.hother[i] < bc.drytol:
             bc.uother[i] = 0.0;
             bc.qother[i] = 0.0;
         else:
-            bc.uother[i] = bc.uc0[i] - delta;
+            bc.uother[i] = (bc.qc0[i] - delta) / bc.hother[i];
             bc.qother[i] = bc.hother[i] * bc.uother[i];
 
 
@@ -227,34 +227,25 @@ cdef inline void _linear_extrap_bc_set_west(
         raise TypeError("Mismatched types")
     else:
 
+        bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
+        bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
+        bc.qbci = xpQ[comp, :, 0]
+        bc.qbco = xmQ[comp, :, 0]
+        bc.qother = xmQ[comp, :, 1]
+
         bc.hbci = xpU[0, :, 0]
         bc.hbco = xmU[0, :, 0]
         bc.hother = xmU[0, :, 1]
 
         if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.wc0 = Q[0, ngh:Q.shape[1]-ngh, ngh]
-            bc.wc1 = Q[0, ngh:Q.shape[1]-ngh, ngh+1]
-            bc.wbci = xpQ[0, :, 0]
-            bc.wbco = xmQ[0, :, 0]
-            bc.wother = xmQ[0, :, 1]
-
             bc.hc0 = U[0, ngh:U.shape[1]-ngh, ngh]
-
             bc.bbc = Bx[:, 0]
             bc.bother = Bx[:, 1]
-
             bc.tol = tol
-        else:
-            bc.qbci = xpQ[comp, :, 0]
-            bc.qbco = xmQ[comp, :, 0]
-            bc.qother = xmQ[comp, :, 1]
-
-            bc.uc0 = U[comp, ngh:Q.shape[1]-ngh, ngh]
-            bc.uc1 = U[comp, ngh:Q.shape[1]-ngh, ngh+1]
+        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
             bc.ubci = xpU[comp, :, 0]
             bc.ubco = xmU[comp, :, 0]
             bc.uother = xmU[comp, :, 1]
-
             bc.drytol = drytol
 
 
@@ -280,34 +271,25 @@ cdef inline void _linear_extrap_bc_set_east(
         raise TypeError("Mismatched types")
     else:
 
+        bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
+        bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
+        bc.qbci = xmQ[comp, :, xmQ.shape[2]-1]
+        bc.qbco = xpQ[comp, :, xpQ.shape[2]-1]
+        bc.qother = xpQ[comp, :, xpQ.shape[2]-2]
+
         bc.hbci = xmU[0, :, xmU.shape[2]-1]
         bc.hbco = xpU[0, :, xpU.shape[2]-1]
         bc.hother = xpU[0, :, xpU.shape[2]-2]
 
         if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.wc0 = Q[0, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
-            bc.wc1 = Q[0, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
-            bc.wbci = xmQ[0, :, xmQ.shape[2]-1]
-            bc.wbco = xpQ[0, :, xpQ.shape[2]-1]
-            bc.wother = xpQ[0, :, xpQ.shape[2]-2]
-
             bc.hc0 = U[0, ngh:U.shape[1]-ngh, U.shape[2]-ngh-1]
-
             bc.bbc = Bx[:, Bx.shape[1]-1]
             bc.bother = Bx[:, Bx.shape[1]-2]
-
             bc.tol = tol
-        else:
-            bc.qbci = xmQ[comp, :, xmQ.shape[2]-1]
-            bc.qbco = xpQ[comp, :, xpQ.shape[2]-1]
-            bc.qother = xpQ[comp, :, xpQ.shape[2]-2]
-
-            bc.uc0 = U[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
-            bc.uc1 = U[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
+        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
             bc.ubci = xmU[comp, :, xmU.shape[2]-1]
             bc.ubco = xpU[comp, :, xpU.shape[2]-1]
             bc.uother = xpU[comp, :, xpU.shape[2]-2]
-
             bc.drytol = drytol
 
 
@@ -332,34 +314,26 @@ cdef inline void _linear_extrap_bc_set_south(
     ):
         raise TypeError("Mismatched types")
     else:
+
+        bc.qc0 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
+        bc.qc1 = Q[comp, ngh+1, ngh:Q.shape[2]-ngh]
+        bc.qbci = ypQ[comp, 0, :]
+        bc.qbco = ymQ[comp, 0, :]
+        bc.qother = ymQ[comp, 1, :]
+
         bc.hbci = ypU[0, 0, :]
         bc.hbco = ymU[0, 0, :]
         bc.hother = ymU[0, 1, :]
 
         if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.wc0 = Q[0, ngh, ngh:Q.shape[2]-ngh]
-            bc.wc1 = Q[0, ngh+1, ngh:Q.shape[2]-ngh]
-            bc.wbci = ypQ[0, 0, :]
-            bc.wbco = ymQ[0, 0, :]
-            bc.wother = ymQ[0, 1, :]
-
             bc.hc0 = U[0, ngh, ngh:U.shape[2]-ngh]
-
             bc.bbc = By[0, :]
             bc.bother = By[1, :]
-
             bc.tol = tol
-        else:
-            bc.qbci = ypQ[comp, 0, :]
-            bc.qbco = ymQ[comp, 0, :]
-            bc.qother = ymQ[comp, 1, :]
-
-            bc.uc0 = U[comp, ngh, ngh:Q.shape[2]-ngh]
-            bc.uc1 = U[comp, ngh+1, ngh:Q.shape[2]-ngh]
+        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
             bc.ubci = ypU[comp, 0, :]
             bc.ubco = ymU[comp, 0, :]
             bc.uother = ymU[comp, 1, :]
-
             bc.drytol = drytol
 
 
@@ -385,34 +359,25 @@ cdef inline void _linear_extrap_bc_set_north(
         raise TypeError("Mismatched types")
     else:
 
+        bc.qc0 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
+        bc.qc1 = Q[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
+        bc.qbci = ymQ[comp, ymQ.shape[1]-1, :]
+        bc.qbco = ypQ[comp, ypQ.shape[1]-1, :]
+        bc.qother = ypQ[comp, ypQ.shape[1]-2, :]
+
         bc.hbci = ymU[0, ymU.shape[1]-1, :]
         bc.hbco = ypU[0, ypU.shape[1]-1, :]
         bc.hother = ypU[0, ypU.shape[1]-2, :]
 
         if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.wc0 = Q[0, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
-            bc.wc1 = Q[0, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
-            bc.wbci = ymQ[0, ymQ.shape[1]-1, :]
-            bc.wbco = ypQ[0, ypQ.shape[1]-1, :]
-            bc.wother = ypQ[0, ypQ.shape[1]-2, :]
-
             bc.hc0 = U[0, U.shape[1]-ngh-1, ngh:U.shape[2]-ngh]
-
             bc.bbc = By[By.shape[0]-1, :]
             bc.bother = By[By.shape[0]-2, :]
-
             bc.tol = tol
-        else:
-            bc.qbci = ymQ[comp, ymQ.shape[1]-1, :]
-            bc.qbco = ypQ[comp, ypQ.shape[1]-1, :]
-            bc.qother = ypQ[comp, ypQ.shape[1]-2, :]
-
-            bc.uc0 = U[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
-            bc.uc1 = U[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
+        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
             bc.ubci = ymU[comp, ymU.shape[1]-1, :]
             bc.ubco = ypU[comp, ypU.shape[1]-1, :]
             bc.uother = ypU[comp, ypU.shape[1]-2, :]
-
             bc.drytol = drytol
 
 
