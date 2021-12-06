@@ -110,7 +110,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.Q[(0,)+states.domain.internal].sum() * cell_area
+            fluid_vol = states.U[(0,)+states.domain.internal].sum() * cell_area
             _nplike.sync()
             fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
@@ -207,7 +207,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.Q[(0,)+states.domain.internal].sum() * cell_area
+            fluid_vol = states.U[(0,)+states.domain.internal].sum() * cell_area
             _nplike.sync()
             fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
@@ -322,7 +322,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.Q[(0,)+states.domain.internal].sum() * cell_area
+            fluid_vol = states.U[(0,)+states.domain.internal].sum() * cell_area
             _nplike.sync()
             fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
