@@ -85,7 +85,7 @@ def get_ghost_cell_updaters(
 
             # constant extrapolation BC (outflow)
             if bctp == "outflow":
-                funcs.append(outflow_bc_factory(ornt, i, states, topo, tol, drytol))
+                funcs.append(outflow_bc_factory(ornt, i, states))
 
             # linear extrapolation BC
             elif bctp == "extrap":

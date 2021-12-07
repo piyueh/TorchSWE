@@ -74,9 +74,10 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
     # information string formatter
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
-    # update values of the halo-ring cells and calculate cell-centered non-conservatives
+    # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
     states = _exchange_states(states)
     states = _reconstruct_cell_centers(states, runtime, config)
+    states = runtime.gh_updater(states)
 
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
@@ -101,9 +102,10 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[internal] += (states.S * runtime.dt)
         states = semi_implicit_step(states, internal, runtime.dt)
 
-        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
         states = _reconstruct_cell_centers(states, runtime, config)
+        states = runtime.gh_updater(states)
 
         # update iteration index and time
         runtime.counter += 1
@@ -161,9 +163,10 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     # to hold previous solution
     prev_q = _copy.deepcopy(states.Q[internal])
 
-    # update values of the halo-ring cells and calculate cell-centered non-conservatives
+    # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
     states = _exchange_states(states)
     states = _reconstruct_cell_centers(states, runtime, config)
+    states = runtime.gh_updater(states)
 
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
@@ -187,9 +190,10 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[internal] += (states.S * runtime.dt)
 
-        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
         states = _reconstruct_cell_centers(states, runtime, config)
+        states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -198,9 +202,10 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[internal] += (prev_q + states.S * runtime.dt)
         states.Q /= 2  # doesn't matter whether ghost cells are also divided by 2
 
-        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
         states = _reconstruct_cell_centers(states, runtime, config)
+        states = runtime.gh_updater(states)
 
         # update iteration index and time
         runtime.counter += 1
@@ -263,9 +268,10 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     # to hold previous solution
     prev_q = _copy.deepcopy(states.Q[internal])
 
-    # update values of the halo-ring cells and calculate cell-centered non-conservatives
+    # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
     states = _exchange_states(states)
     states = _reconstruct_cell_centers(states, runtime, config)
+    states = runtime.gh_updater(states)
 
     # loop till cur_t reaches the target t or hitting max iterations
     for _ in range(config.temporal.max_iters):
@@ -289,9 +295,10 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
         states.Q[internal] += (states.S * runtime.dt)
 
-        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
         states = _reconstruct_cell_centers(states, runtime, config)
+        states = runtime.gh_updater(states)
 
         # stage 2: now states.rhs is RHS(u^1)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -300,9 +307,10 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[internal] += (prev_q * 3. + states.S * runtime.dt)
         states.Q /= 4.
 
-        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
         states = _reconstruct_cell_centers(states, runtime, config)
+        states = runtime.gh_updater(states)
 
         # stage 3: now states.rhs is RHS(u^2)
         states, _ = _prepare_rhs(states, runtime, config)
@@ -313,9 +321,10 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states.Q[internal] += prev_q
         states.Q /= 3.
 
-        # update values of the halo-ring cells and calculate cell-centered non-conservatives
+        # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
         states = _reconstruct_cell_centers(states, runtime, config)
+        states = runtime.gh_updater(states)
 
         # update iteration index and time
         runtime.counter += 1

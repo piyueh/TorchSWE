@@ -40,9 +40,6 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     # reconstruct conservative and non-conservative quantities at cell interfaces
     states = _reconstruct(states, runtime, config)
 
-    # update boundary faces' values based on boundary conditions
-    states = runtime.gh_updater(states)
-
     # get local speed at cell faces
     states = _get_local_speed(states, config.params.gravity)
 
