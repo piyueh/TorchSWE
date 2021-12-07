@@ -36,9 +36,10 @@ def _cfl_dt_adapter(delta_t: float, max_dt: float, coeff: float):
     return max_dt
 
 
-def _cfl_dt_adapter_log_only(delta_t: float, max_dt: float, *args, **kwargs):
+def _cfl_dt_adapter_log_only(delta_t: float, max_dt: float, coeff: float):
     """Log a warning if dt is greater than max_dt but don't do anything else."""
     # pylint: disable=unused-argument
+    max_dt *= coeff
     if delta_t > max_dt:
         _logger.warning("dt=%e is fixed but exceeds max safe value (%e).", delta_t, max_dt)
     return delta_t

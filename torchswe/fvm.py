@@ -32,7 +32,9 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     states : torchswe.utils.data.States
         The same object as the input. Updated in-place. Returning it just for coding style.
     max_dt : float
-        A scalar indicating the maximum safe time-step size.
+        A scalar indicating the maximum time-step size if we consider CFL to be one. Note, it
+        does not mean this time-step size is safe. Whether it's safe or not depending on the
+        allowed CFL of the implemented scheme.
     """
 
     # reconstruct conservative and non-conservative quantities at cell interfaces
@@ -71,6 +73,6 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     bmax = _nplike.max(_nplike.maximum(states.face.y.plus.a, -states.face.y.minus.a))
 
     with _nplike.errstate(divide="ignore"):
-        max_dt = min(0.25*dx/amax, 0.25*dy/bmax)  # may be a `inf` (but never `NaN`)
+        max_dt = min(dx/amax, dy/bmax)  # may be a `inf` (but never `NaN`)
 
     return states, max_dt

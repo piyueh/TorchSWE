@@ -147,7 +147,7 @@ def config_runtime(comm, config, logger):
     runtime.dt = config.temporal.dt  # time step size; may be changed during runtime
     logger.info("Initial dt: %e", runtime.dt)
 
-    runtime.cfl = 0.9
+    runtime.cfl = 0.5
     logger.info("dt adaptive ratio: %e", runtime.cfl)
 
     runtime.dt_constraint = float("inf")

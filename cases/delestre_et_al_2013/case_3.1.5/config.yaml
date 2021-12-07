@@ -9,7 +9,7 @@ spatial:
 # temporal control, including writting result during a simulation
 temporal:
   output: ["t_start every_seconds multiple", 0., 10., 50]
-  scheme: "Euler"
+  scheme: "SSP-RK2"
 
 # boundary conditions
 boundary:
