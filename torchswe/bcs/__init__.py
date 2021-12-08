@@ -93,7 +93,7 @@ def get_ghost_cell_updaters(
 
             # constant, i.e., Dirichlet
             elif bctp == "const":
-                funcs.append(const_val_bc_factory(ornt, i, states, topo, tol, drytol, theta, bcv))
+                funcs.append(const_val_bc_factory(ornt, i, states, topo, bcv))
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
