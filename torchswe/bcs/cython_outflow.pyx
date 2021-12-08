@@ -33,8 +33,8 @@ cdef class OutflowFloat:  # cython doesn't support templated class yet, so...
 
     # conservatives
     cdef const float[:] qc0  # w at the cell centers of the 1st internal cell layer
-    cdef float[:] qbcm1  # w at the inner side of the boundary cell faces
-    cdef float[:] qbcm2  # w at the outer side of the boundary cell faces
+    cdef float[:] qbcm1  # w/hu/hv at the 1st layer of ghost cells
+    cdef float[:] qbcm2  # w/hu/hv at the 2nd layer of ghost cells
 
     def __call__(self):
         _outflow_bc_kernel[OutflowFloat](self)
@@ -50,6 +50,7 @@ cdef inline void _outflow_bc_kernel(OutflowBC bc) nogil:
 cdef inline void _outflow_bc_set_west(
     OutflowBC bc,
     cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const Py_ssize_t ngh, const Py_ssize_t comp,
 ) nogil except *:
 
@@ -62,10 +63,15 @@ cdef inline void _outflow_bc_set_west(
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
         bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, ngh-2]
 
+        # modify the topography elevation in ghost cells
+        B[ngh:B.shape[0]-ngh, ngh-1] = B[ngh:B.shape[0]-ngh, ngh]
+        B[ngh:B.shape[0]-ngh, ngh-2] = B[ngh:B.shape[0]-ngh, ngh]
+
 
 cdef inline void _outflow_bc_set_east(
     OutflowBC bc,
     cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const Py_ssize_t ngh, const Py_ssize_t comp,
 ) nogil except *:
 
@@ -79,10 +85,15 @@ cdef inline void _outflow_bc_set_east(
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh+1]
 
+        # modify the topography elevation in ghost cells
+        B[ngh:B.shape[0]-ngh, B.shape[1]-ngh]   = B[ngh:B.shape[0]-ngh, B.shape[1]-ngh-1]
+        B[ngh:B.shape[0]-ngh, B.shape[1]-ngh+1] = B[ngh:B.shape[0]-ngh, B.shape[1]-ngh-1]
+
 
 cdef inline void _outflow_bc_set_south(
     OutflowBC bc,
     cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const Py_ssize_t ngh, const Py_ssize_t comp,
 ) nogil except *:
 
@@ -96,10 +107,15 @@ cdef inline void _outflow_bc_set_south(
         bc.qbcm1    = Q[comp, ngh-1,    ngh:Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, ngh-2,    ngh:Q.shape[2]-ngh]
 
+        # modify the topography elevation in ghost cells
+        B[ngh-1, ngh:B.shape[1]-ngh] = B[ngh, ngh:B.shape[1]-ngh]
+        B[ngh-2, ngh:B.shape[1]-ngh] = B[ngh, ngh:B.shape[1]-ngh]
+
 
 cdef inline void _outflow_bc_set_north(
     OutflowBC bc,
     cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const Py_ssize_t ngh, const Py_ssize_t comp,
 ) nogil except *:
 
@@ -113,10 +129,15 @@ cdef inline void _outflow_bc_set_north(
         bc.qbcm1    = Q[comp, Q.shape[1]-ngh,       ngh:Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, Q.shape[1]-ngh+1,     ngh:Q.shape[2]-ngh]
 
+        # modify the topography elevation in ghost cells
+        B[B.shape[0]-ngh,   ngh:B.shape[1]-ngh] = B[B.shape[0]-ngh-1, ngh:B.shape[1]-ngh]
+        B[B.shape[0]-ngh+1, ngh:B.shape[1]-ngh] = B[B.shape[0]-ngh-1, ngh:B.shape[1]-ngh]
+
 
 cdef inline void _outflow_bc_factory(
     OutflowBC bc,
     cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
 ) nogil except *:
 
@@ -127,28 +148,32 @@ cdef inline void _outflow_bc_factory(
         raise TypeError("Mismatched types")
     else:
 
+        assert Q.shape[1] == B.shape[0]
+        assert Q.shape[2] == B.shape[1]
+
         if ornt == 0:  # west
             bc.n = Q.shape[1] - 2 * ngh  # ny
-            _outflow_bc_set_west[OutflowBC, cython.floating](bc, Q, ngh, comp)
+            _outflow_bc_set_west[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         elif ornt == 1:  # east
             bc.n = Q.shape[1] - 2 * ngh  # ny
-            _outflow_bc_set_east[OutflowBC, cython.floating](bc, Q, ngh, comp)
+            _outflow_bc_set_east[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         elif ornt == 2:  # south
             bc.n = Q.shape[2] - 2 * ngh  # nx
-            _outflow_bc_set_south[OutflowBC, cython.floating](bc, Q, ngh, comp)
+            _outflow_bc_set_south[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         elif ornt == 3:  # north
             bc.n = Q.shape[2] - 2 * ngh  # nx
-            _outflow_bc_set_north[OutflowBC, cython.floating](bc, Q, ngh, comp)
+            _outflow_bc_set_north[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
 
-def outflow_bc_factory(ornt, comp, states, *args, **kwargs):
+def outflow_bc_factory(ornt, comp, states, topo, *args, **kwargs):
     """Factory to create a outflow (constant extrapolation) boundary condition callable object.
     """
 
     # aliases
     cdef object Q = states.Q
+    cdef object B = topo.centers
     cdef Py_ssize_t ngh = states.domain.nhalo
     cdef str dtype = str(Q.dtype)
 
@@ -164,9 +189,9 @@ def outflow_bc_factory(ornt, comp, states, *args, **kwargs):
 
     if dtype == "float64":
         bc = OutflowDouble()
-        _outflow_bc_factory[OutflowDouble, double](bc, Q, ngh, comp, ornt)
+        _outflow_bc_factory[OutflowDouble, double](bc, Q, B, ngh, comp, ornt)
     elif dtype == "float32":
         bc = OutflowFloat()
-        _outflow_bc_factory[OutflowFloat, float](bc, Q, ngh, comp, ornt)
+        _outflow_bc_factory[OutflowFloat, float](bc, Q, B, ngh, comp, ornt)
 
     return bc
