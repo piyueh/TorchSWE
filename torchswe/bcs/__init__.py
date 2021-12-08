@@ -33,9 +33,7 @@ else:
     from ._cython_inflow import inflow_bc_factory  # pylint: disable=no-name-in-module
 
 
-def get_ghost_cell_updaters(
-    states: _States, topo: _Topography, bcs: _BCConfig, theta: float, tol: float, drytol: float
-):
+def get_ghost_cell_updaters(states: _States, topo: _Topography, bcs: _BCConfig):
     """A function factory returning a function that updates all ghost cells.
 
     Arguments
@@ -97,7 +95,7 @@ def get_ghost_cell_updaters(
 
             # inflow, i.e., constant non-conservative variables
             elif bctp == "inflow":
-                funcs.append(inflow_bc_factory(ornt, i, states, topo, tol, drytol, theta, bcv))
+                funcs.append(inflow_bc_factory(ornt, i, states, topo, bcv))
 
             # this shouldn't happen because pydantic should have catched the error
             else:

@@ -3,14 +3,14 @@
 cimport cython
 
 
-cdef fused OutflowBC:
+ctypedef fused OutflowBC:
     OutflowFloat
     OutflowDouble
 
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class OutflowDouble:  # cython doesn't support templated class yet, so...
-    """Base class of outflow (constant extraption) boundary coditions with 64-bit floating points.
+    """Outflow (constant extraption) boundary coditions with 64-bit floating points.
     """
     # number of elements
     cdef Py_ssize_t n
@@ -26,7 +26,7 @@ cdef class OutflowDouble:  # cython doesn't support templated class yet, so...
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
 cdef class OutflowFloat:  # cython doesn't support templated class yet, so...
-    """Base class of outflow (constant extraption) boundary coditions with 32-bit floating points.
+    """Outflow (constant extraption) boundary coditions with 32-bit floating points.
     """
     # number of elements
     cdef Py_ssize_t n
@@ -59,6 +59,7 @@ cdef inline void _outflow_bc_set_west(
     elif cython.floating is double and OutflowBC is OutflowFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[1] - 2 * ngh  # ny
         bc.qc0      = Q[comp, ngh:Q.shape[1]-ngh, ngh]
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
         bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, ngh-2]
@@ -81,6 +82,7 @@ cdef inline void _outflow_bc_set_east(
     elif cython.floating is double and OutflowBC is OutflowFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[1] - 2 * ngh  # ny
         bc.qc0      = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh+1]
@@ -103,6 +105,7 @@ cdef inline void _outflow_bc_set_south(
     elif cython.floating is double and OutflowBC is OutflowFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[2] - 2 * ngh  # nx
         bc.qc0      = Q[comp, ngh,      ngh:Q.shape[2]-ngh]
         bc.qbcm1    = Q[comp, ngh-1,    ngh:Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, ngh-2,    ngh:Q.shape[2]-ngh]
@@ -125,6 +128,7 @@ cdef inline void _outflow_bc_set_north(
     elif cython.floating is double and OutflowBC is OutflowFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[2] - 2 * ngh  # nx
         bc.qc0      = Q[comp, Q.shape[1]-ngh-1,     ngh:Q.shape[2]-ngh]
         bc.qbcm1    = Q[comp, Q.shape[1]-ngh,       ngh:Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, Q.shape[1]-ngh+1,     ngh:Q.shape[2]-ngh]
@@ -152,16 +156,12 @@ cdef inline void _outflow_bc_factory(
         assert Q.shape[2] == B.shape[1]
 
         if ornt == 0:  # west
-            bc.n = Q.shape[1] - 2 * ngh  # ny
             _outflow_bc_set_west[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         elif ornt == 1:  # east
-            bc.n = Q.shape[1] - 2 * ngh  # ny
             _outflow_bc_set_east[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         elif ornt == 2:  # south
-            bc.n = Q.shape[2] - 2 * ngh  # nx
             _outflow_bc_set_south[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         elif ornt == 3:  # north
-            bc.n = Q.shape[2] - 2 * ngh  # nx
             _outflow_bc_set_north[OutflowBC, cython.floating](bc, Q, B, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")

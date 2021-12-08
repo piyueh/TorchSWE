@@ -3,7 +3,7 @@
 cimport cython
 
 
-cdef fused ConstValBC:
+ctypedef fused ConstValBC:
     ConstValFloat
     ConstValDouble
 
@@ -20,7 +20,7 @@ cdef class ConstValDouble:
     cdef double[:] qbcm1  # w/hu/hv at the 1st layer of ghost cells
     cdef double[:] qbcm2  # w/hu/hv at the 2nd layer of ghost cells
 
-    # read-only values (boundary target value & theta)
+    # read-only values (boundary target value)
     cdef double val
 
     def __call__(self):
@@ -39,7 +39,7 @@ cdef class ConstValFloat:
     cdef float[:] qbcm1  # w/hu/hv at the 1st layer of ghost cells
     cdef float[:] qbcm2  # w/hu/hv at the 2nd layer of ghost cells
 
-    # read-only values (boundary target value & theta)
+    # read-only values (boundary target value)
     cdef float val
 
     def __call__(self):
@@ -70,6 +70,9 @@ cdef void _const_val_bc_set_west(
     elif cython.floating is double and ConstValBC is ConstValFloat:
         raise RuntimeError("Mismatched types")
     else:
+        bc.n = Q.shape[1] - 2 * ngh  # ny
+        bc.val = val
+
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
         bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, ngh-2]
 
@@ -96,6 +99,9 @@ cdef void _const_val_bc_set_east(
     elif cython.floating is double and ConstValBC is ConstValFloat:
         raise RuntimeError("Mismatched types")
     else:
+        bc.n = Q.shape[1] - 2 * ngh  # ny
+        bc.val = val
+
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh+1]
 
@@ -122,6 +128,9 @@ cdef void _const_val_bc_set_south(
     elif cython.floating is double and ConstValBC is ConstValFloat:
         raise RuntimeError("Mismatched types")
     else:
+        bc.n = Q.shape[2] - 2 * ngh  # nx
+        bc.val = val
+
         bc.qbcm1    = Q[comp, ngh-1,    ngh:Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, ngh-2,    ngh:Q.shape[2]-ngh]
 
@@ -148,6 +157,9 @@ cdef void _const_val_bc_set_north(
     elif cython.floating is double and ConstValBC is ConstValFloat:
         raise RuntimeError("Mismatched types")
     else:
+        bc.n = Q.shape[2] - 2 * ngh  # nx
+        bc.val = val
+
         bc.qbcm1    = Q[comp, Q.shape[1]-ngh,       ngh:Q.shape[2]-ngh]
         bc.qbcm2    = Q[comp, Q.shape[1]-ngh+1,     ngh:Q.shape[2]-ngh]
 
@@ -167,8 +179,6 @@ cdef inline void _const_val_bc_factory(
     const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
 ) nogil except *:
 
-    cdef Py_ssize_t i
-
     # the first two combinations will be pruned by cython when translating to C/C++
     if cython.floating is float and ConstValBC is ConstValDouble:
         raise RuntimeError("Mismatched types")
@@ -183,19 +193,13 @@ cdef inline void _const_val_bc_factory(
         assert Q.shape[1] == By.shape[0] + 2 * ngh - 1
         assert Q.shape[2] == By.shape[1] + 2 * ngh
 
-        bc.val = val
-
         if ornt == 0:  # west
-            bc.n = Q.shape[1] - 2 * ngh  # ny
             _const_val_bc_set_west[ConstValBC, cython.floating](bc, Q, B, Bx, val, ngh, comp)
         elif ornt == 1:  # east
-            bc.n = Q.shape[1] - 2 * ngh  # ny
             _const_val_bc_set_east[ConstValBC, cython.floating](bc, Q, B, Bx, val, ngh, comp)
         elif ornt == 2:  # south
-            bc.n = Q.shape[2] - 2 * ngh  # nx
             _const_val_bc_set_south[ConstValBC, cython.floating](bc, Q, B, By, val, ngh, comp)
         elif ornt == 3:  # north
-            bc.n = Q.shape[2] - 2 * ngh  # nx
             _const_val_bc_set_north[ConstValBC, cython.floating](bc, Q, B, By, val, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")

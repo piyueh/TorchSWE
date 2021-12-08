@@ -3,7 +3,7 @@
 cimport cython
 
 
-cdef fused LinearExtrapBC:
+ctypedef fused LinearExtrapBC:
     LinearExtrapFloat
     LinearExtrapDouble
 
@@ -66,6 +66,7 @@ cdef inline void _linear_extrap_bc_set_west(
     elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[1] - 2 * ngh  # ny
         bc.qc0      = Q[comp, ngh:Q.shape[1]-ngh, ngh]
         bc.qc1      = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
@@ -93,6 +94,7 @@ cdef inline void _linear_extrap_bc_set_east(
     elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[1] - 2 * ngh  # ny
         bc.qc0      = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
         bc.qc1      = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
         bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
@@ -120,6 +122,7 @@ cdef inline void _linear_extrap_bc_set_south(
     elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[2] - 2 * ngh  # nx
         bc.qc0      = Q[comp, ngh,      ngh:Q.shape[2]-ngh]
         bc.qc1      = Q[comp, ngh+1,    ngh:Q.shape[2]-ngh]
         bc.qbcm1    = Q[comp, ngh-1,    ngh:Q.shape[2]-ngh]
@@ -147,6 +150,7 @@ cdef inline void _linear_extrap_bc_set_north(
     elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.n = Q.shape[2] - 2 * ngh  # nx
         bc.qc0      = Q[comp, Q.shape[1]-ngh-1,     ngh:Q.shape[2]-ngh]
         bc.qc1      = Q[comp, Q.shape[1]-ngh-2,     ngh:Q.shape[2]-ngh]
         bc.qbcm1    = Q[comp, Q.shape[1]-ngh,       ngh:Q.shape[2]-ngh]
@@ -182,16 +186,12 @@ cdef inline void _linear_extrap_bc_factory(
         assert Q.shape[2] == By.shape[1] + 2 * ngh
 
         if ornt == 0:  # west
-            bc.n = Q.shape[1] - 2 * ngh  # ny
             _linear_extrap_bc_set_west[LinearExtrapBC, cython.floating](bc, Q, B, Bx, ngh, comp)
         elif ornt == 1:  # east
-            bc.n = Q.shape[1] - 2 * ngh  # ny
             _linear_extrap_bc_set_east[LinearExtrapBC, cython.floating](bc, Q, B, Bx, ngh, comp)
         elif ornt == 2:  # south
-            bc.n = Q.shape[2] - 2 * ngh  # nx
             _linear_extrap_bc_set_south[LinearExtrapBC, cython.floating](bc, Q, B, By, ngh, comp)
         elif ornt == 3:  # north
-            bc.n = Q.shape[2] - 2 * ngh  # nx
             _linear_extrap_bc_set_north[LinearExtrapBC, cython.floating](bc, Q, B, By, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
