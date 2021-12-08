@@ -89,7 +89,7 @@ def get_ghost_cell_updaters(
 
             # linear extrapolation BC
             elif bctp == "extrap":
-                funcs.append(linear_extrap_bc_factory(ornt, i, states, topo, tol, drytol))
+                funcs.append(linear_extrap_bc_factory(ornt, i, states, topo))
 
             # constant, i.e., Dirichlet
             elif bctp == "const":

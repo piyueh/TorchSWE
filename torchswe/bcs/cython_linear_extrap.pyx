@@ -1,456 +1,211 @@
 # vim:fenc=utf-8
 # vim:ft=pyrex
-cimport _checker
 cimport cython
 
 
 cdef fused LinearExtrapBC:
-    LinearExtrapFloatWH
-    LinearExtrapDoubleWH
-    LinearExtrapFloatOther
-    LinearExtrapDoubleOther
-
-
-ctypedef fused LinearExtrapWHBC:
-    LinearExtrapFloatWH
-    LinearExtrapDoubleWH
-
-
-ctypedef fused LinearExtrapOtherBC:
-    LinearExtrapFloatOther
-    LinearExtrapDoubleOther
+    LinearExtrapFloat
+    LinearExtrapDouble
 
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
-cdef class LinearExtrapDoubleWH:
-    """Linear extraption boundary coditions wiht 64-bit floating points for w and h.
+cdef class LinearExtrapDouble:
+    """Linear extraption boundary coditions wiht 64-bit floating points.
     """
     # number of elements
     cdef Py_ssize_t n
 
     # conservatives
-    cdef const double[:] qc0  # w at the cell centers of the 1st internal cell layer
-    cdef const double[:] qc1  # w at the cell centers of the 2nd internal cell layer
-    cdef double[:] qbci  # w at the inner side of the boundary cell faces
-    cdef double[:] qbco  # w at the outer side of the boundary cell faces
-    cdef double[:] qother  # w at the inner side of the another face of the 1st internal cell
-
-    # topography elevation
-    cdef const double[:] bbc  # topo elevations at the boundary cell faces
-    cdef const double[:] bother  # topo elevation at cell faces between the 1st and 2nd internal cell layers
-
-    # depth
-    cdef const double[:] hc0  # depth at the cell centers of the 1st internal cell layer
-    cdef double[:] hbci  # depth at the inner side of the boundary cell faces
-    cdef double[:] hbco  # depth at the outer side of the boundary cell faces
-    cdef double[:] hother  # depth at the inner side of the another face of the 1st internal cell
-
-    # tolerance
-    cdef double tol  # depths under this tolerance are considered dry cells
+    cdef const double[:] qc0  # w/hu/hv at the cell centers of the 1st internal cell layer
+    cdef const double[:] qc1  # w/hu/hv at the cell centers of the 2nd internal cell layer
+    cdef double[:] qbcm1  # w/hu/hv at the 1st layer of ghost cells
+    cdef double[:] qbcm2  # w/hu/hv at the 2nd layer of ghost cells
 
     def __call__(self):
-        _linear_extrap_bc_w_h_kernel[LinearExtrapDoubleWH, double](self, 0.0)
+        _linear_extrap_bc_kernel[LinearExtrapDouble, double](self, 0.0)
 
 
 @cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
-cdef class LinearExtrapDoubleOther:
-    """Linear extraption boundary coditions wiht 64-bit floating points for hu or hv.
+cdef class LinearExtrapFloat:
+    """Linear extraption boundary coditions wiht 32-bit floating points.
     """
     # number of elements
     cdef Py_ssize_t n
 
     # conservatives
-    cdef const double[:] qc0  # hu or hv at the cell centers of the 1st internal cell layer
-    cdef const double[:] qc1  # u or v at the cell centers of the 2nd internal cell layer
-    cdef double[:] qbci  # hu or hv at the inner side of the boundary cell faces
-    cdef double[:] qbco  # hu or hv at the outer side of the boundary cell faces
-    cdef double[:] qother  # hu or hv at the inner side of the another face of the 1st internal cell
-
-    # depth
-    cdef const double[:] hbci  # depth at the inner side of the boundary cell faces
-    cdef const double[:] hbco  # depth at the outer side of the boundary cell faces
-    cdef const double[:] hother  # depth at the inner side of the another face of the 1st internal cell
-
-    # velocities
-    cdef double[:] ubci  # u or v at the inner side of the boundary cell faces
-    cdef double[:] ubco  # u or v at the outer side of the boundary cell faces
-    cdef double[:] uother  # u or v at the inner side of the another face of the 1st internal cell
-
-    # tolerance
-    cdef double drytol  # depths under this values are considered wet but still cells
+    cdef const float[:] qc0  # w/hu/hv at the cell centers of the 1st internal cell layer
+    cdef const float[:] qc1  # w/hu/hv at the cell centers of the 2nd internal cell layer
+    cdef float[:] qbcm1  # w/hu/hv at the 1st layer of ghost cells
+    cdef float[:] qbcm2  # w/hu/hv at the 2nd layer of ghost cells
 
     def __call__(self):
-        _linear_extrap_bc_kernel[LinearExtrapDoubleOther, double](self, 0.0)
+        _linear_extrap_bc_kernel[LinearExtrapFloat, float](self, 0.0)
 
 
-@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
-cdef class LinearExtrapFloatWH:
-    """Linear extraption boundary coditions wiht 64-bit floating points for w and h.
-    """
-    # number of elements
-    cdef Py_ssize_t n
-
-    # conservatives
-    cdef const float[:] qc0  # w at the cell centers of the 1st internal cell layer
-    cdef const float[:] qc1  # w at the cell centers of the 2nd internal cell layer
-    cdef float[:] qbci  # w at the inner side of the boundary cell faces
-    cdef float[:] qbco  # w at the outer side of the boundary cell faces
-    cdef float[:] qother  # w at the inner side of the another face of the 1st internal cell
-
-    # topography elevation
-    cdef const float[:] bbc  # topo elevations at the boundary cell faces
-    cdef const float[:] bother  # topo elevation at cell faces between the 1st and 2nd internal cell layers
-
-    # depth
-    cdef const float[:] hc0  # depth at the cell centers of the 1st internal cell layer
-    cdef float[:] hbci  # depth at the inner side of the boundary cell faces
-    cdef float[:] hbco  # depth at the outer side of the boundary cell faces
-    cdef float[:] hother  # depth at the inner side of the another face of the 1st internal cell
-
-    # tolerance
-    cdef float tol  # depths under this tolerance are considered dry cells
-
-    def __call__(self):
-        _linear_extrap_bc_w_h_kernel[LinearExtrapFloatWH, float](self, 0.0)
-
-
-@cython.auto_pickle(False)  # meaningless to pickle a BC instance as everything is a memoryview
-cdef class LinearExtrapFloatOther:
-    """Linear extraption boundary coditions wiht 64-bit floating points for hu or hv.
-    """
-    # number of elements
-    cdef Py_ssize_t n
-
-    # conservatives
-    cdef const float[:] qc0  # hu or hv at the cell centers of the 1st internal cell layer
-    cdef const float[:] qc1  # hu or hv at the cell centers of the 2nd internal cell layer
-    cdef float[:] qbci  # hu or hv at the inner side of the boundary cell faces
-    cdef float[:] qbco  # hu or hv at the outer side of the boundary cell faces
-    cdef float[:] qother  # hu or hv at the inner side of the another face of the 1st internal cell
-
-    # depth
-    cdef const float[:] hbci  # depth at the inner side of the boundary cell faces
-    cdef const float[:] hbco  # depth at the outer side of the boundary cell faces
-    cdef const float[:] hother  # depth at the inner side of the another face of the 1st internal cell
-
-    # velocities
-    cdef float[:] ubci  # u or v at the inner side of the boundary cell faces
-    cdef float[:] ubco  # u or v at the outer side of the boundary cell faces
-    cdef float[:] uother  # u or v at the inner side of the another face of the 1st internal cell
-
-    # tolerance
-    cdef float drytol  # depths under this values are considered wet but still cells
-
-    def __call__(self):
-        _linear_extrap_bc_kernel[LinearExtrapFloatOther, float](self, 0.0)
-
-
-cdef void _linear_extrap_bc_w_h_kernel(LinearExtrapWHBC bc, cython.floating delta) nogil except *:
+cdef void _linear_extrap_bc_kernel(LinearExtrapBC bc, cython.floating delta) nogil:
     cdef Py_ssize_t i
     for i in range(bc.n):
-
-        if bc.hc0[i] < bc.tol:
-            bc.hbci[i] = 0.0;
-            bc.hbco[i] = 0.0;
-            bc.hother[i] = 0.0;
-            bc.qbci[i] = bc.bbc[i];
-            bc.qbco[i] = bc.bbc[i];
-            bc.qother[i] = bc.bother[i];
-            continue
-
-        delta = (bc.qc0[i] - bc.qc1[i]) / 2.0;  # dw
-        bc.hbci[i] = bc.qc0[i] + delta - bc.bbc[i];
-        bc.hother[i] = bc.qc0[i] - delta - bc.bother[i];
-
-        if bc.hbci[i] < bc.tol:
-            bc.hbci[i] = 0.0;
-            bc.hother[i] = bc.hc0[i] * 2.0;
-        elif bc.hother[i] < bc.tol:
-            bc.hbci[i] = bc.hc0[i] * 2.0;
-            bc.hother[i] = 0.0;
-
-        bc.hbco[i] = bc.hbci[i]
-
-        #reconstruct to eliminate rounding error-edffect in further calculations
-        bc.qbci[i] = bc.hbci[i] + bc.bbc[i];
-        bc.qbco[i] = bc.hbco[i] + bc.bbc[i];
-        bc.qother[i] = bc.hother[i] + bc.bother[i];
-
-
-cdef void _linear_extrap_bc_kernel(LinearExtrapOtherBC bc, cython.floating delta) nogil except *:
-    cdef Py_ssize_t i
-    for i in range(bc.n):
-
-        delta = (bc.qc0[i] - bc.qc1[i]) / 2.0;
-
-        if bc.hbco[i] < bc.drytol:
-            bc.ubco[i] = 0.0;
-            bc.qbco[i] = 0.0;
-        else:
-            bc.ubco[i] = (bc.qc0[i] + delta) / bc.hbco[i];
-            bc.qbco[i] = bc.hbco[i] * bc.ubco[i];
-
-        if bc.hbci[i] < bc.drytol:
-            bc.ubci[i] = 0.0;
-            bc.qbci[i] = 0.0;
-        else:
-            bc.ubci[i] = (bc.qc0[i] + delta) / bc.hbci[i];
-            bc.qbci[i] = bc.hbci[i] * bc.ubci[i];
-
-        if bc.hother[i] < bc.drytol:
-            bc.uother[i] = 0.0;
-            bc.qother[i] = 0.0;
-        else:
-            bc.uother[i] = (bc.qc0[i] - delta) / bc.hother[i];
-            bc.qother[i] = bc.hother[i] * bc.uother[i];
+        delta = bc.qc0[i] - bc.qc1[i];
+        bc.qbcm1[i] = bc.qc0[i] + delta;
+        bc.qbcm2[i] = bc.qbcm1[i] + delta;
 
 
 cdef inline void _linear_extrap_bc_set_west(
     LinearExtrapBC bc,
-    const cython.floating[:, :, ::1] Q, cython.floating[:, :, ::1] xmQ, cython.floating[:, :, ::1] xpQ,
-    const cython.floating[:, :, ::1] U, cython.floating[:, :, ::1] xmU, cython.floating[:, :, ::1] xpU,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const cython.floating[:, ::1] Bx,
     const Py_ssize_t ngh, const Py_ssize_t comp,
-    const cython.floating tol, const cython.floating drytol
 ) nogil except *:
 
+    cdef Py_ssize_t i;
+
     # the first two combinations will be pruned by cython when translating to C/C++
-    if (
-        cython.floating is float and (
-            LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapDoubleOther)
-    ):
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
         raise TypeError("Mismatched types")
-    elif (
-        cython.floating is double and (
-            LinearExtrapBC is LinearExtrapFloatWH or LinearExtrapBC is LinearExtrapFloatOther)
-    ):
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.qc0      = Q[comp, ngh:Q.shape[1]-ngh, ngh]
+        bc.qc1      = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
+        bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, ngh-1]
+        bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, ngh-2]
 
-        bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, ngh]
-        bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, ngh+1]
-        bc.qbci = xpQ[comp, :, 0]
-        bc.qbco = xmQ[comp, :, 0]
-        bc.qother = xmQ[comp, :, 1]
-
-        bc.hbci = xpU[0, :, 0]
-        bc.hbco = xmU[0, :, 0]
-        bc.hother = xmU[0, :, 1]
-
-        if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.hc0 = U[0, ngh:U.shape[1]-ngh, ngh]
-            bc.bbc = Bx[:, 0]
-            bc.bother = Bx[:, 1]
-            bc.tol = tol
-        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
-            bc.ubci = xpU[comp, :, 0]
-            bc.ubco = xmU[comp, :, 0]
-            bc.uother = xmU[comp, :, 1]
-            bc.drytol = drytol
+        # modify the topography elevation in ghost cells
+        for i in range(ngh, B.shape[0]-ngh):
+            B[i, ngh-1] = Bx[i-ngh, 0] * 2.0 - B[i, ngh]
+            B[i, ngh-2] = Bx[i-ngh, 0] * 4.0 - B[i, ngh] * 3.0
 
 
 cdef inline void _linear_extrap_bc_set_east(
     LinearExtrapBC bc,
-    const cython.floating[:, :, ::1] Q, cython.floating[:, :, ::1] xmQ, cython.floating[:, :, ::1] xpQ,
-    const cython.floating[:, :, ::1] U, cython.floating[:, :, ::1] xmU, cython.floating[:, :, ::1] xpU,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const cython.floating[:, ::1] Bx,
     const Py_ssize_t ngh, const Py_ssize_t comp,
-    const cython.floating tol, const cython.floating drytol
 ) nogil except *:
 
+    cdef Py_ssize_t i;
+
     # the first two combinations will be pruned by cython when translating to C/C++
-    if (
-        cython.floating is float and (
-            LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapDoubleOther)
-    ):
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
         raise TypeError("Mismatched types")
-    elif (
-        cython.floating is double and (
-            LinearExtrapBC is LinearExtrapFloatWH or LinearExtrapBC is LinearExtrapFloatOther)
-    ):
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.qc0      = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
+        bc.qc1      = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
+        bc.qbcm1    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh]
+        bc.qbcm2    = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh+1]
 
-        bc.qc0 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-1]
-        bc.qc1 = Q[comp, ngh:Q.shape[1]-ngh, Q.shape[2]-ngh-2]
-        bc.qbci = xmQ[comp, :, xmQ.shape[2]-1]
-        bc.qbco = xpQ[comp, :, xpQ.shape[2]-1]
-        bc.qother = xpQ[comp, :, xpQ.shape[2]-2]
-
-        bc.hbci = xmU[0, :, xmU.shape[2]-1]
-        bc.hbco = xpU[0, :, xpU.shape[2]-1]
-        bc.hother = xpU[0, :, xpU.shape[2]-2]
-
-        if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.hc0 = U[0, ngh:U.shape[1]-ngh, U.shape[2]-ngh-1]
-            bc.bbc = Bx[:, Bx.shape[1]-1]
-            bc.bother = Bx[:, Bx.shape[1]-2]
-            bc.tol = tol
-        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
-            bc.ubci = xmU[comp, :, xmU.shape[2]-1]
-            bc.ubco = xpU[comp, :, xpU.shape[2]-1]
-            bc.uother = xpU[comp, :, xpU.shape[2]-2]
-            bc.drytol = drytol
+        # modify the topography elevation in ghost cells
+        for i in range(ngh, B.shape[0]-ngh):
+            B[i, B.shape[1]-ngh]   = Bx[i-ngh, Bx.shape[1]-1] * 2.0 - B[i, B.shape[1]-ngh-1]
+            B[i, B.shape[1]-ngh+1] = Bx[i-ngh, Bx.shape[1]-1] * 4.0 - B[i, B.shape[1]-ngh-1] * 3.0
 
 
 cdef inline void _linear_extrap_bc_set_south(
     LinearExtrapBC bc,
-    const cython.floating[:, :, ::1] Q, cython.floating[:, :, ::1] ymQ, cython.floating[:, :, ::1] ypQ,
-    const cython.floating[:, :, ::1] U, cython.floating[:, :, ::1] ymU, cython.floating[:, :, ::1] ypU,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const cython.floating[:, ::1] By,
     const Py_ssize_t ngh, const Py_ssize_t comp,
-    const cython.floating tol, const cython.floating drytol
 ) nogil except *:
 
+    cdef Py_ssize_t i;
+
     # the first two combinations will be pruned by cython when translating to C/C++
-    if (
-        cython.floating is float and (
-            LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapDoubleOther)
-    ):
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
         raise TypeError("Mismatched types")
-    elif (
-        cython.floating is double and (
-            LinearExtrapBC is LinearExtrapFloatWH or LinearExtrapBC is LinearExtrapFloatOther)
-    ):
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.qc0      = Q[comp, ngh,      ngh:Q.shape[2]-ngh]
+        bc.qc1      = Q[comp, ngh+1,    ngh:Q.shape[2]-ngh]
+        bc.qbcm1    = Q[comp, ngh-1,    ngh:Q.shape[2]-ngh]
+        bc.qbcm2    = Q[comp, ngh-2,    ngh:Q.shape[2]-ngh]
 
-        bc.qc0 = Q[comp, ngh, ngh:Q.shape[2]-ngh]
-        bc.qc1 = Q[comp, ngh+1, ngh:Q.shape[2]-ngh]
-        bc.qbci = ypQ[comp, 0, :]
-        bc.qbco = ymQ[comp, 0, :]
-        bc.qother = ymQ[comp, 1, :]
-
-        bc.hbci = ypU[0, 0, :]
-        bc.hbco = ymU[0, 0, :]
-        bc.hother = ymU[0, 1, :]
-
-        if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.hc0 = U[0, ngh, ngh:U.shape[2]-ngh]
-            bc.bbc = By[0, :]
-            bc.bother = By[1, :]
-            bc.tol = tol
-        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
-            bc.ubci = ypU[comp, 0, :]
-            bc.ubco = ymU[comp, 0, :]
-            bc.uother = ymU[comp, 1, :]
-            bc.drytol = drytol
+        # modify the topography elevation in ghost cells
+        for i in range(ngh, B.shape[1]-ngh):
+            B[ngh-1, i] = By[0, i-ngh] * 2.0 - B[ngh, i]
+            B[ngh-2, i] = By[0, i-ngh] * 4.0 - B[ngh, i] * 3.0
 
 
 cdef inline void _linear_extrap_bc_set_north(
     LinearExtrapBC bc,
-    const cython.floating[:, :, ::1] Q, cython.floating[:, :, ::1] ymQ, cython.floating[:, :, ::1] ypQ,
-    const cython.floating[:, :, ::1] U, cython.floating[:, :, ::1] ymU, cython.floating[:, :, ::1] ypU,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
     const cython.floating[:, ::1] By,
     const Py_ssize_t ngh, const Py_ssize_t comp,
-    const cython.floating tol, const cython.floating drytol
 ) nogil except *:
 
+    cdef Py_ssize_t i;
+
     # the first two combinations will be pruned by cython when translating to C/C++
-    if (
-        cython.floating is float and (
-            LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapDoubleOther)
-    ):
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
         raise TypeError("Mismatched types")
-    elif (
-        cython.floating is double and (
-            LinearExtrapBC is LinearExtrapFloatWH or LinearExtrapBC is LinearExtrapFloatOther)
-    ):
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
+        bc.qc0      = Q[comp, Q.shape[1]-ngh-1,     ngh:Q.shape[2]-ngh]
+        bc.qc1      = Q[comp, Q.shape[1]-ngh-2,     ngh:Q.shape[2]-ngh]
+        bc.qbcm1    = Q[comp, Q.shape[1]-ngh,       ngh:Q.shape[2]-ngh]
+        bc.qbcm2    = Q[comp, Q.shape[1]-ngh+1,     ngh:Q.shape[2]-ngh]
 
-        bc.qc0 = Q[comp, Q.shape[1]-ngh-1, ngh:Q.shape[2]-ngh]
-        bc.qc1 = Q[comp, Q.shape[1]-ngh-2, ngh:Q.shape[2]-ngh]
-        bc.qbci = ymQ[comp, ymQ.shape[1]-1, :]
-        bc.qbco = ypQ[comp, ypQ.shape[1]-1, :]
-        bc.qother = ypQ[comp, ypQ.shape[1]-2, :]
-
-        bc.hbci = ymU[0, ymU.shape[1]-1, :]
-        bc.hbco = ypU[0, ypU.shape[1]-1, :]
-        bc.hother = ypU[0, ypU.shape[1]-2, :]
-
-        if LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapFloatWH:
-            bc.hc0 = U[0, U.shape[1]-ngh-1, ngh:U.shape[2]-ngh]
-            bc.bbc = By[By.shape[0]-1, :]
-            bc.bother = By[By.shape[0]-2, :]
-            bc.tol = tol
-        elif LinearExtrapBC is LinearExtrapDoubleOther or LinearExtrapBC is LinearExtrapFloatOther:
-            bc.ubci = ymU[comp, ymU.shape[1]-1, :]
-            bc.ubco = ypU[comp, ypU.shape[1]-1, :]
-            bc.uother = ypU[comp, ypU.shape[1]-2, :]
-            bc.drytol = drytol
+        # modify the topography elevation in ghost cells
+        for i in range(ngh, B.shape[1]-ngh):
+            B[B.shape[0]-ngh,   i] = By[By.shape[0]-1, i-ngh] * 2.0 - B[B.shape[0]-ngh-1, i]
+            B[B.shape[0]-ngh+1, i] = By[By.shape[0]-1, i-ngh] * 4.0 - B[B.shape[0]-ngh-1, i] * 3.0
 
 
 cdef inline void _linear_extrap_bc_factory(
     LinearExtrapBC bc,
-    const cython.floating[:, :, ::1] Q,
-    cython.floating[:, :, ::1] xmQ, cython.floating[:, :, ::1] xpQ,
-    cython.floating[:, :, ::1] ymQ, cython.floating[:, :, ::1] ypQ,
-    const cython.floating[:, :, ::1] U,
-    cython.floating[:, :, ::1] xmU, cython.floating[:, :, ::1] xpU,
-    cython.floating[:, :, ::1] ymU, cython.floating[:, :, ::1] ypU,
-    const cython.floating[:, ::1] Bx, const cython.floating[:, ::1] By,
+    cython.floating[:, :, ::1] Q,
+    cython.floating[:, ::1] B,
+    const cython.floating[:, ::1] Bx,
+    const cython.floating[:, ::1] By,
     const Py_ssize_t ngh, const unsigned comp, const unsigned ornt,
-    const cython.floating tol, const cython.floating drytol
 ) nogil except *:
 
     # the first two combinations will be pruned by cython when translating to C/C++
-    if (
-        cython.floating is float and (
-            LinearExtrapBC is LinearExtrapDoubleWH or LinearExtrapBC is LinearExtrapDoubleOther)
-    ):
+    if cython.floating is float and LinearExtrapBC is LinearExtrapDouble:
         raise TypeError("Mismatched types")
-    elif (
-        cython.floating is double and (
-            LinearExtrapBC is LinearExtrapFloatWH or LinearExtrapBC is LinearExtrapFloatOther)
-    ):
+    elif cython.floating is double and LinearExtrapBC is LinearExtrapFloat:
         raise TypeError("Mismatched types")
     else:
 
-        # runtime check for the shapes
-        _checker.shape_checker_memoryview[cython.floating](
-            Q, xmQ, xpQ, ymQ, ypQ, U, xmU, xpU, ymU, ypU, Bx, By, ngh, comp, ornt)
+        assert Q.shape[1] == B.shape[0]
+        assert Q.shape[2] == B.shape[1]
+        assert Q.shape[1] == Bx.shape[0] + 2 * ngh
+        assert Q.shape[2] == Bx.shape[1] + 2 * ngh - 1
+        assert Q.shape[1] == By.shape[0] + 2 * ngh - 1
+        assert Q.shape[2] == By.shape[1] + 2 * ngh
 
         if ornt == 0:  # west
             bc.n = Q.shape[1] - 2 * ngh  # ny
-            _linear_extrap_bc_set_west[LinearExtrapBC, cython.floating](
-                bc, Q, xmQ, xpQ, U, xmU, xpU, Bx, ngh, comp, tol, drytol)
+            _linear_extrap_bc_set_west[LinearExtrapBC, cython.floating](bc, Q, B, Bx, ngh, comp)
         elif ornt == 1:  # east
             bc.n = Q.shape[1] - 2 * ngh  # ny
-            _linear_extrap_bc_set_east[LinearExtrapBC, cython.floating](
-                bc, Q, xmQ, xpQ, U, xmU, xpU, Bx, ngh, comp, tol, drytol)
+            _linear_extrap_bc_set_east[LinearExtrapBC, cython.floating](bc, Q, B, Bx, ngh, comp)
         elif ornt == 2:  # south
             bc.n = Q.shape[2] - 2 * ngh  # nx
-            _linear_extrap_bc_set_south[LinearExtrapBC, cython.floating](
-                bc, Q, ymQ, ypQ, U, ymU, ypU, By, ngh, comp, tol, drytol)
+            _linear_extrap_bc_set_south[LinearExtrapBC, cython.floating](bc, Q, B, By, ngh, comp)
         elif ornt == 3:  # north
             bc.n = Q.shape[2] - 2 * ngh  # nx
-            _linear_extrap_bc_set_north[LinearExtrapBC, cython.floating](
-                bc, Q, ymQ, ypQ, U, ymU, ypU, By, ngh, comp, tol, drytol)
+            _linear_extrap_bc_set_north[LinearExtrapBC, cython.floating](bc, Q, B, By, ngh, comp)
         else:
             raise ValueError(f"orientation id {ornt} not accepted.")
 
 
-def linear_extrap_bc_factory(ornt, comp, states, topo, tol, drytol, *args, **kwargs):
+def linear_extrap_bc_factory(ornt, comp, states, topo, *args, **kwargs):
     """Factory to create a linear extrapolation boundary condition callable object.
     """
 
     # aliases
     cdef object Q = states.Q
-    cdef object xmQ = states.face.x.minus.Q
-    cdef object xpQ = states.face.x.plus.Q
-    cdef object ymQ = states.face.y.minus.Q
-    cdef object ypQ = states.face.y.plus.Q
-
-    cdef object U = states.U
-    cdef object xmU = states.face.x.minus.U
-    cdef object xpU = states.face.x.plus.U
-    cdef object ymU = states.face.y.minus.U
-    cdef object ypU = states.face.y.plus.U
-
+    cdef object B = topo.centers
     cdef object Bx = topo.xfcenters
     cdef object By = topo.yfcenters
-
     cdef Py_ssize_t ngh = states.domain.nhalo
     cdef str dtype = str(Q.dtype)
 
@@ -464,20 +219,11 @@ def linear_extrap_bc_factory(ornt, comp, states, topo, tol, drytol, *args, **kwa
         elif ornt in ["n", "north"]:
             ornt = 3
 
-    options = {
-        (0, "float64"): (LinearExtrapDoubleWH, _linear_extrap_bc_factory[LinearExtrapDoubleWH, double]),
-        (1, "float64"): (LinearExtrapDoubleOther, _linear_extrap_bc_factory[LinearExtrapDoubleOther, double]),
-        (2, "float64"): (LinearExtrapDoubleOther, _linear_extrap_bc_factory[LinearExtrapDoubleOther, double]),
-        (0, "float32"): (LinearExtrapFloatWH, _linear_extrap_bc_factory[LinearExtrapFloatWH, float]),
-        (1, "float32"): (LinearExtrapFloatOther, _linear_extrap_bc_factory[LinearExtrapFloatOther, float]),
-        (2, "float32"): (LinearExtrapFloatOther, _linear_extrap_bc_factory[LinearExtrapFloatOther, float]),
-    }
-
-    bc = options[comp, dtype][0]()
-
-    options[comp, dtype][1](
-        bc, Q, xmQ, xpQ, ymQ, ypQ, U, xmU, xpU, ymU, ypU, Bx, By,
-        ngh, comp, ornt, tol, drytol
-    )
+    if dtype == "float64":
+        bc = LinearExtrapDouble()
+        _linear_extrap_bc_factory[LinearExtrapDouble, double](bc, Q, B, Bx, By, ngh, comp, ornt)
+    elif dtype == "float32":
+        bc = LinearExtrapFloat()
+        _linear_extrap_bc_factory[LinearExtrapFloat, float](bc, Q, B, Bx, By, ngh, comp, ornt)
 
     return bc
