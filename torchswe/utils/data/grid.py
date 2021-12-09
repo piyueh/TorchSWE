@@ -8,20 +8,25 @@
 
 """Data model for grid-related data.
 """
+from copy import deepcopy as _deepcopy
 from operator import itemgetter as _itemgetter
 from typing import Literal as _Literal
 from typing import Tuple as _Tuple
 from typing import Union as _Union
 
 from mpi4py import MPI as _MPI
-from mpi4py.util.dtlib import from_numpy_dtype
+from mpi4py.util.dtlib import from_numpy_dtype as _from_numpy_dtype
 from pydantic import validator as _validator
 from pydantic import conint as _conint
 from pydantic import confloat as _confloat
 from pydantic import root_validator as _root_validator
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
+from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDtype as _DummyDtype
+from torchswe.utils.misc import DummyDict as _DummyDict
+from torchswe.utils.misc import cal_num_procs as _cal_num_procs
+from torchswe.utils.misc import cal_local_gridline_range as _cal_local_gridline_range
 
 
 class Gridline(_BaseConfig):
@@ -46,13 +51,13 @@ class Gridline(_BaseConfig):
     dtype : str, nplike.float32, or nplike64.
         The type of floating numbers. If a string, it should be either "float32" or "float64".
         If not a string, it should be either `nplike.float32` or `nplike.float64`.
-    vertices: 1D array of length n+1
+    v: 1D array of length n+1
         Coordinates at vertices.
-    centers: 1D array of length n
+    c: 1D array of length n
         Coordinates at cell centers.
-    xfcenters: 1D array of langth n+1 or n
+    xf: 1D array of langth n+1 or n
         Coordinates at the centers of the cell faces normal to x-axis.
-    yfcenters: 1D array of langth n or n+1
+    yf: 1D array of langth n or n+1
         Coordinates at the centers of the cell faces normal to y-axis.
 
     Notes
@@ -71,16 +76,16 @@ class Gridline(_BaseConfig):
     ibegin: _conint(strict=True, ge=0)
     iend: _conint(strict=True, gt=0)
     delta: _confloat(gt=0.)
-    vertices: _nplike.ndarray
-    centers: _nplike.ndarray
-    xfcenters: _nplike.ndarray
-    yfcenters: _nplike.ndarray
+    v: _nplike.ndarray
+    c: _nplike.ndarray
+    xf: _nplike.ndarray
+    yf: _nplike.ndarray
 
     @_root_validator(pre=False, skip_on_failure=True)
     def _val_all(cls, values):  # pylint: disable=no-self-argument, no-self-use
         """Validations that rely the existence of other fields."""
 
-        _tol = 1e-10 if values["vertices"].dtype == _nplike.double else 1e-7
+        _tol = 1e-10 if values["v"].dtype == _nplike.double else 1e-7
 
         # coordinate ranges
         gbg, ged, lbg, led = _itemgetter("glower", "gupper", "lower", "upper")(values)
@@ -88,8 +93,8 @@ class Gridline(_BaseConfig):
         assert lbg < led, f"Local lower bound >= local upper bound: {lbg}, {led}"
         assert lbg >= gbg, f"Local lower bound < global lower bound: {lbg}, {gbg}"
         assert led <= ged, f"Local upper bound > global upper bound: {led}, {ged}"
-        assert abs(lbg-values["vertices"][0]) < _tol, "lower != vertives[0]"
-        assert abs(led-values["vertices"][-1]) < _tol, "upper != vertives[-1]"
+        assert abs(lbg-values["v"][0]) < _tol, "lower != vertives[0]"
+        assert abs(led-values["v"][-1]) < _tol, "upper != vertives[-1]"
 
         # index range
         gn, n, ibg, ied = _itemgetter("gn", "n", "ibegin", "iend")(values)
@@ -98,28 +103,28 @@ class Gridline(_BaseConfig):
         assert ibg < ied, f"Begining index >= end index: {ibg}, {ied}"
 
         # check dtype and increment
-        for v in _itemgetter("vertices", "centers", "xfcenters", "yfcenters")(values):
+        for v in _itemgetter("v", "c", "xf", "yf")(values):
             diffs = v[1:] - v[:-1]
             assert all(diff > 0 for diff in diffs), "Not in monotonically increasing order."
             assert all(abs(diff-values["delta"]) <= _tol for diff in diffs), "Delta doesn't match."
             assert v.dtype == values["dtype"], "Floating-number types mismatch"
 
         # check vertices
-        assert values["vertices"].shape == (values["n"]+1,), "The number of vertices doesn't match."
+        assert values["v"].shape == (values["n"]+1,), "The number of vertices doesn't match."
 
         # check cell centers
-        assert values["centers"].shape == (values["n"],), "The number of centers doesn't match."
+        assert values["c"].shape == (values["n"],), "The number of centers doesn't match."
         assert _nplike.allclose(
-            values["centers"], (values["vertices"][:-1]+values["vertices"][1:])/2.), \
+            values["c"], (values["v"][:-1]+values["v"][1:])/2.), \
             "Centers are not at the mid-points between neighboring vertices."
 
         # check the centers of faces
         if values["axis"] == "x":
-            assert _nplike.allclose(values["xfcenters"], values["vertices"])
-            assert _nplike.allclose(values["yfcenters"], values["centers"])
+            assert _nplike.allclose(values["xf"], values["v"])
+            assert _nplike.allclose(values["yf"], values["c"])
         else:
-            assert _nplike.allclose(values["xfcenters"], values["centers"])
-            assert _nplike.allclose(values["yfcenters"], values["vertices"])
+            assert _nplike.allclose(values["xf"], values["c"])
+            assert _nplike.allclose(values["yf"], values["v"])
 
         return values
 
@@ -212,7 +217,7 @@ class Domain(_BaseConfig):
         # send-recv indices range from neighbors
         sendbuf = _nplike.tile(_nplike.array((jbg, jed, ibg, ied), dtype=int), (4,))
         recvbuf = _nplike.full(16, -999, dtype=int)
-        mpitype = from_numpy_dtype(sendbuf.dtype)
+        mpitype = _from_numpy_dtype(sendbuf.dtype)
         _nplike.sync()
         values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
@@ -244,12 +249,12 @@ class Domain(_BaseConfig):
         # aliases
         jbg, jed = values["y"].lower, values["y"].upper
         ibg, ied = values["x"].lower, values["x"].upper
-        dtype = values["x"].centers.dtype
+        dtype = values["x"].c.dtype
 
         # send-recv indices range from neighbors
         sendbuf = _nplike.tile(_nplike.array((jbg, jed, ibg, ied), dtype=dtype), (4,))
         recvbuf = _nplike.full(16, float("NaN"), dtype=dtype)
-        mpitype = from_numpy_dtype(dtype)
+        mpitype = _from_numpy_dtype(dtype)
         _nplike.sync()
         values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
 
@@ -328,3 +333,177 @@ class Domain(_BaseConfig):
     def internal(self):
         """The slicing of internal (non halo) region."""
         return (slice(self.effybg, self.effyed), slice(self.effxbg, self.effxed))
+
+
+def get_gridline_x(comm: _MPI.Cartcomm, config: _Config):
+    """Get a Gridline instance in x direction.
+
+    Arguments
+    ---------
+    comm : mpi4py.MPI.Cartcomm
+        The Cartesian communicator describing the topology.
+    config : torchswe.utils.config.Config
+        The configuration of a case.
+
+    Returns
+    -------
+    gridline : torchswe.utils.data.grid.Gridline
+    """
+
+    assert isinstance(comm, _MPI.Cartcomm), "The communicator must be a Cartesian communicator."
+
+    arg         = _DummyDict()
+    arg.axis    = "x"
+    arg.gn      = config.spatial.discretization[0]
+    arg.glower  = config.spatial.domain[0]
+    arg.gupper  = config.spatial.domain[1]
+    arg.delta   = (arg.gupper - arg.glower) / arg.gn
+    arg.dtype   = _DummyDtype.validator(config.params.dtype)
+
+    arg.n, arg.ibegin, arg.iend = _cal_local_gridline_range(comm.dims[1], comm.coords[1], arg.gn)
+    arg.lower                   = arg.ibegin * arg.delta + arg.glower
+    arg.upper                   = arg.iend * arg.delta + arg.glower
+
+    arg.v    = _nplike.linspace(arg.lower, arg.upper, arg.n+1, dtype=arg.dtype)
+    arg.c    = (arg.v[1:] + arg.v[:-1]) / 2.0
+    arg.xf   = _deepcopy(arg.v)
+    arg.yf   = _deepcopy(arg.c)
+
+    return Gridline(**arg)
+
+
+def get_gridline_y(comm: _MPI.Cartcomm, config: _Config):
+    """Get a Gridline instance in y direction.
+
+    Arguments
+    ---------
+    comm : mpi4py.MPI.Cartcomm
+        The Cartesian communicator describing the topology (order: ny and then nx).
+    config : torchswe.utils.config.Config
+        The configuration of a case.
+
+    Returns
+    -------
+    gridline : torchswe.utils.data.grid.Gridline
+    """
+
+    assert isinstance(comm, _MPI.Cartcomm), "The communicator must be a Cartesian communicator."
+
+    arg         = _DummyDict()
+    arg.axis    = "y"
+    arg.gn      = config.spatial.discretization[1]
+    arg.glower  = config.spatial.domain[2]
+    arg.gupper  = config.spatial.domain[3]
+    arg.delta   = (arg.gupper - arg.glower) / arg.gn
+    arg.dtype   = _DummyDtype.validator(config.params.dtype)
+
+    arg.n, arg.ibegin, arg.iend = _cal_local_gridline_range(comm.dims[0], comm.coords[0], arg.gn)
+    arg.lower                   = arg.ibegin * arg.delta + arg.glower
+    arg.upper                   = arg.iend * arg.delta + arg.glower
+
+    arg.v    = _nplike.linspace(arg.lower, arg.upper, arg.n+1, dtype=arg.dtype)
+    arg.c    = (arg.v[1:] + arg.v[:-1]) / 2.0
+    arg.xf   = _deepcopy(arg.c)
+    arg.yf   = _deepcopy(arg.v)
+
+    return Gridline(**arg)
+
+
+def get_timeline(config: _Config):
+    """Generate a list of times when the solver should output solution snapshots.
+
+    Arguments
+    ---------
+    config : torchswe.utils.config.Config
+
+    Returns
+    -------
+    t : torchswe.utils.data.Timeline
+    """
+
+    save = True  # default
+    output_type = config.temporal.output[0]
+    params = config.temporal.output[1:]
+
+    # write solutions to a file at give times
+    if output_type == "at":
+        t = params[0]
+
+    # output every `every_seconds` seconds `multiple` times from `t_start`
+    elif output_type == "t_start every_seconds multiple":
+        begin, delta, n = params
+        t = (_nplike.arange(0, n+1) * delta + begin).tolist()  # including saving t_start
+
+    # output every `every_steps` constant-size steps for `multiple` times from t=`t_start`
+    elif output_type == "t_start every_steps multiple":  # including saving t_start
+        begin, steps, n = params
+        t = (_nplike.arange(0, n+1) * config.temporal.dt * steps + begin).tolist()
+
+    # from `t_start` to `t_end` evenly outputs `n_saves` times (including both ends)
+    elif output_type == "t_start t_end n_saves":
+        begin, end, n = params
+        t = _nplike.linspace(begin, end, n+1).tolist()  # including saving t_start
+
+    # run simulation from `t_start` to `t_end` but not saving solutions at all
+    elif output_type == "t_start t_end no save":
+        t = params
+        save = False
+
+    # run simulation from `t_start` with `n_steps` iterations but not saving solutions at all
+    elif output_type == "t_start n_steps no save":
+        t = [params[0], params[0] + params[1] * config.temporal.dt]
+        save = False
+
+    # should never reach this branch because pydantic has detected any invalid arguments
+    else:
+        raise ValueError(f"{output_type} is not an allowed output method.")
+
+    return Timeline(values=t, save=save)
+
+
+def get_domain(comm: _MPI.Comm, config: _Config):
+    """Get an instance of Domain for the current MPI rank.
+
+    Arguments
+    ---------
+    comm : mpi4py.MPI.Comm
+        The communicator. Should just be a general communicator. And a Cartcomm will be created
+        automatically in this function from the provided general Comm.
+    config : torchswe.utils.config.Config
+        The configuration of a case.
+
+    Returns
+    -------
+    An instance of torchswe.utils.data.Domain.
+    """
+
+    # see if we need periodic bc
+    period = (config.bc.west.types[0] == "periodic", config.bc.south.types[0] == "period")
+
+    # to hold data for initializing a Domain instance
+    data = _DummyDict()
+
+    # only when the provided communicator is not a Cartesian communicator
+    if not isinstance(comm, _MPI.Cartcomm):
+        # evaluate the number of ranks in x/y direction and get a Cartesian topology communicator
+        pnx, pny = _cal_num_procs(comm.Get_size(), *config.spatial.discretization)
+        data.comm = comm.Create_cart((pny, pnx), period, True)
+    else:
+        data.comm = comm
+
+    # find the rank of neighbors
+    data.s, data.n = data.comm.Shift(0, 1)
+    data.w, data.e = data.comm.Shift(1, 1)
+
+    # get local gridline
+    data.x = get_gridline_x(comm, config)
+    data.y = get_gridline_y(comm, config)
+
+    # halo-ring related
+    data.nhalo = 2
+    data.effxbg = 2
+    data.effybg = 2
+    data.effxed = data.effxbg + data.x.n
+    data.effyed = data.effybg + data.y.n
+
+    return Domain(**data)
