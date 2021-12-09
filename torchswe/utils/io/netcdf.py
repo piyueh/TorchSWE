@@ -533,3 +533,88 @@ def _copy_data(var, array, slc):
             var[slc] = array.cpu().numpy()  # pytorch
         else:
             raise
+
+
+def create_empty_soln_file(fpath, domain, t, **kwargs):
+    """Create an new NetCDF file for solutions using the corresponding grid object.
+
+    Create an empty NetCDF4 file with axes `x`, `y`, and `time`. `x` and `y` are defined at cell
+    centers. The spatial coordinates use EPSG 3856. The temporal axis is limited with dimension
+    `ntime` (i.e., not using the unlimited axis feature from CF convention).
+
+    Also, this function creates empty solution variables (`w`, `hu`, `hv`, `h`, `u`, `v`) in the
+    dataset with `NaN` for all values. The shapes of these variables are `(ntime, ny, nx)`.
+
+    Arguments
+    ---------
+    fpath : str or PathLike
+        The path to the file.
+    domain : torchswe.utils.data.Domain
+        The Domain instance corresponds to the solutions.
+    t : torchswe.utils.data.Timeline
+        The temporal axis object.
+    **kwargs
+        Keyword arguments sent to netCDF4.Dataset.
+    """
+
+    assert "parallel" not in kwargs, "`parallel` should not be included in `kwargs`"
+    assert "comm" not in kwargs, "`parallel` should not be included in `kwargs`"
+
+    fpath = _Path(fpath).expanduser().resolve()
+
+    data = {k: None for k in ["w", "hu", "hv", "h"]}
+
+    with _Dataset(fpath, "w", parallel=True, comm=domain.comm, **kwargs) as dset:
+
+        write_to_dataset(
+            dset=dset,
+            axs=(domain.x.centers, domain.y.centers, t.values),
+            data=data,
+            global_n=(domain.x.gn, domain.y.gn),
+            idx_bounds=(domain.x.ibegin, domain.x.iend, domain.y.ibegin, domain.y.iend),
+            corner=(domain.x.glower, domain.y.gupper),
+            deltas=(domain.x.delta, domain.y.delta),
+        )
+
+        dset.sync()
+
+
+def write_soln_to_file(fpath, soln, time, tidx, **kwargs):
+    """Write a solution snapshot to an existing NetCDF file.
+
+    Arguments
+    ---------
+    fpath : str or PathLike
+        The path to the file.
+    soln : torchswe.utils.data.State
+        The solution object.
+    time : float
+        The simulation time of this snapshot.
+    tidx : int
+        The index of the snapshot time in the temporal axis.
+    **kwargs
+        Keyword arguments sent to netCDF4.Dataset.
+    """
+    fpath = _Path(fpath).expanduser().resolve()
+
+    assert "parallel" not in kwargs, "`parallel` should not be included in `kwargs`"
+    assert "comm" not in kwargs, "`parallel` should not be included in `kwargs`"
+
+    # determine if it's a WHUHVModel or HUVModel
+    data = {
+        "w": soln.Q[(0,)+soln.domain.internal],
+        "hu": soln.Q[(1,)+soln.domain.internal],
+        "hv": soln.Q[(2,)+soln.domain.internal],
+        "h": soln.U[(0,)+soln.domain.internal],
+    }
+
+    # alias
+    domain = soln.domain
+
+    with _Dataset(fpath, "a", parallel=True, comm=domain.comm, **kwargs) as dset:
+
+        add_time_data_to_dataset(
+            dset=dset, data=data, time=time, tidx=tidx,
+            idx_bounds=(domain.x.ibegin, domain.x.iend, domain.y.ibegin, domain.y.iend)
+        )
+        dset.sync()

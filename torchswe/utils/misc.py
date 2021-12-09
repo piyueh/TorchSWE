@@ -306,6 +306,59 @@ def find_cell_index(x, lower, upper, delta):
     return int((x-lower)//delta)
 
 
+def find_index_bound(x, y, extent):
+    """Given x and y gridlines, find the index bounds covering the desired extent.
+
+    Arguments
+    ---------
+    x, y : nplike.ndarray
+        The coordinates.
+    extenr : tuple of 4 floats
+        The queried extent in format (xmin, xmax, ymin, ymax) or (west, east, south, north).
+
+    Returns
+    -------
+    ibg, ied, jbg, jed : int
+        Slice [ibg:ied] and [jbg:jed] cover desired extent.
+    """
+
+    assert x[0] <= extent[0], f"{x[0]} is not smaller than or equal to {extent[0]}"
+    assert x[-1] >= extent[1], f"{x[-1]} is not greater than or equal to {extent[1]}"
+    assert y[0] <= extent[2], f"{y[0]} is not smaller than or equal to {extent[2]}"
+    assert y[-1] >= extent[3], f"{y[-1]} is not greater than or equal to {extent[3]}"
+
+    # tol (single precision and double precision will use different tolerance)
+    try:
+        tol = 1e-12 if x.dtype == "float64" else 1e-6
+    except AttributeError:  # not a numpy or cupy datatype -> Python's native floating point
+        tol = 1e-12
+
+    # left-search the start/end indices containing the provided domain (with rounding errors)
+    ibg, ied = _nplike.searchsorted(x+tol, _nplike.array(extent[:2]))
+    jbg, jed = _nplike.searchsorted(x+tol, _nplike.array(extent[2:]))
+
+    # torch's searchsorted signature differs, so no right search; manual adjustment instead
+    ied = len(x) - 1 if ied >= len(x) else ied
+    jed = len(y) - 1 if jed >= len(y) else jed
+
+    # make sure the target domain is big enough for interpolation, except for edge cases
+    ibg = int(ibg-1) if x[ibg]-tol > extent[0] else int(ibg)
+    ied = int(ied+1) if x[ied]+tol < extent[1] else int(ied)
+    jbg = int(jbg-1) if y[jbg]-tol > extent[2] else int(jbg)
+    jed = int(jed+1) if y[jed]+tol < extent[3] else int(jed)
+
+    assert ibg >= 0, f"{x[0]} not smaller enough to cover {extent[0]}"
+    assert ied < len(x), f"{x[-1]} not big enough to cover {extent[1]}"
+    assert jbg >= 0, f"{y[0]} not smaller enough to cover {extent[2]}"
+    assert jed < len(y), f"{y[-1]} not big enough to cover {extent[3]}"
+
+    # the end has to shift one for slicing
+    ied += 1
+    jed += 1
+
+    return ibg, ied, jbg, jed
+
+
 def exchange_states(states):
     """Exchange w, hu, and hv with neighbors to fill in the cells in halo rings
 
