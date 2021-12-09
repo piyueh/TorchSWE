@@ -11,6 +11,26 @@
 from torchswe import nplike as _nplike
 
 
+def friction_model_selector(name: str):
+    """Return a friction coefficient model using the corresponding string name.
+
+    Arguments
+    ---------
+    name : str
+        The name of the model.
+
+    Returns
+    -------
+    A callable.
+    """
+
+    if name == "bellos_et_al_2018":
+        return bellos_et_al_2018
+
+    # no matching
+    raise ValueError(f"Unrecognized model name: {name}")
+
+
 def approx_lambert_w(x):  # pylint: disable=invalid-name
     """Approximation to the Lambert-W function.
 
