@@ -8,6 +8,13 @@
 
 """Data model for grid-related data.
 """
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from mpi4py import MPI
+    from torchswe.utils.config import Config
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 from copy import deepcopy as _deepcopy
 from operator import itemgetter as _itemgetter
 from typing import Literal as _Literal
@@ -22,7 +29,6 @@ from pydantic import confloat as _confloat
 from pydantic import root_validator as _root_validator
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
-from torchswe.utils.config import Config as _Config
 from torchswe.utils.misc import DummyDtype as _DummyDtype
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import cal_num_procs as _cal_num_procs
@@ -315,14 +321,14 @@ class Domain(_BaseConfig):
         return self.y.gn, self.x.gn
 
     @property
-    def bounds(self):
-        """The bounds of the local domain in the order of south, north, west, & east"""
-        return self.y.lower, self.y.upper, self.x.lower, self.x.upper
+    def lextent(self):
+        """The extent of the local grid in the order of west, east, south, and north"""
+        return self.x.lower, self.x.upper, self.y.lower, self.y.upper
 
     @property
-    def gbounds(self):
-        """The bounds of the global domain in the order of south, north, west, & east"""
-        return self.y.glower, self.y.gupper, self.x.glower, self.x.gupper
+    def gextent(self):
+        """The extent of the global grid in the order of west, east, south, and north"""
+        return self.x.glower, self.x.gupper, self.y.glower, self.y.gupper
 
     @property
     def delta(self):
@@ -330,12 +336,47 @@ class Domain(_BaseConfig):
         return self.y.delta, self.x.delta
 
     @property
-    def internal(self):
+    def nonhalo_c(self):
         """The slicing of internal (non halo) region."""
         return (slice(self.effybg, self.effyed), slice(self.effxbg, self.effxed))
 
+    @property
+    def nonhalo_v(self):
+        """The slicing of internal (non halo) region."""
+        return (slice(self.effybg, self.effyed+1), slice(self.effxbg, self.effxed+1))
 
-def get_gridline_x(comm: _MPI.Cartcomm, config: _Config):
+    @property
+    def nonhalo_xf(self):
+        """The slicing of internal (non halo) region."""
+        return (slice(self.effybg, self.effyed), slice(self.effxbg, self.effxed+1))
+
+    @property
+    def nonhalo_yf(self):
+        """The slicing of internal (non halo) region."""
+        return (slice(self.effybg, self.effyed+1), slice(self.effxbg, self.effxed))
+
+    @property
+    def global_c(self):
+        """The slices of cell-centered arrays corresponding to this rank."""
+        return (slice(self.y.ibegin, self.y.iend), slice(self.x.ibegin, self.x.iend))
+
+    @property
+    def global_v(self):
+        """The slices of cell-centered arrays corresponding to this rank."""
+        return (slice(self.y.ibegin, self.y.iend+1), slice(self.x.ibegin, self.x.iend+1))
+
+    @property
+    def global_xf(self):
+        """The slices of cell-centered arrays corresponding to this rank."""
+        return (slice(self.y.ibegin, self.y.iend), slice(self.x.ibegin, self.x.iend+1))
+
+    @property
+    def global_yf(self):
+        """The slices of cell-centered arrays corresponding to this rank."""
+        return (slice(self.y.ibegin, self.y.iend+1), slice(self.x.ibegin, self.x.iend))
+
+
+def get_gridline_x(comm: MPI.Cartcomm, config: Config):
     """Get a Gridline instance in x direction.
 
     Arguments
@@ -372,7 +413,7 @@ def get_gridline_x(comm: _MPI.Cartcomm, config: _Config):
     return Gridline(**arg)
 
 
-def get_gridline_y(comm: _MPI.Cartcomm, config: _Config):
+def get_gridline_y(comm: MPI.Cartcomm, config: Config):
     """Get a Gridline instance in y direction.
 
     Arguments
@@ -409,7 +450,7 @@ def get_gridline_y(comm: _MPI.Cartcomm, config: _Config):
     return Gridline(**arg)
 
 
-def get_timeline(config: _Config):
+def get_timeline(config: Config):
     """Generate a list of times when the solver should output solution snapshots.
 
     Arguments
@@ -461,7 +502,7 @@ def get_timeline(config: _Config):
     return Timeline(values=t, save=save)
 
 
-def get_domain(comm: _MPI.Comm, config: _Config):
+def get_domain(comm: MPI.Comm, config: Config):
     """Get an instance of Domain for the current MPI rank.
 
     Arguments
@@ -496,8 +537,8 @@ def get_domain(comm: _MPI.Comm, config: _Config):
     data.w, data.e = data.comm.Shift(1, 1)
 
     # get local gridline
-    data.x = get_gridline_x(comm, config)
-    data.y = get_gridline_y(comm, config)
+    data.x = get_gridline_x(data.comm, config)
+    data.y = get_gridline_y(data.comm, config)
 
     # halo-ring related
     data.nhalo = 2

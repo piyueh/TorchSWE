@@ -8,9 +8,16 @@
 
 """Data models for source-term-related thing.
 """
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from mpi4py import MPI
+    from torchswe.utils.config import Config
+    from torchswe.utils.data.grid import Domain
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 from logging import getLogger as _getLogger
 from typing import Tuple as _Tuple
-from typing import Union as _Union
 from typing import Callable as _Callable
 from mpi4py import MPI as _MPI
 from pydantic import conint as _conint
@@ -18,8 +25,7 @@ from pydantic import confloat as _confloat
 from pydantic import validator as _validator
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.netcdf import read as _ncread
+from torchswe.utils.io import read_block as _read_block
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import find_cell_index as _find_cell_index
 from torchswe.utils.misc import interpolate as _interpolate
@@ -73,13 +79,19 @@ class FrictionModel(_BaseConfig):
     """An object holding required data/info for friction.
     """
 
-    roughness: _Union[_confloat(ge=0.0), _nplike.ndarray]
+    domain: _Domain
+    roughness: _nplike.ndarray
     model: _Callable  # pydantic does not check the signature, so useless to specify signature
 
+    @_validator("roughness")
+    def _val_roughness(cls, val, values):  # pylint: disable=no-self-argument, no-self-use
+        """Validate the shape and dtype of roughtness"""
+        assert val.shape == values["domain"].shape, "roughness: shapes mismatched"
+        assert val.dtype == values["domain"].dtype, "roughness: dtype mismatched"
+        return val
 
-def get_pointsource(
-    config: _Config, irate: int = 0, domain: _Domain = None, comm: _MPI.Comm = None
-):
+
+def get_pointsource(config: Config, irate: int = 0, domain: Domain = None, comm: MPI.Comm = None):
     """Get a PointSource instance.
 
     Arguments
@@ -145,7 +157,7 @@ def get_pointsource(
     return PointSource(**data)
 
 
-def get_frictionmodel(config: _Config, domain: _Domain = None, comm: _MPI.Comm = None):
+def get_frictionmodel(config: Config, domain: Domain = None, comm: MPI.Comm = None):
     """Get a FrictionModel instance.
 
     Arguments
@@ -168,35 +180,31 @@ def get_frictionmodel(config: _Config, domain: _Domain = None, comm: _MPI.Comm =
     # if domain is not provided, get a new one
     if domain is None:
         comm = _MPI.COMM_WORLD if comm is None else comm
-        domain = _get_domain(comm, config)
+        data.domain = domain = _get_domain(comm, config)
+    else:
+        data.domain = domain
 
     # set the model
     data.model = _friction_model_selector(config.friction.model)
 
     # set roughness if a constant value is provided
     if config.friction.value is not None:
-        data.roughness = config.friction.value
+        data.roughness = _nplike.full(data.domain.shape, config.friction.value)
 
     # otherwise, get roughness from a file
-    data, _ = _ncread(
-        fpath=config.friction.file, data_keys=[config.friction.key],
-        extent=(domain.x.lower, domain.x.upper, domain.y.lower, domain.y.upper),
-        parallel=True, comm=domain.comm
-    )
+    data = _read_block(config.friction.file, config.friction.xykeys, config.friction.key, domain)
 
     # see if we need to do interpolation
     try:
-        interp = not (
-            _nplike.allclose(domain.x.c, data["x"]) and _nplike.allclose(domain.y.c, data["y"])
-        )
+        interp = not (_nplike.allclose(domain.x.c, data.x) and _nplike.allclose(domain.y.c, data.y))
     except ValueError:  # assume thie excpetion means a shape mismatch
         interp = True
 
     if interp:  # unfortunately, we need to do interpolation in such a situation
         _logger.warning("Grids do not match. Doing spline interpolation.")
-        data.roughness = _nplike.array(_interpolate(
-            data["x"], data["y"], data[config.friction.key].T,
-            domain.x.c, domain.y.c).T).astype(domain.dtype)
+        data.roughness = _nplike.array(
+            _interpolate(data.x, data.y, data[config.friction.key].T, domain.x.c, domain.y.c).T
+        ).astype(domain.dtype)
     else:  # no need for interpolation
         data.roughness = data[config.friction.key].astype(domain.dtype)
 

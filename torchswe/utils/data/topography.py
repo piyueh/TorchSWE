@@ -8,14 +8,23 @@
 
 """Data model for topography.
 """
+# imports related to type hinting
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from torchswe.nplike import ndarray
+    from torchswe.utils.config import Config
+    from torchswe.utils.data.grid import Domain
+    from mpi4py import MPI
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 from logging import getLogger as _getLogger
 from mpi4py import MPI as _MPI
 from mpi4py.util.dtlib import from_numpy_dtype as _from_numpy_dtype
 from pydantic import root_validator as _root_validator
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.netcdf import read as _ncread
+from torchswe.utils.io import read_block as _read_block
 from torchswe.utils.misc import interpolate as _interpolate
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.data.grid import Domain as _Domain
@@ -106,82 +115,9 @@ class Topography(_BaseConfig):
 
         return values
 
-    @property
-    def nonhalo_slc_v(self):
-        """The slice of non-halo nor non-ghost cells in local vertex data."""
-        return (
-            slice(self.domain.nhalo, self.v.shape[0]-self.domain.nhalo),
-            slice(self.domain.nhalo, self.v.shape[1]-self.domain.nhalo)
-        )
 
-    @property
-    def nonhalo_slc_c(self):
-        """The slice of non-halo nor non-ghost cells in local cell-centered data."""
-        return (
-            slice(self.domain.nhalo, self.c.shape[0]-self.domain.nhalo),
-            slice(self.domain.nhalo, self.c.shape[1]-self.domain.nhalo)
-        )
-
-    @property
-    def global_slc_v(self):
-        """The slice of the local vertex elevation in the global topo array"""
-        return (
-            slice(self.domain.y.ibegin, self.domain.y.iend+1),
-            slice(self.domain.x.ibegin, self.domain.x.iend+1)
-        )
-
-    @property
-    def global_slc_c(self):
-        """The slice of the local cell-centerd elevation in the global topo array"""
-        return (
-            slice(self.domain.y.ibegin, self.domain.y.iend),
-            slice(self.domain.x.ibegin, self.domain.x.iend)
-        )
-
-    @property
-    def global_slc_xf(self):
-        """The slice of the local x faces elevation in the global topo array"""
-        return (
-            slice(self.domain.y.ibegin, self.domain.y.iend),
-            slice(self.domain.x.ibegin, self.domain.x.iend+1)
-        )
-
-    @property
-    def global_slc_yf(self):
-        """The slice of the local y faces elevation in the global topo array"""
-        return (
-            slice(self.domain.y.ibegin, self.domain.y.iend+1),
-            slice(self.domain.x.ibegin, self.domain.x.iend)
-        )
-
-    @property
-    def global_slc_grad(self):
-        """The slice of the local cell-centered gradients in the global topo array"""
-        return (
-            slice(None),
-            slice(self.domain.y.ibegin, self.domain.y.iend),
-            slice(self.domain.x.ibegin, self.domain.x.iend)
-        )
-
-    def write_to_h5group(self, grp):
-        """Write parallel data to a given HDF5 group.
-        """
-        domain = self.domain
-        dtype = domain.dtype
-        grp.create_dataset("v", (domain.y.gn+1, domain.x.gn+1), dtype)
-        grp.create_dataset("c", (domain.y.gn, domain.x.gn), dtype)
-        grp.create_dataset("xf", (domain.y.gn, domain.x.gn+1), dtype)
-        grp.create_dataset("yf", (domain.y.gn+1, domain.x.gn), dtype)
-        grp.create_dataset("grad", (2, domain.y.gn, domain.x.gn), dtype)
-        grp["v"][self.global_slc_v] = self.v[self.nonhalo_slc_v]
-        grp["c"][self.global_slc_c] = self.c[self.nonhalo_slc_c]
-        grp["xf"][self.global_slc_xf] = self.xf
-        grp["yf"][self.global_slc_yf] = self.yf
-        grp["grad"][self.global_slc_grad] = self.grad
-
-
-def get_topography(config: _Config, domain: _Domain = None, comm: _MPI.Comm = None):
-    """Read in CF-compliant NetCDF file for topography.
+def get_topography(config: Config, domain: Domain = None, comm: MPI.Comm = None):
+    """Read local topography elevation data from a file.
     """
 
     # if domain is not provided, get a new one
@@ -190,15 +126,10 @@ def get_topography(config: _Config, domain: _Domain = None, comm: _MPI.Comm = No
         domain = _get_domain(comm, config)
 
     # get dem (digital elevation model); assume dem values defined at cell centers
-    dem, _ = _ncread(
-        fpath=config.topo.file, data_keys=[config.topo.key],
-        extent=(domain.x.lower, domain.x.upper, domain.y.lower, domain.y.upper),
-        parallel=True, comm=domain.comm
-    )
+    dem = _read_block(config.topo.file, config.topo.xykeys, config.topo.key, domain)
+    assert dem[config.topo.key].shape == (len(dem.y), len(dem.x))
 
-    assert dem[config.topo.key].shape == (len(dem["y"]), len(dem["x"]))
-
-    topo = _setup_topography(domain, dem[config.topo.key], dem["x"], dem["y"])
+    topo = _setup_topography(domain, dem[config.topo.key], dem.x, dem.y)
     return topo
 
 
@@ -253,7 +184,7 @@ def _setup_topography(domain, elev, demx, demy):
     return Topography(domain=domain, v=vert, c=cntr, xf=xface, yf=yface, grad=grad)
 
 
-def _exchange_topo_vertices(domain: _Domain, vertices: _nplike.ndarray):
+def _exchange_topo_vertices(domain: Domain, vertices: ndarray):
     """Exchange the halo ring information of vertices.
     """
 

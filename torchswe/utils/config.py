@@ -13,6 +13,10 @@ from typing import Literal as _Literal
 from typing import Tuple as _Tuple
 from typing import Union as _Union
 from typing import Optional as _Optional
+from yaml import load as _load
+from yaml import Loader as _Loader
+from yaml import add_constructor as _add_constructor
+from yaml import add_representer as _add_representer
 from pydantic import BaseModel as _BaseModel
 from pydantic import Field as _Field
 from pydantic import validator as _validator
@@ -242,6 +246,7 @@ class ICConfig(BaseConfig):
 
     file: _Optional[_pathlib.Path]
     keys: _Optional[_Tuple[str, str, str]]
+    xykeys: _Optional[_Tuple[str, str]]
     values: _Optional[_Tuple[float, float, float]]
 
     @_root_validator(pre=True)
@@ -254,6 +259,9 @@ class ICConfig(BaseConfig):
 
             if "keys" not in values or values["keys"] is None:
                 raise AssertionError("\"keys\" has to be set when \"file\" is not None for I.C.")
+
+            if "xykeys" not in values or values["keys"] is None:
+                raise AssertionError("\"xykeys\" has to be set when \"file\" is not None for I.C.")
         else:  # "file" is not specified or is None
             if "values" not in values or values["values"] is None:
                 raise AssertionError("Either \"file\" or \"values\" has to be set for I.C.")
@@ -275,6 +283,7 @@ class TopoConfig(BaseConfig):
 
     file: _pathlib.Path
     key: str
+    xykeys: _Tuple[str, str]
 
 
 class PointSourceConfig(BaseConfig):
@@ -409,6 +418,7 @@ class FrictionConfig(BaseConfig):
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
     file: _Optional[_pathlib.Path] = _Field(None, alias="roughness file")
     key: _Optional[str] = _Field(None, alias="roughness key")
+    xykeys: _Optional[_Tuple[str, str]]
     value: _Optional[_confloat(strict=True, ge=0.)] = _Field(None, alias="roughness")
     model: _Literal["bellos_et_al_2018"] = _Field("bellos_et_al_2018", alias="coefficient model")
 
@@ -420,10 +430,12 @@ class FrictionConfig(BaseConfig):
                 msg = "when not using constant roughness, {} must be set"
                 assert values["file"] is not None, msg.format("roughness file")
                 assert values["key"] is not None, msg.format("roughness key")
+                assert values["xykeys"] is not None, msg.format("xykeys")
             else:
                 msg = "when using constant roughness, {} must not be set"
                 assert values["file"] is None, msg.format("roughness file")
                 assert values["key"] is None, msg.format("roughness key")
+                assert values["xykeys"] is None, msg.format("xykeys")
         except KeyError as err:
             raise AssertionError("Please fix other fields first.") from err
         return val
@@ -480,3 +492,44 @@ class Config(BaseConfig):
         except KeyError as err:
             raise AssertionError("Please fix other fields first.") from err
         return val
+
+
+# register the Config class in yaml with tag !Config
+_add_constructor(
+    "!Config",
+    lambda loader, node: Config(**loader.construct_mapping(node, deep=True))
+)
+
+_add_representer(
+    Config,
+    lambda dumper, data: dumper.represent_mapping(
+        tag="!Config", mapping=_load(
+            data.json(by_alias=True), Loader=_Loader),
+        flow_style=True
+    )
+)
+
+
+def get_config(case: str):
+    """Get configuration from a case folder.
+
+    Arguments
+    ---------
+    case : str or os.PathLike
+        The path to the case folder. A file called `config.yaml` must exsit in that folder.
+
+    Returns
+    -------
+    torchswe.utils.config.Config
+    """
+
+    case = _pathlib.Path(case).expanduser().resolve()
+
+    with open(case.joinpath("config.yaml"), "r", encoding="utf-8") as fobj:
+        config = _load(fobj, _Loader)
+
+    assert isinstance(config, Config), \
+        f"Failed to parse {case.joinpath('config.yaml')} as a Config object. " + \
+        "Check if `--- !Config` appears in the header of the YAML"
+
+    return config

@@ -8,6 +8,16 @@
 
 """Data models.
 """
+# imports related to type hinting
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from mpi4py import MPI
+    from torchswe.nplike import ndarray
+    from torchswe.utils.config import Config
+    from torchswe.utils.data.grid import Domain
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 from logging import getLogger as _getLogger
 from typing import Optional as _Optional
 from typing import Tuple as _Tuple
@@ -19,8 +29,7 @@ from pydantic import validator as _validator
 from pydantic import root_validator as _root_validator
 from torchswe import nplike as _nplike
 from torchswe.utils.config import BaseConfig as _BaseConfig
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.netcdf import read as _ncread
+from torchswe.utils.io import read_block as _read_block
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import interpolate as _interpolate
 from torchswe.utils.data.grid import Domain as _Domain
@@ -398,44 +407,8 @@ class States(_BaseConfig):
 
         return values
 
-    @property
-    def nonhalo_slc_q(self):
-        """The slice of non-halo nor non-ghost cells in local vertex data."""
-        return (
-            slice(None),
-            slice(self.domain.nhalo, self.q.shape[1]-self.domain.nhalo),
-            slice(self.domain.nhalo, self.q.shape[2]-self.domain.nhalo)
-        )
 
-    @property
-    def nonhalo_slc_p(self):
-        """The slice of non-halo nor non-ghost cells in local vertex data."""
-        return (
-            slice(None),
-            slice(self.domain.nhalo, self.p.shape[1]-self.domain.nhalo),
-            slice(self.domain.nhalo, self.p.shape[2]-self.domain.nhalo)
-        )
-
-    @property
-    def global_slc_q(self):
-        """The slice of the local vertex elevation in the global topo array"""
-        return (
-            slice(None),
-            slice(self.domain.y.ibegin, self.domain.y.iend),
-            slice(self.domain.x.ibegin, self.domain.x.iend)
-        )
-
-    @property
-    def global_slc_p(self):
-        """The slice of the local vertex elevation in the global topo array"""
-        return (
-            slice(None),
-            slice(self.domain.y.ibegin, self.domain.y.iend),
-            slice(self.domain.x.ibegin, self.domain.x.iend)
-        )
-
-
-def _get_osc_conservative_mpi_datatype(comm: _MPI.Cartcomm, arry: _nplike.ndarray, ngh: int):
+def _get_osc_conservative_mpi_datatype(comm: MPI.Cartcomm, arry: ndarray, ngh: int):
     """Get the halo ring MPI datatypes for conservative quantities for one-sided communications.
     """
 
@@ -483,7 +456,7 @@ def _get_osc_conservative_mpi_datatype(comm: _MPI.Cartcomm, arry: _nplike.ndarra
     return HaloRingOSC(**data)
 
 
-def get_empty_states(config: _Config, domain: _Domain = None, comm: _MPI.Comm = None):
+def get_empty_states(config: Config, domain: Domain = None, comm: MPI.Comm = None):
     """Get an empty (i.e., zero arrays) States.
 
     Arguments
@@ -502,7 +475,7 @@ def get_empty_states(config: _Config, domain: _Domain = None, comm: _MPI.Comm = 
     # if domain is not provided, get a new one
     if domain is None:
         comm = _MPI.COMM_WORLD if comm is None else comm
-        data.domain = _get_domain(comm, config)
+        data.domain = domain = _get_domain(comm, config)
     else:
         data.domain = domain
 
@@ -555,12 +528,12 @@ def get_empty_states(config: _Config, domain: _Domain = None, comm: _MPI.Comm = 
 
     # get one-sided communication windows and datatypes
     data.osc = _DummyDict()
-    data.osc.q = _get_osc_conservative_mpi_datatype(domain.comm, data.q, ngh)
+    data.osc.q = _get_osc_conservative_mpi_datatype(data.domain.comm, data.q, ngh)
 
     return States(**data)
 
 
-def get_initial_states(config: _Config, domain: _Domain = None, comm: _MPI.Comm = None):
+def get_initial_states(config: Config, domain: Domain = None, comm: MPI.Comm = None):
     """Get a States instance filled with initial conditions.
 
     Arguments
@@ -579,25 +552,21 @@ def get_initial_states(config: _Config, domain: _Domain = None, comm: _MPI.Comm 
     # get an empty states
     states = get_empty_states(config, domain, comm)
 
+    # rebind; aliases
+    domain = states.domain
+
     # special case: constant I.C.
     if config.ic.values is not None:
-        states.q[states.nonhalo_slc_q] = _nplike.array(config.ic.values).reshape(3, 1, 1)
+        states.q[(slice(None),)+domain.nonhalo_c] = _nplike.array(config.ic.values).reshape(3, 1, 1)
         states.check()
         return states
 
     # otherwise, read data from a NetCDF file
-    icdata, _ = _ncread(
-        config.ic.file, config.ic.keys,
-        [domain.x.c[0], domain.x.c[-1], domain.y.c[0], domain.y.c[-1]],
-        parallel=True, comm=domain.comm
-    )
+    data = _read_block(config.ic.file, config.ic.xykeys, config.ic.keys, domain)
 
     # see if we need to do interpolation
     try:
-        interp = not (
-            _nplike.allclose(domain.x.c, icdata["x"]) and
-            _nplike.allclose(domain.y.c, icdata["y"])
-        )
+        interp = not (_nplike.allclose(domain.x.c, data.x) and _nplike.allclose(domain.y.c, data.y))
     except ValueError:  # assume thie excpetion means a shape mismatch
         interp = True
 
@@ -605,14 +574,12 @@ def get_initial_states(config: _Config, domain: _Domain = None, comm: _MPI.Comm 
     if interp:
         _logger.warning("Grids do not match. Doing spline interpolation.")
         for i in range(3):
-            states.q[(i,)+states.nonhalo_slc_q[1:]] = _nplike.array(
-                _interpolate(
-                    icdata["x"], icdata["y"], icdata[config.ic.keys[i]].T, domain.x.c, domain.y.c
-                ).T
+            states.q[(i,)+domain.nonhalo_c] = _nplike.array(
+                _interpolate(data.x, data.y, data[config.ic.keys[i]].T, domain.x.c, domain.y.c).T
             )
     else:
         for i in range(3):
-            states.q[(i,)+states.nonhalo_slc_q[1:]] = icdata[config.ic.keys[i]]
+            states.q[(i,)+domain.nonhalo_c] = data[config.ic.keys[i]]
 
     states.check()
     return states

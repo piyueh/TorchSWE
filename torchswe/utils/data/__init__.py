@@ -24,4 +24,6 @@ from torchswe.utils.data.states import get_empty_states
 from torchswe.utils.data.states import get_initial_states
 
 from torchswe.utils.data.source import PointSource
+from torchswe.utils.data.source import FrictionModel
 from torchswe.utils.data.source import get_pointsource
+from torchswe.utils.data.source import get_frictionmodel

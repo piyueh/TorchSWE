@@ -374,16 +374,16 @@ def exchange_states(states):
 
     # alias
     domain = states.domain
-    cnsrv = states.Q
+    cnsrv = states.q
     osc = states.osc
 
-    # make sure all calculations updating states.Q are done
+    # make sure all calculations updating states.q are done
     _nplike.sync()
 
     # start one-sided communication
     for k in ("s", "n", "w", "e"):
-        osc.Q.win.Put([cnsrv, osc.Q[f"{k}s"]], domain[k], [0, 1, osc.Q[f"{k}r"]])
-    osc.Q.win.Fence()
+        osc.q.win.Put([cnsrv, osc.q[f"{k}s"]], domain[k], [0, 1, osc.q[f"{k}r"]])
+    osc.q.win.Fence()
 
     # theroretically, this sync should not be neeeded, but just in case
     _nplike.sync()
