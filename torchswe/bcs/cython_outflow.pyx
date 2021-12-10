@@ -172,8 +172,8 @@ def outflow_bc_factory(ornt, comp, states, topo, *args, **kwargs):
     """
 
     # aliases
-    cdef object Q = states.Q
-    cdef object B = topo.centers
+    cdef object Q = states.q
+    cdef object B = topo.c
     cdef Py_ssize_t ngh = states.domain.nhalo
     cdef str dtype = str(Q.dtype)
 

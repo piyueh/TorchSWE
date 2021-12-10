@@ -135,10 +135,10 @@ def linear_extrap_bc_factory(ornt, comp, states, topo, *args, **kwargs):
     """
 
     # aliases
-    cdef object Q = states.Q
-    cdef object B = topo.centers
-    cdef object Bx = topo.xfcenters
-    cdef object By = topo.yfcenters
+    cdef object Q = states.q
+    cdef object B = topo.c
+    cdef object Bx = topo.xf
+    cdef object By = topo.yf
     cdef Py_ssize_t ngh = states.domain.nhalo
 
     if isinstance(ornt, str):
