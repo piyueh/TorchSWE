@@ -8,14 +8,19 @@
 
 """Time-marching schemes.
 """
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from torchswe.utils.misc import DummyDict
+    from torchswe.utils.config import Config
+    from torchswe.utils.data import States
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 import copy as _copy
 import logging as _logging
 from mpi4py import MPI as _MPI
 from torchswe import nplike as _nplike
 from torchswe.fvm import prepare_rhs as _prepare_rhs
-from torchswe.utils.data import States as _States
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import exchange_states as _exchange_states
 from torchswe.kernels import reconstruct_cell_centers as _reconstruct_cell_centers
 
@@ -47,7 +52,7 @@ def _cfl_dt_adapter_log_only(delta_t: float, max_dt: float, coeff: float):
 
 def _stiff_terms(states, internal, dt):
     """update with stiff terms."""
-    states.Q[internal] /= (1. - dt * states.SS)
+    states.q[internal] /= (1. - dt * states.ss)
     return states
 
 
@@ -56,17 +61,17 @@ def _stiff_terms_null(states, *args, **kwargs):
     return states
 
 
-def euler(states: _States, runtime: _DummyDict, config: _Config):
+def euler(states: States, runtime: DummyDict, config: Config):
     """A simple 1st-order forward Euler time-marching."""
 
     # adaptive time stepping
     adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
     # stiff term handling
-    semi_implicit_step = _stiff_terms if states.SS is not None else _stiff_terms_null
+    semi_implicit_step = _stiff_terms if states.ss is not None else _stiff_terms_null
 
     # non-ghost domain slice
-    internal = (slice(None),) + states.domain.internal
+    internal = (slice(None),) + states.domain.nonhalo_c
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
@@ -99,7 +104,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
         runtime.dt = states.domain.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update
-        states.Q[internal] += (states.S * runtime.dt)
+        states.q[internal] += (states.s * runtime.dt)
         states = semi_implicit_step(states, internal, runtime.dt)
 
         # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
@@ -113,7 +118,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.U[(0,)+states.domain.internal].sum() * cell_area
+            fluid_vol = states.p[(0,)+states.domain.nonhalo_c].sum() * cell_area
             _nplike.sync()
             fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
@@ -125,7 +130,7 @@ def euler(states: _States, runtime: _DummyDict, config: _Config):
     return states
 
 
-def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
+def ssprk2(states: States, runtime: DummyDict, config: Config):
     """An optimal 2-stage 2nd-order SSP-RK, a.k.a.m Heun's method.
 
     Notes
@@ -152,7 +157,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
     # non-ghost domain slice
-    internal = (slice(None),) + states.domain.internal
+    internal = (slice(None),) + states.domain.nonhalo_c
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
@@ -161,7 +166,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
     # to hold previous solution
-    prev_q = _copy.deepcopy(states.Q[internal])
+    prev_q = _copy.deepcopy(states.q[internal])
 
     # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
     states = _exchange_states(states)
@@ -188,7 +193,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         runtime.dt = states.domain.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
-        states.Q[internal] += (states.S * runtime.dt)
+        states.q[internal] += (states.s * runtime.dt)
 
         # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
@@ -199,8 +204,8 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
         states, _ = _prepare_rhs(states, runtime, config)
 
         # calculate u_{n+1} = (u_{n} + u^1 + dt * RHS(u^1)) / 2.
-        states.Q[internal] += (prev_q + states.S * runtime.dt)
-        states.Q /= 2  # doesn't matter whether ghost cells are also divided by 2
+        states.q[internal] += (prev_q + states.s * runtime.dt)
+        states.q /= 2  # doesn't matter whether ghost cells are also divided by 2
 
         # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
@@ -213,7 +218,7 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.U[(0,)+states.domain.internal].sum() * cell_area
+            fluid_vol = states.p[(0,)+states.domain.nonhalo_c].sum() * cell_area
             _nplike.sync()
             fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
@@ -223,12 +228,12 @@ def ssprk2(states: _States, runtime: _DummyDict, config: _Config):
             break
 
         # for the next time step; copying values should be faster than allocating new arrays
-        prev_q[...] = states.Q[internal]
+        prev_q[...] = states.q[internal]
 
     return states
 
 
-def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
+def ssprk3(states: States, runtime: DummyDict, config: Config):
     """An optimal 3-stage 3rd-order SSP-RK.
 
     Notes
@@ -257,7 +262,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
     # non-ghost domain slice
-    internal = (slice(None),) + states.domain.internal
+    internal = (slice(None),) + states.domain.nonhalo_c
 
     # cell area and total soil volume
     cell_area = states.domain.x.delta * states.domain.y.delta
@@ -266,7 +271,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
     info_str = "Step %d: step size = %e sec, time = %e sec, total volume = %e"
 
     # to hold previous solution
-    prev_q = _copy.deepcopy(states.Q[internal])
+    prev_q = _copy.deepcopy(states.q[internal])
 
     # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
     states = _exchange_states(states)
@@ -293,7 +298,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         runtime.dt = states.domain.comm.allreduce(runtime.dt, _MPI.MIN)
 
         # update for the first step; now states.q is u1 = u_{n} + dt * RHS(u_{n})
-        states.Q[internal] += (states.S * runtime.dt)
+        states.q[internal] += (states.s * runtime.dt)
 
         # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
@@ -304,8 +309,8 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states, _ = _prepare_rhs(states, runtime, config)
 
         # now states.q = u^2 = (3 * u_{n} + u^1 + dt * RHS(u^1)) / 4
-        states.Q[internal] += (prev_q * 3. + states.S * runtime.dt)
-        states.Q /= 4.
+        states.q[internal] += (prev_q * 3. + states.s * runtime.dt)
+        states.q /= 4.
 
         # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
@@ -316,10 +321,10 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
         states, _ = _prepare_rhs(states, runtime, config)
 
         # now states.q = u_{n+1} = (u_{n} + 2 * u^2 + 2 * dt * RHS(u^1)) / 3
-        states.Q[internal] += (states.S * runtime.dt)
-        states.Q *= 2.
-        states.Q[internal] += prev_q
-        states.Q /= 3.
+        states.q[internal] += (states.s * runtime.dt)
+        states.q *= 2.
+        states.q[internal] += prev_q
+        states.q /= 3.
 
         # update values in halo-ring and ghost cells; also calculate cell-centered non-conservatives
         states = _exchange_states(states)
@@ -332,7 +337,7 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
 
         # print out information
         if runtime.counter % config.params.log_steps == 0:
-            fluid_vol = states.U[(0,)+states.domain.internal].sum() * cell_area
+            fluid_vol = states.p[(0,)+states.domain.nonhalo_c].sum() * cell_area
             _nplike.sync()
             fluid_vol = states.domain.comm.allreduce(fluid_vol, _MPI.SUM)
             _logger.info(info_str, runtime.counter, runtime.dt, runtime.cur_t, fluid_vol)
@@ -342,6 +347,6 @@ def ssprk3(states: _States, runtime: _DummyDict, config: _Config):
             break
 
         # for the next time step; copying values should be faster than allocating new arrays
-        prev_q[...] = states.Q[internal]
+        prev_q[...] = states.q[internal]
 
     return states

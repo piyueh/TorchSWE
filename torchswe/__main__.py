@@ -406,8 +406,6 @@ def main():
     perf_t0 = time.time()  # suppose to be wall time
     logger.info("Time marching starts at %s", time.ctime(perf_t0))
 
-    raise NotImplementedError
-
     # start running time marching until each output time
     for runtime.next_t in runtime.times[runtime.tidx+1:]:
         logger.info("Marching from T=%s to T=%s", runtime.cur_t, runtime.next_t)

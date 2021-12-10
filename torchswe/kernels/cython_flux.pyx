@@ -80,18 +80,18 @@ def get_discontinuous_flux(object states, double gravity):
     ym = states.face.y.minus
     yp = states.face.y.plus
 
-    xmF = xm.F
-    xpF = xp.F
-    ymF = ym.F
-    ypF = yp.F
-    xmQ = xm.Q
-    xpQ = xp.Q
-    ymQ = ym.Q
-    ypQ = yp.Q
-    xmU = xm.U
-    xpU = xp.U
-    ymU = ym.U
-    ypU = yp.U
+    xmF = xm.f
+    xpF = xp.f
+    ymF = ym.f
+    ypF = yp.f
+    xmQ = xm.q
+    xpQ = xp.q
+    ymQ = ym.q
+    ypQ = yp.q
+    xmU = xm.p
+    xpU = xp.p
+    ymU = ym.p
+    ypU = yp.p
 
     dtype = xmF.dtype
 
@@ -173,20 +173,20 @@ def central_scheme(object states):
     ym = y.minus
     yp = y.plus
 
-    xmF = xm.F
-    xpF = xp.F
-    ymF = ym.F
-    ypF = yp.F
-    xmQ = xm.Q
-    xpQ = xp.Q
-    ymQ = ym.Q
-    ypQ = yp.Q
+    xmF = xm.f
+    xpF = xp.f
+    ymF = ym.f
+    ypF = yp.f
+    xmQ = xm.q
+    xpQ = xp.q
+    ymQ = ym.q
+    ypQ = yp.q
     xma = xm.a
     xpa = xp.a
     yma = ym.a
     ypa = yp.a
-    xH = x.H
-    yH = y.H
+    xH = x.cf
+    yH = y.cf
 
     dtype = yH.dtype
 
@@ -250,14 +250,14 @@ def get_local_speed(object states, double gravity):
 
     if dtype == numpy.single:
         local_speed_kernel[cython.float](
-            xm.a, xp.a, xm.U[0], xp.U[0], xm.U[1], xp.U[1], gravity)
+            xm.a, xp.a, xm.p[0], xp.p[0], xm.p[1], xp.p[1], gravity)
         local_speed_kernel[cython.float](
-            ym.a, yp.a, ym.U[0], yp.U[0], ym.U[2], yp.U[2], gravity)
+            ym.a, yp.a, ym.p[0], yp.p[0], ym.p[2], yp.p[2], gravity)
     elif dtype == numpy.double:
         local_speed_kernel[cython.double](
-            xm.a, xp.a, xm.U[0], xp.U[0], xm.U[1], xp.U[1], gravity)
+            xm.a, xp.a, xm.p[0], xp.p[0], xm.p[1], xp.p[1], gravity)
         local_speed_kernel[cython.double](
-            ym.a, yp.a, ym.U[0], yp.U[0], ym.U[2], yp.U[2], gravity)
+            ym.a, yp.a, ym.p[0], yp.p[0], ym.p[2], yp.p[2], gravity)
     else:
         raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 

@@ -8,18 +8,23 @@
 
 """Source terms.
 """
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from torchswe.utils.misc import DummyDict
+    from torchswe.utils.config import Config
+    from torchswe.utils.data import States
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 import logging as _logging
 from torchswe import nplike as _nplike
-from torchswe.utils.misc import DummyDict as _DummyDict
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.data import States as _States
 
 
 _logger = _logging.getLogger("torchswe.sources")
 
 
-def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -> _States:
-    """Adds topographic forces to `states.S[1]` and `states.S[2]` in-place.
+def topography_gradient(states: States, runtime: DummyDict, config: Config) -> States:
+    """Adds topographic forces to `states.s[1]` and `states.s[2]` in-place.
 
     Arguments
     ---------
@@ -36,14 +41,14 @@ def topography_gradient(states: _States, runtime: _DummyDict, config: _Config) -
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
     # auto-broadcasting; add to rhs in-place
-    states.S[1:, ...] -= (
-        config.params.gravity * states.U[(0,)+states.domain.internal] * runtime.topo.grad
+    states.s[1:, ...] -= (
+        config.params.gravity * states.p[(0,)+states.domain.nonhalo_c] * runtime.topo.grad
     )
     return states
 
 
-def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> _States:
-    """Adds point source values to `states.S[0]` in-place.
+def point_mass_source(states: States, runtime: DummyDict, *args, **kwargs) -> States:
+    """Adds point source values to `states.s[0]` in-place.
 
     Arguments
     ---------
@@ -96,13 +101,13 @@ def point_mass_source(states: _States, runtime: _DummyDict, *args, **kwargs) -> 
             ptsource.active = False  # otherwise, reach the final rate
             _logger.debug("Point source `allowed_dt` has switched to None")
 
-    states.S[0, ptsource.j, ptsource.i] += ptsource.rates[ptsource.irate]
+    states.s[0, ptsource.j, ptsource.i] += ptsource.rates[ptsource.irate]
 
     return states
 
 
-def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
-    """Add the friction forces to the stiff source term `states.SS[1]` and `states.SS[2]`.
+def friction(states: States, runtime: DummyDict, config: Config) -> States:
+    """Add the friction forces to the stiff source term `states.ss[1]` and `states.ss[2]`.
 
     Arguments
     ---------
@@ -118,16 +123,16 @@ def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
     states : torchswe.utils.data.States
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
-    loc = _nplike.nonzero(states.U[(0,)+states.domain.internal] > 0.)
+    loc = _nplike.nonzero(states.p[(0,)+states.domain.nonhalo_c] > 0.)
 
     # views
-    h = states.U[(0,)+states.domain.internal][loc]
-    hu = states.Q[(1,)+states.domain.internal][loc]
-    hv = states.Q[(2,)+states.domain.internal][loc]
+    h = states.p[(0,)+states.domain.nonhalo_c][loc]
+    hu = states.q[(1,)+states.domain.nonhalo_c][loc]
+    hv = states.q[(2,)+states.domain.nonhalo_c][loc]
 
     coef = runtime.friction.model(h, hu, hv, config.props.nu, runtime.friction.roughness)
 
-    states.SS[1:, loc[0], loc[1]] += (
+    states.ss[1:, loc[0], loc[1]] += (
         - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) /
         (8. * _nplike.power(h, 2))
     )
@@ -135,8 +140,8 @@ def friction(states: _States, runtime: _DummyDict, config: _Config) -> _States:
     return states
 
 
-def zero_stiff_terms(states: _States, *args, **kwargs):
-    """Push zeros to states.SS.
+def zero_stiff_terms(states: States, *args, **kwargs):
+    """Push zeros to states.ss.
 
     Arguments
     ---------
@@ -150,5 +155,5 @@ def zero_stiff_terms(states: _States, *args, **kwargs):
     states : torchswe.utils.data.States
         The same object as the input. Changes are done in-place. Returning it just for coding style.
     """
-    states.SS[...] = 0.
+    states.ss[...] = 0.
     return states

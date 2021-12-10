@@ -52,12 +52,12 @@ def get_discontinuous_flux(object states, double gravity):
     yp = y.plus
 
     # face normal to x-direction: [hu, hu^2 + g(h^2)/2, huv]
-    get_discontinuous_flux_x(xm.Q[1], xm.U[0], xm.U[1], xm.U[2], grav2, xm.F[0], xm.F[1], xm.F[2])
-    get_discontinuous_flux_x(xp.Q[1], xp.U[0], xp.U[1], xp.U[2], grav2, xp.F[0], xp.F[1], xp.F[2])
+    get_discontinuous_flux_x(xm.q[1], xm.p[0], xm.p[1], xm.p[2], grav2, xm.f[0], xm.f[1], xm.f[2])
+    get_discontinuous_flux_x(xp.q[1], xp.p[0], xp.p[1], xp.p[2], grav2, xp.f[0], xp.f[1], xp.f[2])
 
     # face normal to y-direction: [hv, huv, hv^2+g(h^2)/2]
-    get_discontinuous_flux_y(ym.Q[2], ym.U[0], ym.U[1], ym.U[2], grav2, ym.F[0], ym.F[1], ym.F[2])
-    get_discontinuous_flux_y(yp.Q[2], yp.U[0], yp.U[1], yp.U[2], grav2, yp.F[0], yp.F[1], yp.F[2])
+    get_discontinuous_flux_y(ym.q[2], ym.p[0], ym.p[1], ym.p[2], grav2, ym.f[0], ym.f[1], ym.f[2])
+    get_discontinuous_flux_y(yp.q[2], yp.p[0], yp.p[1], yp.p[2], grav2, yp.f[0], yp.f[1], yp.f[2])
 
     return states
 
@@ -96,8 +96,8 @@ def central_scheme(object states):
     ym = y.minus
     yp = y.plus
 
-    central_scheme_kernel(xm.a, xp.a, xm.F, xp.F, xm.Q, xp.Q, x.H)
-    central_scheme_kernel(ym.a, yp.a, ym.F, yp.F, ym.Q, yp.Q, y.H)
+    central_scheme_kernel(xm.a, xp.a, xm.f, xp.f, xm.q, xp.q, x.cf)
+    central_scheme_kernel(ym.a, yp.a, ym.f, yp.f, ym.q, yp.q, y.cf)
 
     return states
 
@@ -138,12 +138,12 @@ def get_local_speed(object states, double gravity):
     cdef object fxm = fx.minus;
     cdef object fyp = fy.plus;
     cdef object fym = fy.minus;
-    cdef object xpU = fxp.U;
-    cdef object xmU = fxm.U;
+    cdef object xpU = fxp.p;
+    cdef object xmU = fxm.p;
     cdef object xpa = fxp.a;
     cdef object xma = fxm.a;
-    cdef object ypU = fyp.U;
-    cdef object ymU = fym.U;
+    cdef object ypU = fyp.p;
+    cdef object ymU = fym.p;
     cdef object ypa = fyp.a;
     cdef object yma = fym.a;
 

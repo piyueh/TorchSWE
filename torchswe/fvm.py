@@ -8,17 +8,22 @@
 
 """Finite-volume scheme from Kurganov and Petrova, 2007.
 """
+from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
+from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
+if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
+    from torchswe.utils.misc import DummyDict
+    from torchswe.utils.config import Config
+    from torchswe.utils.data import States
+
+# pylint: disable=wrong-import-position, ungrouped-imports
 from torchswe import nplike as _nplike
-from torchswe.utils.config import Config as _Config
-from torchswe.utils.data import States as _States
-from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.kernels import get_discontinuous_flux as _get_discontinuous_flux
 from torchswe.kernels import central_scheme as _central_scheme
 from torchswe.kernels import get_local_speed as _get_local_speed
 from torchswe.kernels import reconstruct as _reconstruct
 
 
-def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
+def prepare_rhs(states: States, runtime: DummyDict, config: Config):
     """Get the right-hand-side of a time-marching step for SWE.
 
     Arguments
@@ -53,9 +58,9 @@ def prepare_rhs(states: _States, runtime: _DummyDict, config: _Config):
     dy, dx = states.domain.delta
 
     # get right-hand-side contributed by spatial derivatives
-    states.S = \
-        (states.face.x.H[:, :, :-1] - states.face.x.H[:, :, 1:]) / dx + \
-        (states.face.y.H[:, :-1, :] - states.face.y.H[:, 1:, :]) / dy
+    states.s = \
+        (states.face.x.cf[:, :, :-1] - states.face.x.cf[:, :, 1:]) / dx + \
+        (states.face.y.cf[:, :-1, :] - states.face.y.cf[:, 1:, :]) / dy
 
     # add explicit source terms in-place to states.S
     for func in runtime.sources:

@@ -109,6 +109,10 @@ def write_grid_to_group(domain: Domain, group: Group):
     group["grid/y/xf"][domain.y.ibegin:domain.y.iend] = domain.y.xf
     group["grid/y/yf"][domain.y.ibegin:domain.y.iend+1] = domain.y.yf
 
+    # record delta (all ranks write to the same location; assume all ranks have the same delta)
+    group["grid/x"].attrs["delta"] = domain.x.delta
+    group["grid/y"].attrs["delta"] = domain.y.delta
+
 
 def write_topo_to_group(topo: Topography, group: Group):
     """Write gridlines to an opened HDF5 group.

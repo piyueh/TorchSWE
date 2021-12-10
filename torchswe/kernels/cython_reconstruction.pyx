@@ -325,27 +325,27 @@ def reconstruct(object states, object runtime, object config) -> object:
     """
 
     # aliases to save object look-up time in Python's underlying dictionary
-    cdef object Q = states.Q
-    cdef object U = states.U
+    cdef object Q = states.q
+    cdef object U = states.p
     cdef object slpx = states.slpx
     cdef object slpy = states.slpy
     cdef object face = states.face
     cdef object fx = face.x
     cdef object xm = fx.minus
-    cdef object xmQ = xm.Q
-    cdef object xmU = xm.U
+    cdef object xmQ = xm.q
+    cdef object xmU = xm.p
     cdef object xp = fx.plus
-    cdef object xpQ = xp.Q
-    cdef object xpU = xp.U
+    cdef object xpQ = xp.q
+    cdef object xpU = xp.p
     cdef object fy = face.y
     cdef object ym = fy.minus
-    cdef object ymQ = ym.Q
-    cdef object ymU = ym.U
+    cdef object ymQ = ym.q
+    cdef object ymU = ym.p
     cdef object yp = fy.plus
-    cdef object ypQ = yp.Q
-    cdef object ypU = yp.U
-    cdef object xfcenters = runtime.topo.xfcenters
-    cdef object yfcenters = runtime.topo.yfcenters
+    cdef object ypQ = yp.q
+    cdef object ypU = yp.p
+    cdef object xfcenters = runtime.topo.xf
+    cdef object yfcenters = runtime.topo.yf
 
     cdef Py_ssize_t ngh = states.domain.nhalo
     cdef double theta = config.params.theta
@@ -425,14 +425,14 @@ def reconstruct_cell_centers(object states, object runtime, object config):
         updated in-place.
     """
 
-    dtype = states.Q.dtype
+    dtype = states.q.dtype
 
     if dtype == "float32":
         _recnstrt_cell_centers[cython.float](
-            states.Q, states.U, runtime.topo.centers, config.params.drytol, runtime.tol)
+            states.q, states.p, runtime.topo.c, config.params.drytol, runtime.tol)
     elif dtype == "float64":
         _recnstrt_cell_centers[cython.double](
-            states.Q, states.U, runtime.topo.centers, config.params.drytol, runtime.tol)
+            states.q, states.p, runtime.topo.c, config.params.drytol, runtime.tol)
     else:
         raise RuntimeError(f"Arrays are using an unrecognized dtype: {dtype}.")
 
