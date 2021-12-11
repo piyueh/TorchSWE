@@ -418,7 +418,7 @@ class FrictionConfig(BaseConfig):
     # pylint: disable=too-few-public-methods, no-self-argument, invalid-name, no-self-use
     file: _Optional[_pathlib.Path] = _Field(None, alias="roughness file")
     key: _Optional[str] = _Field(None, alias="roughness key")
-    xykeys: _Optional[_Tuple[str, str]]
+    xykeys: _Optional[_Tuple[str, str]] = _Field(None, alias="roughness xykeys")
     value: _Optional[_confloat(strict=True, ge=0.)] = _Field(None, alias="roughness")
     model: _Literal["bellos_et_al_2018"] = _Field("bellos_et_al_2018", alias="coefficient model")
 
