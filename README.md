@@ -72,18 +72,26 @@ To run a case:
 
 - using MPI + NumPy (assuming already in a case folder)
   ```
-  $ mpiexec -n <number of processes> TorchSWE.py ./
+  $ mpiexec -n <number of processes> --mca fcoll "^vulcan" TorchSWE.py ./
   ```
+  
+  Note that, as of OpenMPI 4.1.1, we haven't been able to use components `vulcan`
+  for the framework `fcoll`. It fails the parallel HDF5 I/O with compression in
+  our code. So we must use the flag `--mca fcoll "^vulcan"` to disable this
+  component. By disabling this component, OpenMPI runtime will pick other
+  available components for `fcoll`.
+
 - using MPI + CuPy (assuming already in a case folder)
   ```
   $ USE_CUPY=1 mpiexec \
         -n <number of processes> \
+        --mca fcoll "^vulcan" \
         --mca opal_cuda_support 1 \
         TorchSWE.py ./
   ```
   Note that using `--mca opal_cuda_support 1` is required if OpenMPI is installed
-  through Anaconda. The OpenMPI from Anaconda is built with CUDA but does not
-  enable the CUDA support by default.
+  through Anaconda. The OpenMPI from Anaconda is built with CUDA suppoer but does not
+  enable it by default.
   
   When multiple GPUs are available on a compute node, the code assigns GPUs based
   on local ranks (local to the compute node), not the global rank. The number of

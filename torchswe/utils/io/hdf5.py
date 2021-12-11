@@ -7,6 +7,10 @@
 # Distributed under terms of the BSD 3-Clause license.
 
 """Higher level api for reading/writing data from/to TorchSWE's native HDF5 format.
+
+Notes
+-----
+As of openmpi 4.1.1, the code in this module requires `--mca fcoll "^vulcan"`.
 """
 # imports related to type hinting
 from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
@@ -27,6 +31,7 @@ if _TYPE_CHECKING:  # if we are having type checking, then we import correspondi
 from datetime import datetime as _datetime
 from datetime import timezone as _timezone
 from h5py import File as _File
+from torchswe import nplike as _nplike
 from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import find_index_bound as _find_index_bound
 
@@ -90,6 +95,8 @@ def write_grid_to_group(domain: Domain, group: Group):
     dtype = domain.dtype
     gny, gnx = domain.gshape
 
+    _nplike.sync()
+
     # we use `require_dataset` instead of create_dataset
     group.require_dataset("grid/x/v", gnx+1, dtype, exact=True)
     group.require_dataset("grid/x/c", gnx, dtype, exact=True)
@@ -122,21 +129,47 @@ def write_topo_to_group(topo: Topography, group: Group):
     topo : torchswe.utils.data.topography.Topography
     group : h5py.Group or h5py.File
     """
+
     domain = topo.domain
     dtype = domain.dtype
     gny, gnx = domain.gshape
 
-    group.require_dataset("topo/v", (gny+1, gnx+1), dtype, exact=True)
-    group.require_dataset("topo/c", (gny, gnx), dtype, exact=True)
-    group.require_dataset("topo/xf", (gny, gnx+1), dtype, exact=True)
-    group.require_dataset("topo/yf", (gny+1, gnx), dtype, exact=True)
-    group.require_dataset("topo/grad", (2, gny, gnx), dtype, exact=True)
+    _nplike.sync()
 
-    group["topo/v"][domain.global_v] = topo.v[domain.nonhalo_v]
-    group["topo/c"][domain.global_c] = topo.c[domain.nonhalo_c]
-    group["topo/xf"][domain.global_xf] = topo.xf
-    group["topo/yf"][domain.global_yf] = topo.yf
-    group["topo/grad"][(slice(None),)+domain.global_c] = topo.grad
+    # misc keywords for HDF5 datasets
+    kwargs = _DummyDict()
+    kwargs.exact = True
+    kwargs.compression = "gzip"
+    kwargs.compression_opts = 9
+    kwargs.shuffle = True
+    kwargs.fletcher32 = True
+    kwargs.chunks = True
+
+    group.require_dataset("topo/v", (gny+1, gnx+1), dtype, **kwargs)
+    group.require_dataset("topo/c", (gny, gnx), dtype, **kwargs)
+    group.require_dataset("topo/xf", (gny, gnx+1), dtype, **kwargs)
+    group.require_dataset("topo/yf", (gny+1, gnx), dtype, **kwargs)
+    group.require_dataset("topo/grad", (2, gny, gnx), dtype, **kwargs)
+
+    dset = group["topo/v"]  # require this step; see h5py/h5py/issues/2017
+    with dset.collective:
+        dset[domain.global_v] = topo.v[domain.nonhalo_v]
+
+    dset = group["topo/c"]  # require this step; see h5py/h5py/issues/2017
+    with dset.collective:
+        dset[domain.global_c] = topo.c[domain.nonhalo_c]
+
+    dset = group["topo/xf"]  # require this step; see h5py/h5py/issues/2017
+    with dset.collective:
+        dset[domain.global_xf] = topo.xf
+
+    dset = group["topo/yf"]  # require this step; see h5py/h5py/issues/2017
+    with dset.collective:
+        dset[domain.global_yf] = topo.yf
+
+    dset = group["topo/grad"]  # require this step; see h5py/h5py/issues/2017
+    with dset.collective:
+        dset[(slice(None),)+domain.global_c] = topo.grad
 
 
 def write_ptsource_to_group(ptsource: PointSource, group: Group):
@@ -151,6 +184,8 @@ def write_ptsource_to_group(ptsource: PointSource, group: Group):
     ptsource : torchswe.utils.data.source.PointSource
     group : h5py.Group or h5py.File
     """
+
+    _nplike.sync()
 
     # point source (only write data unrelated to domain decomposition and not in config)
     group.require_dataset("ptsource/irate", (), int, exact=True)
@@ -175,8 +210,22 @@ def write_frictionmodel_to_group(friction: FrictionModel, group: Group):
     group : h5py.Group or h5py.File
     """
     domain = friction.domain
-    group.require_dataset("friction/roughness", domain.gshape, domain.dtype, exact=True)
-    group["friction/roughness"][domain.global_c] = friction.roughness
+
+    _nplike.sync()
+
+    # misc keywords for HDF5 datasets
+    kwargs = _DummyDict()
+    kwargs.exact = True
+    kwargs.compression = "gzip"
+    kwargs.compression_opts = 9
+    kwargs.shuffle = True
+    kwargs.fletcher32 = True
+    kwargs.chunks = True
+
+    dset = group.require_dataset("friction/roughness", domain.gshape, domain.dtype, **kwargs)
+
+    with dset.collective:
+        dset[domain.global_c] = friction.roughness
 
 
 def write_states_to_group(states: States, group: Group):
@@ -190,19 +239,47 @@ def write_states_to_group(states: States, group: Group):
     # aliases
     domain = states.domain
 
-    group.require_dataset("states/w", domain.gshape, domain.dtype, exact=True)
-    group.require_dataset("states/hu", domain.gshape, domain.dtype, exact=True)
-    group.require_dataset("states/hv", domain.gshape, domain.dtype, exact=True)
-    group.require_dataset("states/h", domain.gshape, domain.dtype, exact=True)
-    group.require_dataset("states/u", domain.gshape, domain.dtype, exact=True)
-    group.require_dataset("states/v", domain.gshape, domain.dtype, exact=True)
+    _nplike.sync()
 
-    group["states/w"][domain.global_c] = states.q[(0,)+domain.nonhalo_c]
-    group["states/hu"][domain.global_c] = states.q[(1,)+domain.nonhalo_c]
-    group["states/hv"][domain.global_c] = states.q[(2,)+domain.nonhalo_c]
-    group["states/h"][domain.global_c] = states.p[(0,)+domain.nonhalo_c]
-    group["states/u"][domain.global_c] = states.p[(1,)+domain.nonhalo_c]
-    group["states/v"][domain.global_c] = states.p[(2,)+domain.nonhalo_c]
+    # misc keywords for HDF5 datasets
+    kwargs = _DummyDict()
+    kwargs.exact = True
+    kwargs.compression = "gzip"
+    kwargs.compression_opts = 9
+    kwargs.shuffle = True
+    kwargs.fletcher32 = True
+    kwargs.chunks = True
+
+    group.require_dataset("states/w", domain.gshape, domain.dtype, **kwargs)
+    group.require_dataset("states/hu", domain.gshape, domain.dtype, **kwargs)
+    group.require_dataset("states/hv", domain.gshape, domain.dtype, **kwargs)
+    group.require_dataset("states/h", domain.gshape, domain.dtype, **kwargs)
+    group.require_dataset("states/u", domain.gshape, domain.dtype, **kwargs)
+    group.require_dataset("states/v", domain.gshape, domain.dtype, **kwargs)
+
+    dset = group["states/w"]
+    with dset.collective:
+        dset[domain.global_c] = states.q[(0,)+domain.nonhalo_c]
+
+    dset = group["states/hu"]
+    with dset.collective:
+        dset[domain.global_c] = states.q[(1,)+domain.nonhalo_c]
+
+    dset = group["states/hv"]
+    with dset.collective:
+        dset[domain.global_c] = states.q[(2,)+domain.nonhalo_c]
+
+    dset = group["states/h"]
+    with dset.collective:
+        dset[domain.global_c] = states.p[(0,)+domain.nonhalo_c]
+
+    dset = group["states/u"]
+    with dset.collective:
+        dset[domain.global_c] = states.p[(1,)+domain.nonhalo_c]
+
+    dset = group["states/v"]
+    with dset.collective:
+        dset[domain.global_c] = states.p[(2,)+domain.nonhalo_c]
 
 
 def create_soln_file(states: States, runtime: DummyDict, config: Config):
