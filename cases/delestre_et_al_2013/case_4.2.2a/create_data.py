@@ -8,16 +8,15 @@
 
 """Create topography and I.C. file for case 4.2.2-1 in Delestre et al., 2013.
 
-Note, the elevation data in the resulting NetCDF file is defined at vertices,
-instead of cell centers. But the I.C. is defined at cell centers.
+Note, the elevation data is defined at vertices, rather than at cell centers.
 """
 import pathlib
-import yaml
 import numpy
-from torchswe.utils.netcdf import write
+import h5py
+from torchswe.utils.config import get_config
 
 
-def topo(x, y, h0=0.1, L=4., a=1.):
+def get_topo(x, y, h0=0.1, L=4., a=1.):
     """Topography."""
     # pylint: disable=invalid-name
 
@@ -31,7 +30,7 @@ def exact_soln(x, y, t, g=9.81, h0=0.1, L=4., a=1., r0=0.8):
 
     omega = numpy.sqrt(8.*h0*g) / a
     A = (a**2 - r0**2) / (a**2 + r0**2)
-    z = topo(x, y, h0, L, a)
+    z = get_topo(x, y, h0, L, a)
 
     C0 = 1. - A * numpy.cos(omega*t)
     C1 = numpy.sqrt((1.-A*A)) / C0
@@ -52,30 +51,38 @@ def main():
     # pylint: disable=invalid-name
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
+    config = get_config(case)
 
-    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
-        config = yaml.load(f, Loader=yaml.Loader)
-
-    # alias
+    # aliases
     nx, ny = config.spatial.discretization
     dtype = config.params.dtype
-    xlim, ylim = config.spatial.domain[:2], config.spatial.domain[2:]
 
     # gridlines at vertices
-    x = numpy.linspace(*xlim, nx+1, dtype=dtype)
-    y = numpy.linspace(*ylim, ny+1, dtype=dtype)
+    x = numpy.linspace(*config.spatial.domain[:2], nx+1, dtype=dtype)
+    y = numpy.linspace(*config.spatial.domain[2:], ny+1, dtype=dtype)
 
-    # write topography
-    write(case.joinpath(config.topo.file), (x, y), {"elevation": topo(*numpy.meshgrid(x, y))})
+    # topography
+    topo = get_topo(*numpy.meshgrid(x, y))
+
+    # write topography file
+    with h5py.File(case.joinpath(config.topo.file), "w") as root:
+        root.create_dataset(config.topo.xykeys[0], x.shape, x.dtype, x)
+        root.create_dataset(config.topo.xykeys[1], y.shape, y.dtype, y)
+        root.create_dataset(config.topo.key, topo.shape, topo.dtype, topo)
 
     # gridlines at cell centers
-    dx, dy = (xlim[1] - xlim[0]) / nx,  (ylim[1] - ylim[0]) / ny
-    x = numpy.linspace(xlim[0]+dx/2., xlim[1]-dx/2., nx, dtype=dtype)
-    y = numpy.linspace(ylim[0]+dy/2., ylim[1]-dy/2., ny, dtype=dtype)
+    x = (x[1:] + x[:-1]) / 2.
+    y = (y[1:] + y[:-1]) / 2.
 
     # write initial conditions, defined on cell centers
     ic = exact_soln(*numpy.meshgrid(x, y), 0.)
-    write(case.joinpath(config.ic.file), (x, y), {"w": ic[0], "hu": ic[1], "hv": ic[2]})
+
+    # write topography file
+    with h5py.File(case.joinpath(config.ic.file), "w") as root:
+        root.create_dataset(config.ic.xykeys[0], x.shape, x.dtype, x)
+        root.create_dataset(config.ic.xykeys[1], y.shape, y.dtype, y)
+        for i in range(3):
+            root.create_dataset(config.ic.keys[i], ic[i].shape, ic[i].dtype, ic[i])
 
     return 0
 

@@ -15,26 +15,39 @@ import importlib
 from typing import List
 
 import numpy
+import h5py
 import matplotlib
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read as ncread
+from torchswe.utils.misc import DummyDict
 
 
 # paths
-case_dir = pathlib.Path(__file__).expanduser().resolve().parent
+case = pathlib.Path(__file__).expanduser().resolve().parent
+case.joinpath("figs").mkdir(exist_ok=True)
 
 # unified style configuration
-pyplot.style.use(case_dir.joinpath("paper.mplstyle"))
+pyplot.style.use(case.joinpath("paper.mplstyle"))
 
 # import the "exact_soln" functions from cases
-sys.path.insert(0, str(case_dir))
-topo_fun = importlib.import_module("create_data").topo
+sys.path.insert(0, str(case))
+topo_fun = importlib.import_module("create_data").get_topo
 exact_soln = importlib.import_module("create_data").exact_soln
-main = importlib.import_module("create_data").main
 
 # read data in
 # -------------
-sim_data, _ = ncread(case_dir.joinpath("solutions.nc"), ["w", "hu", "hv"])
+sim_data = DummyDict()
+with h5py.File(case.joinpath("solutions.h5"), "r") as root:
+    sim_data.x = root["grid/x/c"][...]
+    sim_data.y = root["grid/x/c"][...]
+
+    # we re-calculate depth (i.e., h) here because the topography elevations are different
+    # In the simulation, we use the linear interpolation for the cell-centered elevation, while
+    # here we use the exact elevation from the elevation formula.
+    sim_data.w = numpy.zeros((9, sim_data.y.size, sim_data.x.size), dtype=sim_data.x.dtype)
+    sim_data.time = numpy.zeros(9, dtype="float64")
+    for i in range(9):
+        sim_data.time[i] = root[f"{i}"].attrs["simulation time"]
+        sim_data.w[i, ...] = root[f"{i}/states/w"][...]
 
 # some parameters
 # ----------------
@@ -66,7 +79,7 @@ ext_data["h"] = ext_data["w"] - topo
 # errors
 # -------
 err = {}
-for key in ["h", "hu", "hv"]:
+for key in ["h"]:
     with numpy.errstate(divide='ignore', invalid="ignore"):  # shut warnings
         err[key] = numpy.abs((sim_data[key]-ext_data[key])/ext_data[key])
     err[key] = numpy.where(err[key] == 0., 1e-16, err[key])
@@ -74,7 +87,7 @@ for key in ["h", "hu", "hv"]:
 # mask out cells of h = 0
 # ------------------------
 mask = numpy.abs(ext_data["h"]) <= 1e-4
-for key in ["h", "hu", "hv"]:
+for key in ["h"]:
     sim_data[key] = numpy.ma.array(sim_data[key], mask=mask)
     ext_data[key] = numpy.ma.array(ext_data[key], mask=mask)
 
@@ -100,7 +113,7 @@ cs: List[matplotlib.contour.QuadContourSet] = [None for _ in range(8)]
 lvs = numpy.linspace(0., 0.125, 11)
 
 for i in range(8):
-    axs[i].set_title(r"$t={}/{}~T$".format(i+1, 8))
+    axs[i].set_title(rf"$t={i+1}/{8}~T$")
     axs[i].set_aspect("equal", adjustable="box")
     axs[i].set_xlim(0.4, 3.6)
     axs[i].set_ylim(0.4, 3.6)
@@ -122,7 +135,7 @@ cbar = fig.colorbar(cs[0], cax=cbarax, ax=axs, ticks=lvs, orientation="horizonta
 cbar.set_label("Water depth ($m$)")
 
 fig.suptitle("Radially symmetrical motion in a paraboloid, water depth ($m$)")
-fig.savefig(case_dir.joinpath(case_dir.name+"-depth.png"), format="png")
+fig.savefig(case.joinpath("figs", case.name+"-depth.png"), format="png")
 
 # plot exact depth
 # --------------------
@@ -146,7 +159,7 @@ cs: List[matplotlib.contour.QuadContourSet] = [None for _ in range(8)]
 lvs = numpy.linspace(0., 0.125, 11)
 
 for i in range(8):
-    axs[i].set_title(r"$t={}/{}~T$".format(i+1, 8))
+    axs[i].set_title(rf"$t={i+1}/{8}~T$")
     axs[i].set_aspect("equal", adjustable="box")
     axs[i].set_xlim(0.4, 3.6)
     axs[i].set_ylim(0.4, 3.6)
@@ -168,7 +181,7 @@ cbar = fig.colorbar(cs[0], cax=cbarax, ax=axs, ticks=lvs, orientation="horizonta
 cbar.set_label("Water depth ($m$)")
 
 fig.suptitle("Radially symmetrical motion in a paraboloid, analytical water depth ($m$)")
-fig.savefig(case_dir.joinpath(case_dir.name+"-exact-depth.png"), format="png")
+fig.savefig(case.joinpath("figs", case.name+"-exact-depth.png"), format="png")
 
 # plot error of depth
 # --------------------
@@ -192,7 +205,7 @@ cs: List[matplotlib.contour.QuadContourSet] = [None for _ in range(8)]
 lvs = 10**numpy.linspace(-7, 0, 8)
 
 for i in range(8):
-    axs[i].set_title(r"$t={}/{}~T$".format(i+1, 8))
+    axs[i].set_title(rf"$t={i+1}/{8}~T$")
     axs[i].set_aspect("equal", adjustable="box")
     axs[i].set_xlim(0.4, 3.6)
     axs[i].set_ylim(0.4, 3.6)
@@ -217,4 +230,4 @@ cbar = fig.colorbar(cs[0], cax=cbarax, ax=axs, orientation="horizontal")
 cbar.set_label("Relative error")
 
 fig.suptitle("Radially symmetrical motion in a paraboloid, relative error of depth")
-fig.savefig(case_dir.joinpath(case_dir.name+"-error.png"), format="png")
+fig.savefig(case.joinpath("figs", case.name+"-error.png"), format="png")

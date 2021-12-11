@@ -93,17 +93,21 @@ boundary:
 #
 # Note
 # ----
-# Must set either `file` plus `keys` or `values`.
+# Must set either `file` + `keys` + `xykeys` or simply `values`.
 # =============================================================================
 initial:
 
-  # see note; the file name/path to a CF-compliant NetCDF file for I.C.
+  # see note; the file name/path to an HDF5 file for I.C.
   # ---------------------------------------------------------------------------
   file: "initial.nc"
 
-  # see note; the names/keys of w, hu, and hv datasets in the the NetCDF file.
+  # see note; the paths/keys to w, hu, and hv datasets in the HDF5 file.
   # ---------------------------------------------------------------------------
   keys: [w, hu, hv]
+
+  # see note; the paths/keys to x and y gridlines in the HDF5 file.
+  # ---------------------------------------------------------------------------
+  xykeys: [x, y]
 
   # see note; choose this for constant I.C.
   # ---------------------------------------------------------------------------
@@ -114,13 +118,17 @@ initial:
 # =============================================================================
 topography:
 
-  # required; the file name/path to a CF-compliant NetCDF file for topography
+  # required; the file name/path to an HDF5 file for topography
   # ---------------------------------------------------------------------------
   file: "topo.nc"
 
-  # required; the name/key for the elevation dataset in the the NetCDF file.
+  # required; the path/key to the elevation dataset in the HDF5 file.
   # ---------------------------------------------------------------------------
   key: elevation
+
+  # required; the paths/keys to x and y gridlines in the HDF5 file.
+  # ---------------------------------------------------------------------------
+  xykeys: [x, y]
 
 # =============================================================================
 # Optional block: point source
@@ -155,7 +163,8 @@ point source:
 #
 # Note
 # ----
-# Either `roughness` or the `roughness file`-`roughness key` pair must be set.
+# Either use simply a `roughness` value or using the combination of
+# `roughness file` + `roughness key` + `roughness xykeys`.
 # =============================================================================
 friction:
 
@@ -163,13 +172,17 @@ friction:
   # ---------------------------------------------------------------------------
   roughness: 0.0
 
-  # see note; a CF-compliant NetCDF file containing roughness data
+  # see note; an HDF5 file containing roughness data
   # ---------------------------------------------------------------------------
   roughness file: null
 
-  # see note; the key of the roughness data in the file
+  # see note; the key to the roughness data in the HDF5 file
   # ---------------------------------------------------------------------------
   roughness key: null
+
+  # see note; the keys to gridlines describing roughness data in the HDF5 file
+  # ---------------------------------------------------------------------------
+  roughness xykeys: null
 
   # optional; the coefficient model. Only "bellos_et_al_2018" is available now.
   # ---------------------------------------------------------------------------

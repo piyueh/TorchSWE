@@ -5,6 +5,7 @@ torchswe/**/*.so
 cases/**/*.png
 cases/**/*.npz
 cases/**/*.npy
+cases/**/*.h5
 cases/**/*.nc
 cases/**/*.nc.aux.xml
 cases/**/postprocessing.ipynb

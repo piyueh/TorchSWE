@@ -10,8 +10,8 @@
 """
 import pathlib
 import numpy
+import h5py
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read as ncread
 # pylint: disable=invalid-name, too-many-locals, too-many-statements
 
 
@@ -77,58 +77,63 @@ def get_coeffs(b, bM, hM, q0, g):
     return C0, C1
 
 
+def get_analytical_solution(x):
+    """Get the analytical solution.
+    """
+
+    hM = solve_hM(1.53, 9.81)  # critical depth
+
+    b = topo(x)
+    h = numpy.zeros_like(x)
+    c0, c1 = get_coeffs(b, 0.2, hM, 1.53, 9.81)
+    for i, c1i in enumerate(c1):
+        r = numpy.sort(numpy.roots([1.0, c1i, 0., c0]))[::-1]
+        h[i] = r[0] if x[i] <= 10. else r[1]
+    w = h + b
+
+    return w, h, b
+
+
 def main():
     """Plot and compare to analytical solutions."""
 
-    # get the critical depth
-    hM = solve_hM(1.53, 9.81)
-
     # read simulation data
-    filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
-    sim_data, _ = ncread(filename, ["w", "hu"])
+    case = pathlib.Path(__file__).expanduser().resolve().parent
+
+    with h5py.File(case.joinpath("solutions.h5"), "r") as root:
+        x = root["grid/x/c"][...]
+        dx = root["grid/x"].attrs["delta"]
+        assert abs(x[1]-x[0]-dx) < 1e-10
+
+        w = root["15/states/w"][...]
+        h = root["15/states/h"][...]
+        hu = root["15/states/hu"][...]
 
     # make sure y direction does not have variance
-    for xt in sim_data["w"]:
-        for yslc in xt:
-            assert numpy.allclose(yslc, xt[0, :], 1e-12, 1e-12)
+    assert numpy.allclose(w, w[0].reshape(1, -1))
+    assert numpy.allclose(h, h[0].reshape(1, -1))
+    assert numpy.allclose(hu, hu[0].reshape(1, -1))
 
-    for xt in sim_data["hu"]:
-        for yslc in xt:
-            assert numpy.allclose(yslc, xt[0, :], 1e-12, 1e-12)
-
-    x = sim_data["x"]
-    w = sim_data["w"][-1, :, :]  # only keep the soln at the last time
-    w = numpy.mean(w, 0)  # use the average in y direction
-    hu = sim_data["hu"][-1, :, :]
-    hu = numpy.mean(hu, 0)
+    # average in y direction
+    w = w.mean(axis=0)  # pylint: disable=no-member
+    h = h.mean(axis=0)  # pylint: disable=no-member
+    hu = hu.mean(axis=0)  # pylint: disable=no-member
 
     # get a set of analytical solution for error
-    b_ana = topo(x)
-    h_ana = numpy.zeros_like(x)
-    C0, C1 = get_coeffs(b_ana, 0.2, hM, 1.53, 9.81)
-    for i, c1 in enumerate(C1):
-        R = numpy.sort(numpy.roots([1.0, c1, 0., C0]))[::-1]
-        h_ana[i] = R[0] if x[i] <= 10. else R[1]
-    w_ana = h_ana + b_ana
+    w_ana, _, b_ana = get_analytical_solution(x)
 
     # get another set of solution for plotting
     x_plot = numpy.linspace(0., 25., 1000, dtype=numpy.float64)
-    b_plot = topo(x_plot)
-    h_plot = numpy.zeros_like(x_plot)
-    C0, C1 = get_coeffs(b_plot, 0.2, hM, 1.53, 9.81)
-    for i, c1 in enumerate(C1):
-        R = numpy.sort(numpy.roots([1.0, c1, 0., C0]))[::-1]
-        h_plot[i] = R[0] if x_plot[i] <= 10. else R[1]
-    w_plot = h_plot + b_plot
+    w_plot, h_plot, b_plot = get_analytical_solution(x_plot)
 
     # relative L1 error
     w_err = numpy.abs((w-w_ana)/w_ana)
 
     # total volume of w per unit y
-    vol = w.sum() * (x[1] - x[0])
-    vol_ana = w_ana.sum() * (x[1] - x[0])
-    print("Total volume per y: analytical -- {} m^2; ".format(vol_ana) +
-          "simulation -- {} m^2".format(vol))
+    print(f"Total volume per y: analytical -- {w_ana.sum()*dx} m^2; simulation -- {w.sum()*dx} m^2")
+
+    # figure folder
+    case.joinpath("figs").mkdir(exist_ok=True)
 
     # plot
     pyplot.figure()
@@ -140,7 +145,7 @@ def main():
     pyplot.ylabel("Water level (m)")
     pyplot.grid()
     pyplot.legend()
-    pyplot.savefig("simulation_vs_analytical_w.png", dpi=166)
+    pyplot.savefig(case.joinpath("figs", "simulation_vs_analytical_w.png"), dpi=166)
 
     pyplot.figure()
     pyplot.plot(x_plot, h_plot, "k-", lw=2, label="Analytical solution")
@@ -150,7 +155,7 @@ def main():
     pyplot.ylabel("Water depth (m)")
     pyplot.grid()
     pyplot.legend()
-    pyplot.savefig("simulation_vs_analytical_h.png", dpi=166)
+    pyplot.savefig(case.joinpath("figs", "simulation_vs_analytical_h.png"), dpi=166)
 
     pyplot.figure()
     pyplot.plot(x_plot, numpy.ones_like(x_plot)*1.53, "k-", lw=2, label="Analytical solution")
@@ -160,7 +165,7 @@ def main():
     pyplot.ylabel("Discharge " r"($q=hu$)" " (m)")
     pyplot.grid()
     pyplot.legend()
-    pyplot.savefig("simulation_vs_analytical_hu.png", dpi=166)
+    pyplot.savefig(case.joinpath("figs", "simulation_vs_analytical_hu.png"), dpi=166)
 
     pyplot.figure()
     pyplot.semilogy(x, w_err, "k-", lw=2)
@@ -168,7 +173,7 @@ def main():
     pyplot.xlabel("x (m)")
     pyplot.ylabel(r"$\left|\left(w_{simulation}-w_{analytical}\right)/w_{analytical}\right|$")
     pyplot.grid()
-    pyplot.savefig("simulation_vs_analytical_w_L1.png", dpi=166)
+    pyplot.savefig(case.joinpath("figs", "simulation_vs_analytical_w_L1.png"), dpi=166)
 
     return 0
 

@@ -32,7 +32,8 @@ initial:
 
 # topography
 topography:
-  file: "topo.nc"       # relative to case folder or absolute path
+  file: "topo.h5"       # relative to case folder or absolute path
+  xykeys: ["x", "y"]    # keys/paths to x and y gridline coordinates
   key: elevation        # the corresponding variable name in the NetCDF file
 
 # other parameters
