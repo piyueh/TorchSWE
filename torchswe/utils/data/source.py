@@ -174,6 +174,9 @@ def get_frictionmodel(config: Config, domain: Domain = None, comm: MPI.Comm = No
     torchswe.utils.data.source.FrictionModel
     """
 
+    # alias
+    fcfg = config.friction
+
     # to hold data for initializing a Domain instance
     data = _DummyDict()
 
@@ -185,14 +188,14 @@ def get_frictionmodel(config: Config, domain: Domain = None, comm: MPI.Comm = No
         data.domain = domain
 
     # set the model
-    data.model = _friction_model_selector(config.friction.model)
+    data.model = _friction_model_selector(fcfg.model)
 
     # set roughness if a constant value is provided
-    if config.friction.value is not None:
-        data.roughness = _nplike.full(data.domain.shape, config.friction.value)
+    if fcfg.value is not None:
+        data.roughness = _nplike.full(data.domain.shape, fcfg.value)
 
     # otherwise, get roughness from a file
-    data = _read_block(config.friction.file, config.friction.xykeys, config.friction.key, domain)
+    data = _read_block(fcfg.file, fcfg.xykeys, fcfg.key, domain.lextent_c, domain)
 
     # see if we need to do interpolation
     try:
@@ -203,9 +206,9 @@ def get_frictionmodel(config: Config, domain: Domain = None, comm: MPI.Comm = No
     if interp:  # unfortunately, we need to do interpolation in such a situation
         _logger.warning("Grids do not match. Doing spline interpolation.")
         data.roughness = _nplike.array(
-            _interpolate(data.x, data.y, data[config.friction.key].T, domain.x.c, domain.y.c).T
+            _interpolate(data.x, data.y, data[fcfg.key].T, domain.x.c, domain.y.c).T
         ).astype(domain.dtype)
     else:  # no need for interpolation
-        data.roughness = data[config.friction.key].astype(domain.dtype)
+        data.roughness = data[fcfg.key].astype(domain.dtype)
 
     return FrictionModel(**data)

@@ -562,7 +562,7 @@ def get_initial_states(config: Config, domain: Domain = None, comm: MPI.Comm = N
         return states
 
     # otherwise, read data from a NetCDF file
-    data = _read_block(config.ic.file, config.ic.xykeys, config.ic.keys, domain)
+    data = _read_block(config.ic.file, config.ic.xykeys, config.ic.keys, domain.lextent_c, domain)
 
     # see if we need to do interpolation
     try:

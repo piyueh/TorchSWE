@@ -322,10 +322,12 @@ def find_index_bound(x, y, extent):
         Slice [ibg:ied] and [jbg:jed] cover desired extent.
     """
 
-    assert x[0] <= extent[0], f"{x[0]} is not smaller than or equal to {extent[0]}"
-    assert x[-1] >= extent[1], f"{x[-1]} is not greater than or equal to {extent[1]}"
-    assert y[0] <= extent[2], f"{y[0]} is not smaller than or equal to {extent[2]}"
-    assert y[-1] >= extent[3], f"{y[-1]} is not greater than or equal to {extent[3]}"
+    dxl, dxr = (x[1] - x[0]) / 2.0, (x[-1] - x[-2]) / 2.0
+    dyl, dyr = (y[1] - y[0]) / 2.0, (y[-1] - y[-2]) / 2.0
+    assert x[0] - dxl <= extent[0], f"{x[0]-dxl} is not smaller than or equal to {extent[0]}"
+    assert x[-1] + dxr >= extent[1], f"{x[-1]+dyr} is not greater than or equal to {extent[1]}"
+    assert y[0] - dyl <= extent[2], f"{y[0]-dyl} is not smaller than or equal to {extent[2]}"
+    assert y[-1] + dyr >= extent[3], f"{y[-1]+dyr} is not greater than or equal to {extent[3]}"
 
     # tol (single precision and double precision will use different tolerance)
     try:
@@ -334,12 +336,12 @@ def find_index_bound(x, y, extent):
         tol = 1e-12
 
     # left-search the start/end indices containing the provided domain (with rounding errors)
-    ibg, ied = _nplike.searchsorted(x+tol, _nplike.array(extent[:2]))
-    jbg, jed = _nplike.searchsorted(x+tol, _nplike.array(extent[2:]))
+    ibg, ied = _nplike.searchsorted(x+tol, _nplike.asarray(extent[:2]))
+    jbg, jed = _nplike.searchsorted(y+tol, _nplike.asarray(extent[2:]))
 
     # torch's searchsorted signature differs, so no right search; manual adjustment instead
-    ied = len(x) - 1 if ied >= len(x) else ied
-    jed = len(y) - 1 if jed >= len(y) else jed
+    ied = min(len(x) - 1, ied)
+    jed = min(len(y) - 1, jed)
 
     # make sure the target domain is big enough for interpolation, except for edge cases
     ibg = int(ibg-1) if x[ibg]-tol > extent[0] else int(ibg)
@@ -347,10 +349,11 @@ def find_index_bound(x, y, extent):
     jbg = int(jbg-1) if y[jbg]-tol > extent[2] else int(jbg)
     jed = int(jed+1) if y[jed]+tol < extent[3] else int(jed)
 
-    assert ibg >= 0, f"{x[0]} not smaller enough to cover {extent[0]}"
-    assert ied < len(x), f"{x[-1]} not big enough to cover {extent[1]}"
-    assert jbg >= 0, f"{y[0]} not smaller enough to cover {extent[2]}"
-    assert jed < len(y), f"{y[-1]} not big enough to cover {extent[3]}"
+    # make sure indices are valid; will do extrapolation if ibg, jbg < 0 and ied, jed >= length
+    ibg = max(0, ibg)
+    ied = min(len(x)-1, ied)
+    jbg = max(0, jbg)
+    jed = min(len(y)-1, jed)
 
     # the end has to shift one for slicing
     ied += 1

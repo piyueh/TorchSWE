@@ -331,6 +331,16 @@ class Domain(_BaseConfig):
         return self.x.glower, self.x.gupper, self.y.glower, self.y.gupper
 
     @property
+    def lextent_c(self):
+        """The extent defined with the centers of boundary cells."""
+        return self.x.c[0], self.x.c[-1], self.y.c[0], self.y.c[-1]
+
+    @property
+    def lextent_v(self):
+        """The extent defined with the coords of boundary vertices."""
+        return self.x.v[0], self.x.v[-1], self.y.v[0], self.y.v[-1]
+
+    @property
     def delta(self):
         """The cell sizes in y and x."""
         return self.y.delta, self.x.delta

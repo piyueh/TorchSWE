@@ -36,7 +36,10 @@ from torchswe.utils.misc import DummyDict as _DummyDict
 from torchswe.utils.misc import find_index_bound as _find_index_bound
 
 
-def read_block(filename: PathLike, xykeys: Tuple[str, str], dkeys: Tuple[str, ...], domain: Domain):
+def read_block(
+    filename: PathLike, xykeys: Tuple[str, str], dkeys: Tuple[str, ...],
+    extent: Tuple[float, float, float, float], domain: Domain
+):
     """Read only a region of data using a provided extent.
 
     Arguments
@@ -47,6 +50,8 @@ def read_block(filename: PathLike, xykeys: Tuple[str, str], dkeys: Tuple[str, ..
         The key(s) (or the path(s) in HDF5's terminology) to desired datasets.
     xykeys : a tuple of 2 str
         The keys to the x and y gridlines defining the underlying grid of the datasets.
+    extent : a tuple of 4 floats
+        The xmin, xmax, ymin, and ymax that the resulting blcok must cover.
     domain : torchswe.utils.data.grid.Domain
         The Domain object describing the local grid of this MPI rank. The desired extent is
         obtained from domain.
@@ -64,7 +69,7 @@ def read_block(filename: PathLike, xykeys: Tuple[str, str], dkeys: Tuple[str, ..
         # get index bounds
         data.x = _nplike.asarray(root[xykeys[0]][...])
         data.y = _nplike.asarray(root[xykeys[1]][...])
-        ibg, ied, jbg, jed = _find_index_bound(data.x, data.y, domain.lextent)
+        ibg, ied, jbg, jed = _find_index_bound(data.x, data.y, extent)
 
         # extract only the gridlines covering the desired extent
         data.x = data.x[ibg:ied]

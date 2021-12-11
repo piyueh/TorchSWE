@@ -120,16 +120,19 @@ def get_topography(config: Config, domain: Domain = None, comm: MPI.Comm = None)
     """Read local topography elevation data from a file.
     """
 
+    # alias
+    topocfg = config.topo
+
     # if domain is not provided, get a new one
     if domain is None:
         comm = _MPI.COMM_WORLD if comm is None else comm
         domain = _get_domain(comm, config)
 
     # get dem (digital elevation model); assume dem values defined at cell centers
-    dem = _read_block(config.topo.file, config.topo.xykeys, config.topo.key, domain)
-    assert dem[config.topo.key].shape == (len(dem.y), len(dem.x))
+    dem = _read_block(topocfg.file, topocfg.xykeys, topocfg.key, domain.lextent_v, domain)
+    assert dem[topocfg.key].shape == (len(dem.y), len(dem.x))
 
-    topo = _setup_topography(domain, dem[config.topo.key], dem.x, dem.y)
+    topo = _setup_topography(domain, dem[topocfg.key], dem.x, dem.y)
     return topo
 
 
