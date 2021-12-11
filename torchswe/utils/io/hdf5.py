@@ -62,8 +62,8 @@ def read_block(filename: PathLike, xykeys: Tuple[str, str], dkeys: Tuple[str, ..
     with _File(filename, "r", "mpio", comm=domain.comm) as root:
 
         # get index bounds
-        data.x = root[xykeys[0]][...]
-        data.y = root[xykeys[1]][...]
+        data.x = _nplike.asarray(root[xykeys[0]][...])
+        data.y = _nplike.asarray(root[xykeys[1]][...])
         ibg, ied, jbg, jed = _find_index_bound(data.x, data.y, domain.lextent)
 
         # extract only the gridlines covering the desired extent
@@ -77,7 +77,7 @@ def read_block(filename: PathLike, xykeys: Tuple[str, str], dkeys: Tuple[str, ..
         # the data slices that cover desired extent
         for key in dkeys:
             slc = (slice(None),) * (root[key].ndim - 2) + (slice(jbg, jed), slice(ibg, ied))
-            data[key] = root[key][slc]
+            data[key] = _nplike.asarray(root[key][slc])
 
     return data
 
@@ -107,18 +107,18 @@ def write_grid_to_group(domain: Domain, group: Group):
     group.require_dataset("grid/y/xf", gny, dtype, exact=True)
     group.require_dataset("grid/y/yf", gny+1, dtype, exact=True)
 
-    group["grid/x/v"][domain.x.ibegin:domain.x.iend+1] = domain.x.v
-    group["grid/x/c"][domain.x.ibegin:domain.x.iend] = domain.x.c
-    group["grid/x/xf"][domain.x.ibegin:domain.x.iend+1] = domain.x.xf
-    group["grid/x/yf"][domain.x.ibegin:domain.x.iend] = domain.x.yf
-    group["grid/y/v"][domain.y.ibegin:domain.y.iend+1] = domain.y.v
-    group["grid/y/c"][domain.y.ibegin:domain.y.iend] = domain.y.c
-    group["grid/y/xf"][domain.y.ibegin:domain.y.iend] = domain.y.xf
-    group["grid/y/yf"][domain.y.ibegin:domain.y.iend+1] = domain.y.yf
+    group["grid/x/v"][domain.x.ibegin:domain.x.iend+1] = _nplike.get(domain.x.v)
+    group["grid/x/c"][domain.x.ibegin:domain.x.iend] = _nplike.get(domain.x.c)
+    group["grid/x/xf"][domain.x.ibegin:domain.x.iend+1] = _nplike.get(domain.x.xf)
+    group["grid/x/yf"][domain.x.ibegin:domain.x.iend] = _nplike.get(domain.x.yf)
+    group["grid/y/v"][domain.y.ibegin:domain.y.iend+1] = _nplike.get(domain.y.v)
+    group["grid/y/c"][domain.y.ibegin:domain.y.iend] = _nplike.get(domain.y.c)
+    group["grid/y/xf"][domain.y.ibegin:domain.y.iend] = _nplike.get(domain.y.xf)
+    group["grid/y/yf"][domain.y.ibegin:domain.y.iend+1] = _nplike.get(domain.y.yf)
 
     # record delta (all ranks write to the same location; assume all ranks have the same delta)
-    group["grid/x"].attrs["delta"] = domain.x.delta
-    group["grid/y"].attrs["delta"] = domain.y.delta
+    group["grid/x"].attrs["delta"] = float(domain.x.delta)
+    group["grid/y"].attrs["delta"] = float(domain.y.delta)
 
 
 def write_topo_to_group(topo: Topography, group: Group):
@@ -153,23 +153,23 @@ def write_topo_to_group(topo: Topography, group: Group):
 
     dset = group["topo/v"]  # require this step; see h5py/h5py/issues/2017
     with dset.collective:
-        dset[domain.global_v] = topo.v[domain.nonhalo_v]
+        dset[domain.global_v] = _nplike.get(topo.v[domain.nonhalo_v])
 
     dset = group["topo/c"]  # require this step; see h5py/h5py/issues/2017
     with dset.collective:
-        dset[domain.global_c] = topo.c[domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(topo.c[domain.nonhalo_c])
 
     dset = group["topo/xf"]  # require this step; see h5py/h5py/issues/2017
     with dset.collective:
-        dset[domain.global_xf] = topo.xf
+        dset[domain.global_xf] = _nplike.get(topo.xf)
 
     dset = group["topo/yf"]  # require this step; see h5py/h5py/issues/2017
     with dset.collective:
-        dset[domain.global_yf] = topo.yf
+        dset[domain.global_yf] = _nplike.get(topo.yf)
 
     dset = group["topo/grad"]  # require this step; see h5py/h5py/issues/2017
     with dset.collective:
-        dset[(slice(None),)+domain.global_c] = topo.grad
+        dset[(slice(None),)+domain.global_c] = _nplike.get(topo.grad)
 
 
 def write_ptsource_to_group(ptsource: PointSource, group: Group):
@@ -225,7 +225,7 @@ def write_frictionmodel_to_group(friction: FrictionModel, group: Group):
     dset = group.require_dataset("friction/roughness", domain.gshape, domain.dtype, **kwargs)
 
     with dset.collective:
-        dset[domain.global_c] = friction.roughness
+        dset[domain.global_c] = _nplike.get(friction.roughness)
 
 
 def write_states_to_group(states: States, group: Group):
@@ -259,27 +259,27 @@ def write_states_to_group(states: States, group: Group):
 
     dset = group["states/w"]
     with dset.collective:
-        dset[domain.global_c] = states.q[(0,)+domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(states.q[(0,)+domain.nonhalo_c])
 
     dset = group["states/hu"]
     with dset.collective:
-        dset[domain.global_c] = states.q[(1,)+domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(states.q[(1,)+domain.nonhalo_c])
 
     dset = group["states/hv"]
     with dset.collective:
-        dset[domain.global_c] = states.q[(2,)+domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(states.q[(2,)+domain.nonhalo_c])
 
     dset = group["states/h"]
     with dset.collective:
-        dset[domain.global_c] = states.p[(0,)+domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(states.p[(0,)+domain.nonhalo_c])
 
     dset = group["states/u"]
     with dset.collective:
-        dset[domain.global_c] = states.p[(1,)+domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(states.p[(1,)+domain.nonhalo_c])
 
     dset = group["states/v"]
     with dset.collective:
-        dset[domain.global_c] = states.p[(2,)+domain.nonhalo_c]
+        dset[domain.global_c] = _nplike.get(states.p[(2,)+domain.nonhalo_c])
 
 
 def create_soln_file(states: States, runtime: DummyDict, config: Config):
@@ -324,8 +324,8 @@ def write_snapshot(states: States, runtime: DummyDict, config: Config):
 
     with _File(runtime.outfile, "r+", "mpio", comm=states.domain.comm) as root:
         snapshot = root.require_group(f"{runtime.tidx}")
-        snapshot.attrs["dt"] = runtime.dt
-        snapshot.attrs["simulation time"] = runtime.cur_t
+        snapshot.attrs["dt"] = float(runtime.dt)
+        snapshot.attrs["simulation time"] = float(runtime.cur_t)
         snapshot.attrs["time written"] = _datetime.now(_timezone.utc).isoformat()
         write_states_to_group(states, snapshot)
 
@@ -359,12 +359,12 @@ def read_snapshot(states: States, runtime: DummyDict, config: Config):
 
     with _File(runtime.outfile, "r", "mpio", comm=domain.comm) as root:
         snapshot = root[f"{runtime.tidx}"]
-        states.q[(0,)+domain.nonhalo_c] = snapshot["states/w"][domain.global_c]
-        states.q[(1,)+domain.nonhalo_c] = snapshot["states/hu"][domain.global_c]
-        states.q[(2,)+domain.nonhalo_c] = snapshot["states/hv"][domain.global_c]
-        states.p[(0,)+domain.nonhalo_c] = snapshot["states/h"][domain.global_c]
-        states.p[(1,)+domain.nonhalo_c] = snapshot["states/u"][domain.global_c]
-        states.p[(2,)+domain.nonhalo_c] = snapshot["states/v"][domain.global_c]
+        states.q[(0,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/w"][domain.global_c])
+        states.q[(1,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/hu"][domain.global_c])
+        states.q[(2,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/hv"][domain.global_c])
+        states.p[(0,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/h"][domain.global_c])
+        states.p[(1,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/u"][domain.global_c])
+        states.p[(2,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/v"][domain.global_c])
         states.check()
 
         if config.ptsource is not None:

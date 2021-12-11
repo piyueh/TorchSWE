@@ -155,14 +155,11 @@ def _setup_topography(domain, elev, demx, demy):
 
     if interp:  # unfortunately, we need to do interpolation in such a situation
         _logger.warning("Grids do not match. Doing spline interpolation.")
-        vert[domain.effybg:domain.effyed+1, domain.effxbg:domain.effxed+1] = _nplike.array(
-            _interpolate(
-                demx, demy, elev.T,
-                domain.x.v, domain.y.v
-            ).T
+        vert[domain.nonhalo_v] = _nplike.array(
+            _interpolate(demx, demy, elev.T, domain.x.v, domain.y.v).T
         ).astype(domain.dtype)
     else:  # no need for interpolation
-        vert[domain.effybg:domain.effyed+1, domain.effxbg:domain.effxed+1] = elev.astype(dtype)
+        vert[domain.nonhalo_v] = elev.astype(dtype)
 
     # exchange vertices' elevations in halo rings
     vert = _exchange_topo_vertices(domain, vert)

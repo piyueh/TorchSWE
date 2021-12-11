@@ -47,6 +47,7 @@ elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     nplike.errstate = _DummyErrState
     nplike.set_printoptions = _dummy_function
     nplike.sync = nplike.cuda.get_current_stream().synchronize
+    nplike.get = nplike.ndarray.get
 elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     import torch as nplike  # pylint: disable=import-error
     nplike.errstate = _DummyErrState
@@ -65,3 +66,4 @@ elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
 else:
     import numpy as nplike
     nplike.sync = _dummy_function
+    nplike.get = lambda arg: arg
