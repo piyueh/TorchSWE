@@ -371,7 +371,7 @@ def restart(states, runtime, config, cont, logger):
     states, runtime = read_snapshot(states, runtime, config)
     logger.info("Initial solution reset to T=%e", runtime.cur_t)
 
-    if runtime.ptsource is not None:
+    if "ptsource" in runtime and runtime.ptsource is not None:
         logger.info("Point source reset: %s", runtime.ptsource)
 
     return states, runtime

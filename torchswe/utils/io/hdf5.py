@@ -325,6 +325,7 @@ def write_snapshot(states: States, runtime: DummyDict, config: Config):
     with _File(runtime.outfile, "r+", "mpio", comm=states.domain.comm) as root:
         snapshot = root.require_group(f"{runtime.tidx}")
         snapshot.attrs["dt"] = float(runtime.dt)
+        snapshot.attrs["iterations"] = int(runtime.counter)
         snapshot.attrs["simulation time"] = float(runtime.cur_t)
         snapshot.attrs["time written"] = _datetime.now(_timezone.utc).isoformat()
         write_states_to_group(states, snapshot)
@@ -359,6 +360,9 @@ def read_snapshot(states: States, runtime: DummyDict, config: Config):
 
     with _File(runtime.outfile, "r", "mpio", comm=domain.comm) as root:
         snapshot = root[f"{runtime.tidx}"]
+
+        assert float(snapshot.attrs["simulation time"]) == float(runtime.cur_t)
+
         states.q[(0,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/w"][domain.global_c])
         states.q[(1,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/hu"][domain.global_c])
         states.q[(2,)+domain.nonhalo_c] = _nplike.asarray(snapshot["states/hv"][domain.global_c])
@@ -371,6 +375,8 @@ def read_snapshot(states: States, runtime: DummyDict, config: Config):
             runtime.ptsource.irate = snapshot["ptsource/irate"][()]
             runtime.ptsource.active = snapshot["ptsource/active"][()]
             runtime.ptsource.check()
+
+        runtime.counter = int(snapshot.attrs["iterations"])
 
     return states, runtime
 
