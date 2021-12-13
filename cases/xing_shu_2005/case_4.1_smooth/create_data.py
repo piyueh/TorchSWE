@@ -8,13 +8,12 @@
 
 """Create a topography file for the case 4.1 and smooth topography in Xing and Shu (2005).
 
-Note, the elevation data in the resulting NetCDF file is defined at vertices,
-instead of cell centers.
+Note, the elevation data is defined at vertices, rather than at cell centers.
 """
 import pathlib
-import yaml
 import numpy
-from torchswe.utils.netcdf import write
+import h5py
+from torchswe.utils.config import get_config
 
 
 def main():
@@ -22,23 +21,24 @@ def main():
     # pylint: disable=invalid-name
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
+    config = get_config(case)
 
-    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
-        config = yaml.load(f, Loader=yaml.Loader)
-
-    # alias
+    # aliases
     nx, ny = config.spatial.discretization
     dtype = config.params.dtype
-    xlim, ylim = config.spatial.domain[:2], config.spatial.domain[2:]
 
     # gridlines at vertices
-    x = numpy.linspace(*xlim, nx+1, dtype=dtype)
-    y = numpy.linspace(*ylim, ny+1, dtype=dtype)
+    x = numpy.linspace(*config.spatial.domain[:2], nx+1, dtype=dtype)
+    y = numpy.linspace(*config.spatial.domain[2:], ny+1, dtype=dtype)
 
-    # write topography
-    write(
-        case.joinpath(config.topo.file), (x, y),
-        {"elevation": numpy.tile(5.*numpy.exp(-0.4*((x-5.)**2)), (ny+1, 1))})
+    # topography elevation
+    topo = numpy.tile(5.*numpy.exp(-0.4*((x-5.)**2)), (ny+1, 1))
+
+    # write topography file
+    with h5py.File(case.joinpath(config.topo.file), "w") as root:
+        root.create_dataset(config.topo.xykeys[0], x.shape, x.dtype, x)
+        root.create_dataset(config.topo.xykeys[1], y.shape, y.dtype, y)
+        root.create_dataset(config.topo.key, topo.shape, topo.dtype, topo)
 
     return 0
 

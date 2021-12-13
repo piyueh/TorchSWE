@@ -10,25 +10,28 @@
 """
 import pathlib
 import numpy
+import h5py
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read as ncread
+from torchswe.utils.misc import DummyDict
 
 
 def main():
     """Plot and compare to analytical solutions."""
     # pylint: disable=invalid-name
 
-    # read simulation data
-    filename = pathlib.Path(__file__).expanduser().resolve().parent.joinpath("solutions.nc")
-    sim_data, _ = ncread(filename, ["w"])
+    # paths
+    case = pathlib.Path(__file__).expanduser().resolve().parent
+    case.joinpath("figs").mkdir(exist_ok=True)
 
-    # 2D coordinates
-    x = sim_data["x"]
-    y = sim_data["y"]
-    X, Y = numpy.meshgrid(x, y)
+    # unified style configuration
+    pyplot.style.use(case.joinpath("paper.mplstyle"))
 
-    # get solutions except the one at T=0
-    W = sim_data["w"][1:, :, :]
+    # read in solutions
+    data = DummyDict({i: DummyDict() for i in range(5)})
+    with h5py.File(case.joinpath("solutions.h5"), "r") as root:
+        data.x, data.y = numpy.meshgrid(root["grid/x/c"][...], root["grid/y/c"][...])
+        for i in range(5):
+            data[i].w = root[f"{i+1}/states/w"][...]  # skip the soln@T=0
 
     # time labels
     t = [0.12, 0.24, 0.36, 0.48, 0.6]
@@ -45,29 +48,30 @@ def main():
     # contour lines: to compare with Xing & Shu
     for i in range(5):
         pyplot.figure(figsize=(10, 4), dpi=166)
-        pyplot.contour(X, Y, W[i], r[i], linewidths=1)
-        pyplot.title("Xing & Shu (2005) case 5.3: water level @ T={} sec".format(t[i]))
+        pyplot.contour(data.x, data.y, data[i].w, r[i], linewidths=1)
+        pyplot.title(f"Xing & Shu (2005) case 5.3: water level @ T={t[i]} sec")
         pyplot.xlabel("x (m)")
         pyplot.ylabel("y (m)")
         pyplot.xlim(0., 2.)
         pyplot.ylim(0., 1.)
         pyplot.colorbar()
-        pyplot.tight_layout()
         pyplot.savefig(
-            "water_level_contourline_t={}.png".format(t[i]), dpi=166, bbox_inches="tight")
+            case.joinpath("figs", f"water_level_contourline_t={t[i]}.png"),
+            dpi=166, bbox_inches="tight")
 
     # contourf
     for i in range(5):
         pyplot.figure(figsize=(10, 4), dpi=166)
-        pyplot.contourf(X, Y, W[i], 128)
-        pyplot.title("Xing & Shu (2005) case 5.3: water level @ T={} sec".format(t[i]))
+        pyplot.contourf(data.x, data.y, data[i].w, 128)
+        pyplot.title(f"Xing & Shu (2005) case 5.3: water level @ T={t[i]} sec")
         pyplot.xlabel("x (m)")
         pyplot.ylabel("y (m)")
         pyplot.xlim(0., 2.)
         pyplot.ylim(0., 1.)
         pyplot.colorbar()
-        pyplot.tight_layout()
-        pyplot.savefig("water_level_contour_t={}.png".format(t[i]), dpi=166, bbox_inches="tight")
+        pyplot.savefig(
+            case.joinpath("figs", f"water_level_contour_t={t[i]}.png"),
+            dpi=166, bbox_inches="tight")
 
     return 0
 

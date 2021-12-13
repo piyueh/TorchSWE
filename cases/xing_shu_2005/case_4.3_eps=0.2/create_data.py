@@ -8,13 +8,12 @@
 
 """Create topography and I.C. file for case 4.3 and epsilon=0.2 in Xing and Shu (2005).
 
-Note, the elevation data in the resulting NetCDF file is defined at vertices,
-instead of cell centers. But the I.C. is defined at cell centers.
+Note, the elevation data is defined at vertices, rather than at cell centers.
 """
 import pathlib
-import yaml
 import numpy
-from torchswe.utils.netcdf import write
+import h5py
+from torchswe.utils.config import get_config
 
 
 def main():
@@ -22,43 +21,46 @@ def main():
     # pylint: disable=invalid-name
 
     case = pathlib.Path(__file__).expanduser().resolve().parent
+    config = get_config(case)
 
-    with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
-        config = yaml.load(f, Loader=yaml.Loader)
-
-    # alias
+    # aliases
     nx, ny = config.spatial.discretization
     dtype = config.params.dtype
-    xlim, ylim = config.spatial.domain[:2], config.spatial.domain[2:]
 
     # gridlines at vertices
-    x = numpy.linspace(*xlim, nx+1, dtype=dtype)
-    y = numpy.linspace(*ylim, ny+1, dtype=dtype)
+    x = numpy.linspace(*config.spatial.domain[:2], nx+1, dtype=dtype)
+    y = numpy.linspace(*config.spatial.domain[2:], ny+1, dtype=dtype)
 
     # create 1D version of B first
-    B = numpy.zeros_like(x)
+    topo = numpy.zeros_like(x)
     loc = (x >= 1.4) * (x <= 1.6)  # this is logical and
-    B[loc] = (numpy.cos(10.*numpy.pi*(x[loc]-1.5)) + 1.) / 4.
-    B = numpy.tile(B, (ny+1, 1))  # make it 2D
+    topo[loc] = (numpy.cos(10.*numpy.pi*(x[loc]-1.5)) + 1.) / 4.
+    topo = numpy.tile(topo, (ny+1, 1))  # make it 2D
 
-    # write topography
-    write(case.joinpath(config.topo.file), (x, y), {"elevation": B})
+    # write topography file
+    with h5py.File(case.joinpath(config.topo.file), "w") as root:
+        root.create_dataset(config.topo.xykeys[0], x.shape, x.dtype, x)
+        root.create_dataset(config.topo.xykeys[1], y.shape, y.dtype, y)
+        root.create_dataset(config.topo.key, topo.shape, topo.dtype, topo)
 
     # gridlines at cell centers
-    dx, dy = (xlim[1] - xlim[0]) / nx,  (ylim[1] - ylim[0]) / ny
-    x = numpy.linspace(xlim[0]+dx/2., xlim[1]-dx/2., nx, dtype=dtype)
-    y = numpy.linspace(ylim[0]+dy/2., ylim[1]-dy/2., ny, dtype=dtype)
+    x = (x[1:] + x[:-1]) / 2.
+    y = (y[1:] + y[:-1]) / 2.
 
     # initialize i.c., all zeros
     ic = numpy.zeros((3, ny, nx), dtype=dtype)
 
     # i.c.: w
-    Xc, _ = numpy.meshgrid(x, y)
+    x2d, _ = numpy.meshgrid(x, y)
     ic[0] = 1.0
-    ic[0][(Xc >= 1.1) * (Xc <= 1.2)] += 0.2
+    ic[0][(x2d >= 1.1) * (x2d <= 1.2)] += 0.2
 
-    # write I.C. file
-    write(case.joinpath(config.ic.file), (x, y), {"w": ic[0], "hu": ic[1], "hv": ic[2]})
+    # write initial condition file
+    with h5py.File(case.joinpath(config.ic.file), "w") as root:
+        root.create_dataset(config.ic.xykeys[0], x.shape, x.dtype, x)
+        root.create_dataset(config.ic.xykeys[1], y.shape, y.dtype, y)
+        for i in range(3):
+            root.create_dataset(config.ic.keys[i], ic[i].shape, ic[i].dtype, ic[i])
 
     return 0
 

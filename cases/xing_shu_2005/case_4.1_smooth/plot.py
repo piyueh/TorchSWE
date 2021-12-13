@@ -9,43 +9,48 @@
 """Plot.
 """
 import pathlib
-import yaml
 import numpy
+import h5py
 from matplotlib import pyplot
-from torchswe.utils.netcdf import read as ncread
+from torchswe.utils.misc import DummyDict
+from torchswe.utils.config import get_config
 
-
-# paths
+# read simulation data
 case = pathlib.Path(__file__).expanduser().resolve().parent
+case.joinpath("figs").mkdir(exist_ok=True)
+config = get_config(case)
 
 # unified style configuration
 pyplot.style.use(case.joinpath("paper.mplstyle"))
 
-# read case configuration
-with open(case.joinpath("config.yaml"), 'r', encoding="utf-8") as f:
-    config = yaml.load(f, Loader=yaml.Loader)
+# read in solutions
+data = DummyDict()
+with h5py.File(case.joinpath("solutions.h5"), "r") as root:
+    data.x = root["grid/x/c"][...]
+    data.w = root["10/states/w"][...]
+    data.h = root["10/states/h"][...]
+    data.hu = root["10/states/hu"][...]
+    data.hv = root["10/states/hv"][...]
 
 # read digital elevation model
-dem, _ = ncread(case.joinpath("topo.nc"), [config.topo.key])
+dem = DummyDict()
+with h5py.File(case.joinpath(config.topo.file), "r") as root:
+    dem.x = root[config.topo.xykeys[0]][...]
+    dem.y = root[config.topo.xykeys[0]][...]
+    dem.elevation = root[config.topo.key][...]
 
-# read in solutions
-data, _ = ncread(case.joinpath("solutions.nc"), ["w", "hu", "hv"])
-
-# check
-assert numpy.allclose(dem["elevation"][1:], numpy.tile(dem["elevation"][0][None, :], (200, 1)))
-assert numpy.allclose(data["w"][1:], numpy.tile(data["w"][0][None, :, :], (10, 1, 1)))
-assert numpy.allclose(data["hu"][1:], numpy.tile(data["hu"][0][None, :, :], (10, 1, 1)))
-assert numpy.allclose(data["hv"][1:], numpy.tile(data["hv"][0][None, :, :], (10, 1, 1)))
-assert numpy.allclose(data["w"][0][1:, :], numpy.tile(data["w"][0][0, :][None, :], (199, 1)))
-assert numpy.allclose(data["hu"][0][1:, :], numpy.tile(data["hu"][0][0, :][None, :], (199, 1)))
-assert numpy.allclose(data["hv"][0][1:, :], numpy.tile(data["hv"][0][0, :][None, :], (199, 1)))
+# make sure y direction does not have variance
+assert numpy.allclose(data.w, data.w[0].reshape(1, -1))
+assert numpy.allclose(data.h, data.h[0].reshape(1, -1))
+assert numpy.allclose(data.hu, data.hu[0].reshape(1, -1))
+assert numpy.allclose(data.hv, data.hv[0].reshape(1, -1))
 
 # plot
 pyplot.figure()
 pyplot.plot(dem["x"], dem["elevation"][0], label="Topography elevation (m)", ls="--", lw=3)
-pyplot.plot(data["x"], data["w"][-1][0], label="Flow elevation (m)", ls="-", lw=1.5)
+pyplot.plot(data["x"], data["w"][0], label="Flow elevation (m)", ls="-", lw=1.5)
 pyplot.title("Flow and topography elevation")
 pyplot.xlabel("x (m)")
 pyplot.ylabel("Elevation (m)")
 pyplot.legend(loc=(0.3, 0.6))
-pyplot.savefig(case.joinpath("flow-elevation.png"))
+pyplot.savefig(case.joinpath("figs", "flow-elevation.png"))

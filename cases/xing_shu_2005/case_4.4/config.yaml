@@ -28,13 +28,15 @@ boundary:
 
 # initial condition
 initial:
-  file: "initial.nc"
+  file: "initial.h5"
   keys: ["w", "hu", "hv"]
+  xykeys: ["x", "y"]
 
 # topography
 topography:
-  file: "topo.nc"       # relative to case folder or absolute path
+  file: "topo.h5"       # relative to case folder or absolute path
   key: elevation        # the corresponding variable name in the NetCDF file
+  xykeys: ["x", "y"]
 
 # other parameters
 parameters:
