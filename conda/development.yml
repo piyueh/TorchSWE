@@ -3,15 +3,16 @@ channels:
   - conda-forge
   - defaults
 dependencies:
-  - cudatoolkit=11.2
+  - cudatoolkit=11.5
   - cudnn
-  - cupy=9.5.0
+  - cupy>=10.0
   - cutensor
   - flake8
   - h5py=*=mpi_openmpi_*
   - ipyvtklink
   - jupyter
   - matplotlib
+  - mpi=*=openmpi
   - mpi4py
   - nccl
   - netcdf4=*=mpi_openmpi_*
@@ -20,7 +21,6 @@ dependencies:
   - pylint
   - pytest
   - python=3.9
-  - pytorch
   - pyvista
   - pyyaml
   - scipy

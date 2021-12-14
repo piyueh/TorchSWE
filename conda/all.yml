@@ -1,12 +1,21 @@
 channels:
+  - nvidia
   - conda-forge
   - defaults
 dependencies:
+  - cudatoolkit=11.5
+  - cudnn
+  - cupy>=10.0
+  - cutensor
   - h5py=*=mpi_openmpi_*
+  - matplotlib
   - mpi=*=openmpi
   - mpi4py
+  - nccl
+  - netcdf4=*=mpi_openmpi_*
   - numpy
   - pydantic
   - python=3.9
+  - pyvista
   - pyyaml
   - scipy
