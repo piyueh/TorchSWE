@@ -3,7 +3,7 @@
 
 spatial:
   domain: [-0.1988578658982294, 1.0, -0.3, 0.3]
-  discretization: [963, 483]
+  discretization: [2001, 2001]
 
 temporal:
   output: ["at", [0.0, 32.0, 59.0, 122.0, 271.0, 486.0, 727.0]]
@@ -24,11 +24,16 @@ boundary:
     values: [null, null, null]
 
 initial:
+  # The actual w (elevation) is not be zero. It should be the same as topography
+  # elevation. Setting it zero theoretically means it's negative depth. However,
+  # the solver will automatically convert initial negative depth to topography
+  # elevation, so it's fine to set zero for I.C. in practice.
   values: [0., 0., 0.]
 
 topography:
-  file: "topo.nc"
+  file: "topo.h5"
   key: elevation
+  xykeys: ["x", "y"]
 
 point source:
   location: [0.0009517784181422018, 0.0]
