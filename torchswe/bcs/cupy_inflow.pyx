@@ -155,7 +155,7 @@ cdef inline void _inflow_bc_factory(
         raise ValueError(f"orientation id {ornt} not accepted.")
 
 
-def inflow_bc_factory(ornt, comp, states, topo, tol, drytol, theta, val, *args, **kwargs):
+def inflow_bc_factory(ornt, comp, states, topo, val, *args, **kwargs):
     """Factory to create an inflow (constant non-conservative) boundary condition callable object.
     """
 
