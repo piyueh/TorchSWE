@@ -129,8 +129,9 @@ def friction(states: States, runtime: DummyDict, config: Config) -> States:
     h = states.p[(0,)+states.domain.nonhalo_c][loc]
     hu = states.q[(1,)+states.domain.nonhalo_c][loc]
     hv = states.q[(2,)+states.domain.nonhalo_c][loc]
+    roughness = runtime.friction.roughness[loc]
 
-    coef = runtime.friction.model(h, hu, hv, config.props.nu, runtime.friction.roughness)
+    coef = runtime.friction.model(h, hu, hv, config.props.nu, roughness)
 
     states.ss[1:, loc[0], loc[1]] += (
         - coef * _nplike.sqrt(_nplike.power(hu, 2)+_nplike.power(hv, 2)) /

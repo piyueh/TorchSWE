@@ -303,7 +303,7 @@ def find_cell_index(x, lower, upper, delta):
     """
     if x < lower or x >= upper:
         return None
-    return int((x-lower)//delta)
+    return int((x-lower)//delta)  # cupy backend may return scalar cupy.ndarray, so we use `int`
 
 
 def find_index_bound(x, y, extent):

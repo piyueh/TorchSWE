@@ -80,45 +80,50 @@ def bellos_et_al_2018(h, hu, hv, viscosity, roughness):
     assert isinstance(hu, _nplike.ndarray)
     assert isinstance(hv, _nplike.ndarray)
 
+    def laminar(_re, _alpha):
+        return _nplike.power(24./_re, _alpha)
+
+    def smooth_turbulence(_re, _alpha, _beta):
+        return _nplike.power(
+            0.7396119392950918 * _nplike.exp(2.*approx_lambert_w(1.3484253036698046*_re)) / _re**2,
+            (1. - _alpha) * _beta
+        )
+
+    def fully_rough_turbulence(_h, _r, _alpha, _beta):
+        return _nplike.power(
+            1.3447999999999998 / _nplike.log(12.213597446891887 * _h / _r)**2,
+            (1. - _alpha) * (1. - _beta)
+        )
+
     # velocity (actually, it is velocity x depth)
     velocity = _nplike.sqrt(hu**2+hv**2)
 
     # initialize coefficient array
     coeff = _nplike.zeros_like(h)
 
-    # get locations where Re != 0
-    loc = velocity.astype(bool)
-
     # reynolds number defined by depth
-    re_h = velocity[loc] / viscosity  # length scale (i.e., h) already included in `velocity`
+    re_h = velocity / viscosity  # length scale (i.e., h) already included in `velocity`
 
-    # probability
+    # exponents
     alpha = _nplike.reciprocal(_nplike.power(re_h/678., 8.4)+1.)
-    beta = _nplike.reciprocal(_nplike.power(re_h*roughness/(150.*h[loc]), 1.8) + 1.)
+    beta = _nplike.reciprocal(_nplike.power(re_h*roughness/(150.*h), 1.8) + 1.)
 
-    # coefficient of laminar regime
-    coeff[loc] += _nplike.power(24./re_h, alpha)
+    # get locations where Re != 0
+    loc1 = velocity.astype(bool)
 
-    # locations of where Re > 1 in re_h, alpha, and beta
-    loc = (re_h > 1.)
-    re_h = re_h[loc]
-    alpha = alpha[loc]
-    beta = beta[loc]
+    # laminar regime
+    coeff[loc1] += laminar(re_h[loc1], alpha[loc1])
 
-    # location of where Re > 1 in the coefficient array
-    loc = (velocity > viscosity)
+    # locations where Re > 1
+    loc2 = (re_h > 1.0)
 
-    # coefficient of smmoth turbulence regime
-    coeff[loc] *= _nplike.power(
-        0.7396119392950918 * _nplike.exp(2.*approx_lambert_w(1.3484253036698046*re_h)) / re_h**2,
-        (1. - alpha) * beta
-    )
+    # smooth turbulence regime
+    coeff[loc2] *= smooth_turbulence(re_h[loc2], alpha[loc2], beta[loc2])
+
+    # locations where Re > 0 and roughness != 0
+    loc2 = _nplike.logical_and(loc1, roughness.astype(bool))
 
     # coefficient of fully-rough turbulence regime
-    if roughness != 0.:  # to avoid division by zero (when roughness = 0, 1- beta is also 0)
-        coeff[loc] *= _nplike.power(
-            1.3447999999999998 / _nplike.log(12.213597446891887 * h[loc] / roughness)**2,
-            (1. - alpha) * (1. - beta)
-        )
+    coeff[loc2] *= fully_rough_turbulence(h[loc2], roughness[loc2], alpha[loc2], beta[loc2])
 
     return coeff

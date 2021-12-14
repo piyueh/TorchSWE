@@ -125,7 +125,7 @@ def get_pointsource(config: Config, irate: int = 0, domain: Domain = None, comm:
         domain = _get_domain(comm, config)
 
     # aliases
-    extent = domain.bounds  # south, north, west, east
+    extent = domain.lextent  # west, east, south, north
     dy, dx = domain.delta
 
     # location and times to change rates
@@ -140,8 +140,8 @@ def get_pointsource(config: Config, irate: int = 0, domain: Domain = None, comm:
     data.init_dt = config.ptsource.init_dt
 
     # the indices of the cell containing the point
-    data.i = _find_cell_index(config.ptsource.loc[0], *extent[2:], dx)
-    data.j = _find_cell_index(config.ptsource.loc[1], *extent[:2], dy)
+    data.i = _find_cell_index(config.ptsource.loc[0], *extent[:2], dx)
+    data.j = _find_cell_index(config.ptsource.loc[1], *extent[2:], dy)
 
     # this MPI process does not own the point
     if data.i is None or data.j is None:
@@ -192,7 +192,8 @@ def get_frictionmodel(config: Config, domain: Domain = None, comm: MPI.Comm = No
 
     # set roughness if a constant value is provided
     if fcfg.value is not None:
-        data.roughness = _nplike.full(data.domain.shape, fcfg.value)
+        data.roughness = _nplike.full(data.domain.shape, fcfg.value, dtype=domain.dtype)
+        return FrictionModel(**data)
 
     # otherwise, get roughness from a file
     data = _read_block(fcfg.file, fcfg.xykeys, fcfg.key, domain.lextent_c, domain)

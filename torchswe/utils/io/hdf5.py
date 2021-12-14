@@ -296,14 +296,16 @@ def create_soln_file(states: States, runtime: DummyDict, config: Config):
 
     # open a new HDF5 file and write in info that are unrelated to time marching
     with _File(runtime.outfile, "w", "mpio", comm=domain.comm) as root:
-        # attributes
         root.attrs["time created"] = _datetime.now(_timezone.utc).isoformat()
-        # gridlines
-        write_grid_to_group(domain, root)
-        # topo
+        write_grid_to_group(domain, root)  # gridlines
+
+    # topo; due to errors from underlying h5py/hdf5 lib, we are forced to close/re-open the file
+    with _File(runtime.outfile, "r+", "mpio", comm=domain.comm) as root:
         write_topo_to_group(runtime.topo, root)
-        # friction
-        if config.friction is not None:
+
+    # friction; again; require close and re-open due to hdf5/h5py issues
+    if config.friction is not None:
+        with _File(runtime.outfile, "r+", "mpio", comm=domain.comm) as root:
             write_frictionmodel_to_group(runtime.friction, root)
 
 
