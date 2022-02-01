@@ -8,6 +8,7 @@
 
 """Time-marching schemes.
 """
+# TODO: finish the semi-implicit step for RK2 and RK3
 from __future__ import annotations as _annotations  # allows us not using quotation marks for hints
 from typing import TYPE_CHECKING as _TYPE_CHECKING  # indicates if we have type checking right now
 if _TYPE_CHECKING:  # if we are having type checking, then we import corresponding classes/types
@@ -156,6 +157,10 @@ def ssprk2(states: States, runtime: DummyDict, config: Config):
     # adaptive time stepping
     adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
 
+    # stiff term handling
+    if states.ss is not None:
+        raise NotImplementedError("SSP-RK2 is not ready for flows with friction.")
+
     # non-ghost domain slice
     internal = (slice(None),) + states.domain.nonhalo_c
 
@@ -260,6 +265,10 @@ def ssprk3(states: States, runtime: DummyDict, config: Config):
 
     # adaptive time stepping
     adapter = _cfl_dt_adapter if config.temporal.adaptive else _cfl_dt_adapter_log_only
+
+    # stiff term handling
+    if states.ss is not None:
+        raise NotImplementedError("SSP-RK2 is not ready for flows with friction.")
 
     # non-ghost domain slice
     internal = (slice(None),) + states.domain.nonhalo_c
