@@ -99,7 +99,7 @@ initial:
 
   # see note; the file name/path to an HDF5 file for I.C.
   # ---------------------------------------------------------------------------
-  file: "initial.nc"
+  file: "initial.h5"
 
   # see note; the paths/keys to w, hu, and hv datasets in the HDF5 file.
   # ---------------------------------------------------------------------------
@@ -120,7 +120,7 @@ topography:
 
   # required; the file name/path to an HDF5 file for topography
   # ---------------------------------------------------------------------------
-  file: "topo.nc"
+  file: "topo.h5"
 
   # required; the path/key to the elevation dataset in the HDF5 file.
   # ---------------------------------------------------------------------------
@@ -207,7 +207,7 @@ fluid properties:
 
   # required: temperature at which the reference mu is defined; unit: Celsius
   # ---------------------------------------------------------------------------
-  rederence temperature: 15.
+  reference temperature: 15.
 
   # required: temperature at which the simulation runs; unit: Celsius
   # ---------------------------------------------------------------------------

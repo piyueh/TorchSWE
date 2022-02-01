@@ -116,7 +116,7 @@ def get_pointsource(config: Config, irate: int = 0, domain: Domain = None, comm:
     rates.
     """
 
-    # to hold data for initializing a Domain instance
+    # to hold data for initializing a PointSource instance
     data = _DummyDict()
 
     # if domain is not provided, get a new one
@@ -177,7 +177,7 @@ def get_frictionmodel(config: Config, domain: Domain = None, comm: MPI.Comm = No
     # alias
     fcfg = config.friction
 
-    # to hold data for initializing a Domain instance
+    # to hold data for initializing a FrictionModel instance
     data = _DummyDict()
 
     # if domain is not provided, get a new one

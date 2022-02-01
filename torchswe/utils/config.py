@@ -386,14 +386,13 @@ class FluidPropsConfig(BaseConfig):
     def val_nu(cls, val, values):
         """Validate nu."""
         if val is None:
-            # get dynamic viscosity at ambient temperature (unit: cP) (Lewis-Squires correlation)
-            val = values["ref_mu"]**(-0.2661) + (values["amb_temp"] - values["ref_temp"]) / 233.
-            val = val**(-1./0.2661) * 1e-3 # convert to kg / s / m
-
             try:
+                # get dynamic viscosity at ambient temperature (unit: cP) (Lewis-Squires formula)
+                val = values["ref_mu"]**(-0.2661) + (values["amb_temp"] - values["ref_temp"]) / 233.
+                val = val**(-1./0.2661) * 1e-3 # convert to kg / s / m
                 val /= values["rho"]  # kinematic viscosity (m^2 / s)
             except KeyError as err:
-                raise AssertionError("Correct `density` (or `rho`) first.") from err
+                raise AssertionError("Correct other errors first.") from err
         return val
 
 
@@ -441,6 +440,15 @@ class FrictionConfig(BaseConfig):
         return val
 
 
+class ProbesConfig(BaseConfig):
+    """An object holding configuration of probes.
+
+    Attributes
+    ----------
+    """
+    locs: _Tuple[_Tuple[_conint(ge=0), _Tuple[float, float]], ...] = None
+
+
 class Config(BaseConfig):
     """An object holding all configurations of a simulation case.
 
@@ -476,6 +484,7 @@ class Config(BaseConfig):
     topo: TopoConfig = _Field(..., alias="topography")
     ptsource: _Optional[PointSourceConfig] = _Field(None, alias="point source")
     friction: _Optional[FrictionConfig] = _Field(None, alias="friction")
+    probes: _Optional[ProbesConfig] = _Field(None, alias="probes")
     props: _Optional[FluidPropsConfig] = _Field(None, alias="fluid properties")
     params: ParamConfig = _Field(ParamConfig(), alias="parameters")
     prehook: _Optional[_pathlib.Path]

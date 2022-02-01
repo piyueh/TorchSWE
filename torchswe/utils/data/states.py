@@ -469,7 +469,7 @@ def get_empty_states(config: Config, domain: Domain = None, comm: MPI.Comm = Non
     A States with zero arrays.
     """
 
-    # to hold data for initializing a Domain instance
+    # to hold data for initializing a States instance
     data = _DummyDict()
 
     # if domain is not provided, get a new one
