@@ -39,15 +39,15 @@ class _DummyErrState:  # pylint: disable=too-few-public-methods
 
 
 # assume these two variables mean the code's running with Legate system
-if "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
-    from legate import numpy as nplike
-elif "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
+if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     import cupy as nplike  # pylint: disable=import-error
     import cupyx  # pylint: disable=import-error
     nplike.errstate = _DummyErrState
     nplike.set_printoptions = _dummy_function
     nplike.sync = nplike.cuda.get_current_stream().synchronize
     nplike.get = nplike.ndarray.get
+elif "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
+    import cunumeric as nplike
 elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     import torch as nplike  # pylint: disable=import-error
     nplike.errstate = _DummyErrState
