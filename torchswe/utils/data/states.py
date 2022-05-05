@@ -28,6 +28,7 @@ from mpi4py.util.dtlib import from_numpy_dtype as _from_numpy_dtype
 from pydantic import validator as _validator
 from pydantic import root_validator as _root_validator
 from torchswe import nplike as _nplike
+from torchswe import _dummy_function
 from torchswe.utils.config import BaseConfig as _BaseConfig
 from torchswe.utils.io import read_block as _read_block
 from torchswe.utils.misc import DummyDict as _DummyDict
@@ -312,6 +313,9 @@ class States(_BaseConfig):
         """Manually validate each item in the osc field.
         """
 
+        if _nplike.__name__ == "cunumeric":
+            return val
+
         for name in ["q"]:
             assert name in val, f"The solver expected \"{name}\" in the osc field."
 
@@ -364,6 +368,9 @@ class States(_BaseConfig):
         """Validate the exchanging mechanism of data.
         """
 
+        if _nplike.__name__ == "cunumeric":
+            return values
+
         # aliases
         domain = values["domain"]
         comm = domain.comm
@@ -411,6 +418,21 @@ class States(_BaseConfig):
 def _get_osc_conservative_mpi_datatype(comm: MPI.Cartcomm, arry: ndarray, ngh: int):
     """Get the halo ring MPI datatypes for conservative quantities for one-sided communications.
     """
+
+    if _nplike.__name__ == "cunumeric":
+        data = _DummyDict()
+        data.win = _DummyDict()
+        data.win.Put = _dummy_function
+        data.win.Fence = _dummy_function
+        data.ss = None
+        data.ns = None
+        data.ws = None
+        data.es = None
+        data.sr = None
+        data.nr = None
+        data.wr = None
+        data.er = None
+        return data
 
     # make sure GPU has done the calculations
     _nplike.sync()
@@ -557,7 +579,7 @@ def get_initial_states(config: Config, domain: Domain = None, comm: MPI.Comm = N
 
     # special case: constant I.C.
     if config.ic.values is not None:
-        states.q[(slice(None),)+domain.nonhalo_c] = _nplike.array(config.ic.values).reshape(3, 1, 1)
+        states.q[(slice(None),)+domain.nonhalo_c] = _nplike.array(config.ic.values).reshape((3, 1, 1))
         states.check()
         return states
 

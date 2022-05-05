@@ -225,7 +225,13 @@ class Domain(_BaseConfig):
         recvbuf = _nplike.full(16, -999, dtype=int)
         mpitype = _from_numpy_dtype(sendbuf.dtype)
         _nplike.sync()
-        values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
+
+        try:
+            values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
+        except TypeError as err:
+            if _nplike.__name__ == "cunumeric" and "__dlpack_device__" in str(err):
+                return values
+            raise
 
         # answers
         inds = {"s": (1, 2, 3), "n": (0, 2, 3), "w": (0, 1, 3), "e": (0, 1, 2), }
@@ -262,7 +268,13 @@ class Domain(_BaseConfig):
         recvbuf = _nplike.full(16, float("NaN"), dtype=dtype)
         mpitype = _from_numpy_dtype(dtype)
         _nplike.sync()
-        values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
+
+        try:
+            values["comm"].Neighbor_alltoall([sendbuf, mpitype], [recvbuf, mpitype])
+        except TypeError as err:
+            if _nplike.__name__ == "cunumeric" and "__dlpack_device__" in str(err):
+                return values
+            raise
 
         # answers
         inds = {"s": (1, 2, 3), "n": (0, 2, 3), "w": (0, 1, 3), "e": (0, 1, 2), }
