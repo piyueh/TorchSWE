@@ -48,6 +48,8 @@ if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     nplike.get = nplike.ndarray.get
 elif "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
     import cunumeric as nplike
+    nplike.sync = _dummy_function
+    nplike.get = lambda arg: arg
 elif "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
     import torch as nplike  # pylint: disable=import-error
     nplike.errstate = _DummyErrState

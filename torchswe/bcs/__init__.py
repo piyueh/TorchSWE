@@ -15,17 +15,17 @@ from torchswe.utils.config import BCConfig as _BCConfig
 from torchswe.utils.data import Topography as _Topography
 from torchswe.utils.data import States as _States
 
-if "LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ:
-    raise NotImplementedError("legate.numpy is deprecated.")
-
-if "USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1":
-    raise NotImplementedError("PyTorch is deprecated.")
-
 if "USE_CUPY" in _os.environ and _os.environ["USE_CUPY"] == "1":
     from ._cupy_outflow import outflow_bc_factory  # pylint: disable=no-name-in-module
     from ._cupy_linear_extrap import linear_extrap_bc_factory  # pylint: disable=no-name-in-module
     from ._cupy_const_val import const_val_bc_factory  # pylint: disable=no-name-in-module
     from ._cupy_inflow import inflow_bc_factory  # pylint: disable=no-name-in-module
+elif (
+    ("LEGATE_MAX_DIM" in _os.environ and "LEGATE_MAX_FIELDS" in _os.environ) or
+    ("USE_TORCH" in _os.environ and _os.environ["USE_TORCH"] == "1")
+):
+    from ._cunumeric_linear_extrap import linear_extrap_bc_factory  # pylint: disable=no-name-in-module
+    from ._cunumeric_const_val import const_val_bc_factory  # pylint: disable=no-name-in-module
 else:
     from ._cython_outflow import outflow_bc_factory  # pylint: disable=no-name-in-module
     from ._cython_linear_extrap import linear_extrap_bc_factory  # pylint: disable=no-name-in-module

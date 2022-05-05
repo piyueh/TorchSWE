@@ -10,7 +10,7 @@ def _minmod_slope_kernel(s1, s2, s3, theta):
     """For internal use."""
     denominator = s3 - s2;
 
-    with nplike.errstate(divide="ignore", invalid="ignore"):
+    with _nplike.errstate(divide="ignore", invalid="ignore"):
         slp = (s2 - s1) / denominator;
 
     slp[_nplike.nonzero(denominator == 0.0)] = 0.0
@@ -193,15 +193,15 @@ def _recnstrt_cell_centers(w, hu, hv, bin, drytol, tol):
     u = hu / h;
     v = hv / h;
 
-    ids = _nplike.nonzero(hout < tol)
+    ids = _nplike.nonzero(h < tol)
     h[ids] = 0.0;
     u[ids] = 0.0;
     v[ids] = 0.0;
-    w[ids] = bin;
+    w[ids] = bin[ids];
     hu[ids] = 0.0;
     hv[ids] = 0.0;
 
-    ids = _nplike.nonzero(hout < drytol)
+    ids = _nplike.nonzero(h < drytol)
     u[ids] = 0.0;
     v[ids] = 0.0;
     hu[ids] = 0.0;

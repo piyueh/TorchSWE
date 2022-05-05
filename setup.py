@@ -68,6 +68,16 @@ exts = [
         include_dirs=[numpy.get_include()], language="c",
         define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
     ),
+    Extension(
+        name="torchswe.bcs._cunumeric_linear_extrap", sources=["torchswe/bcs/cunumeric_linear_extrap.pyx"],
+        include_dirs=[numpy.get_include()], language="c",
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
+    ),
+    Extension(
+        name="torchswe.bcs._cunumeric_const_val", sources=["torchswe/bcs/cunumeric_const_val.pyx"],
+        include_dirs=[numpy.get_include()], language="c",
+        define_macros=[("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
+    ),
 ]
 
 setup(

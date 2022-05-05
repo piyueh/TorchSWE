@@ -1,26 +1,26 @@
 channels:
+  - barbagroup
   - nvidia
   - conda-forge
-  - defaults
 dependencies:
-  - cudatoolkit=11.5
+  - cudatoolkit>=11.5
   - cudnn
+  - cunumeric>=22.03
   - cupy>=10.0
   - cutensor
   - flake8
-  - h5py=*=mpi_openmpi_*
+  - h5py>=3.6=mpi_openmpi_*
   - ipyvtklink
   - jupyter
   - matplotlib
   - mpi=*=openmpi
-  - mpi4py
-  - nccl
-  - netcdf4=*=mpi_openmpi_*
-  - numpy
-  - pydantic
+  - mpi4py>=3.1.3
+  - numpy>=1.21.4
+  - openmpi=4.1.2
+  - pydantic>=1.8.2
   - pylint
   - pytest
   - python=3.9
   - pyvista
-  - pyyaml
-  - scipy
+  - pyyaml>=5.4.1
+  - scipy>=1.7.1
